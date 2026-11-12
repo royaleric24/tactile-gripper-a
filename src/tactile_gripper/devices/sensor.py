@@ -69,6 +69,7 @@ class SensorAdapter:
         self.last_error_message: ErrorMessage | None = None
         self.invalid_frames = 0
         self.messages_received = 0
+        self.last_anomalies: list = []
         self.state = "OFFLINE"
         self.started_ns = clock_ns()
 
@@ -127,6 +128,7 @@ class SensorAdapter:
         return None
 
     def _handle_line(self, line: bytes | str) -> TactileFrame | None:
+        self.last_anomalies = []
         message = parse_envelope(line, max_bytes=self.max_line_bytes)
         message_type = message["type"]
         if message_type == "HELLO":
@@ -149,6 +151,7 @@ class SensorAdapter:
                 host_received_ns=self.clock_ns(),
             )
             anomalies = self.tracker.accept(frame)
+            self.last_anomalies = list(anomalies)
             self.last_frame = frame
             self.last_error = None
             self.state = "STREAMING"

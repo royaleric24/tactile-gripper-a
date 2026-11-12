@@ -353,6 +353,8 @@ class TactileFrame:
             "source": self.source.value,
             "channels": list(self.channels),
             "valid_mask": list(self.valid_mask),
+            "channel_count": self.channel_count,
+            "valid_count": self.valid_channel_count,
             "channel_ids": list(self.channel_ids) if self.channel_ids is not None else None,
             "matrix_rows": self.matrix_rows,
             "matrix_cols": self.matrix_cols,

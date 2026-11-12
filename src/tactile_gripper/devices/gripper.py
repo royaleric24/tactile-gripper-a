@@ -199,7 +199,8 @@ class GripperAdapter:
                 return
             try:
                 self.controller.poll()
-                self.state = "SESSION_ACTIVE"
+                self.session_active = bool(getattr(self.controller, "active", False))
+                self.state = "SESSION_ACTIVE" if self.session_active else "CONNECTED"
                 self.last_error = None
             except Exception as exc:
                 self.state = "FAULT"
