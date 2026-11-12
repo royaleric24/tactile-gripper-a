@@ -1,0 +1,87 @@
+component,attribute,value,status,evidence,reason_or_next_evidence,checked_at
+host,operating_system,macOS 27.0.1 (26A434); arm64,CONFIRMED,evidence/stage0_host_enumeration.json,主机观察，不是机械爪身份,2026-11-11T12:37:18.902182+08:00
+python,version,3.9.6,CONFIRMED,evidence/stage0_host_enumeration.json,未修改系统 Python,2026-11-11T12:37:18.902182+08:00
+python,executable,/Library/Developer/CommandLineTools/usr/bin/python3,CONFIRMED,evidence/stage0_host_enumeration.json,Apple Command Line Tools Python,2026-11-11T12:37:18.902182+08:00
+python,virtual_environment_active,false,CONFIRMED,evidence/stage0_host_enumeration.json,本轮未创建虚拟环境,2026-11-11T12:37:18.902182+08:00
+python,pyserial_available,false,CONFIRMED,evidence/stage0_host_enumeration.json,仅限当前解释器；无需安装即可完成本轮枚举,2026-11-11T12:37:18.902182+08:00
+host,git_version,2.55.0,CONFIRMED,evidence/stage0_host_enumeration.json,项目未初始化 Git,2026-11-11T12:37:18.902182+08:00
+host,uv_version,0.12.10,CONFIRMED,evidence/stage0_host_enumeration.json,未用于安装,2026-11-11T12:37:18.902182+08:00
+serial_node,path,/dev/cu.Bluetooth-Incoming-Port,OBSERVED,evidence/stage05_host_enumeration.json,仅系统端口；未打开；无 ESP32 映射证据,2026-11-11T14:37:41.128106+08:00
+serial_node,path,/dev/cu.debug-console,OBSERVED,evidence/stage05_host_enumeration.json,仅系统端口；未打开；无 ESP32 映射证据,2026-11-11T14:37:41.128106+08:00
+usb_device,USB2.0 Hub,05e3:0608,OBSERVED,evidence/stage0_host_enumeration.json,描述符名称及 VID:PID；不证明机械爪身份,2026-11-11T12:37:18.902182+08:00
+usb_device,VGN Mouse 2.4G Receiver,3554:f503,OBSERVED,evidence/stage0_host_enumeration.json,描述符名称及 VID:PID；不证明机械爪身份,2026-11-11T12:37:18.902182+08:00
+usb_device,USB Type-C Digital AV Adapter,343c:0000,OBSERVED,evidence/stage0_host_enumeration.json,描述符名称及 VID:PID；不证明机械爪身份,2026-11-11T12:37:18.902182+08:00
+gripper,brand,UNKNOWN,UNKNOWN,NONE,需要铭牌,2026-11-11T12:37:18.902182+08:00
+gripper,model_revision,UNKNOWN,UNKNOWN,NONE,需要铭牌与适用型号官方资料,2026-11-11T12:37:18.902182+08:00
+gripper,physical_connection,未与 ESP32 接线,USER_REPORTED,evidence/stage05_user_reported_hardware.json,用户报告，尚无现场照片；本轮禁止驱动舵机,2026-11-11T14:37:41.128106+08:00
+gripper,control_mode,UNKNOWN,UNKNOWN,NONE,需要官方控制模式定义,2026-11-11T12:37:18.902182+08:00
+gripper,target_unit_zero_direction,UNKNOWN,UNKNOWN,NONE,需要角度/开度单位、零点及方向定义,2026-11-11T12:37:18.902182+08:00
+gripper,position_angle_feedback,不支持（用户转述）,USER_REPORTED,evidence/stage06_user_reported_hardware.json,原始手册未核验；不得直接用于运动配置,2026-11-11T14:59:31.514944+08:00
+gripper,safe_travel_limits,UNKNOWN,UNKNOWN,NONE,需要官方范围与现场约束,2026-11-11T12:37:18.902182+08:00
+gripper,safe_speed_limit,UNKNOWN,UNKNOWN,NONE,需要官方范围与现场约束,2026-11-11T12:37:18.902182+08:00
+gripper,stop_command,UNKNOWN,UNKNOWN,NONE,需要对应官方停止命令及行为定义,2026-11-11T12:37:18.902182+08:00
+gripper,emergency_stop,UNKNOWN,UNKNOWN,NONE,需要现场装置与作用范围确认,2026-11-11T12:37:18.902182+08:00
+gripper,limit_protection,UNKNOWN,UNKNOWN,NONE,需要硬限位/软限位与保护资料,2026-11-11T12:37:18.902182+08:00
+gripper,overload_protection,无智能防堵转（用户转述）,USER_REPORTED,evidence/stage06_user_reported_hardware.json,原始手册未核验；不得直接用于运动配置,2026-11-11T14:59:31.514944+08:00
+gripper,power_loss_behavior,UNKNOWN,UNKNOWN,NONE,需要确认失电后保持、释放或其他行为,2026-11-11T12:37:18.902182+08:00
+gripper,startup_disconnect_behavior,UNKNOWN,UNKNOWN,NONE,需要确认上电、失联、复位及程序退出行为,2026-11-11T12:37:18.902182+08:00
+controller,brand_model,NODEMCU ESP-32S V1.1; EN/BOOT; P23 P22 P21 P19 P18 P5 P17 P16 labels,USER_REPORTED,evidence/stage06_user_reported_hardware.json,原始手册未核验；不得直接用于运动配置,2026-11-11T14:59:31.514944+08:00
+controller,firmware_version,gripper-control-trial-0.9b2.0,CONFIRMED,evidence/stage09b3/status_final.json,试动能力已部署，未启用Trial或PWM,2026-11-11T10:57:39.681080+00:00
+controller,interface_protocol,JSONL v1; 115200 8N1; PING/GET_STATUS; no motion,CONFIRMED,evidence/stage08/upload_real.txt; logs/real/stage08/roundtrip.jsonl,已授权上传及真实双向串口测试通过，不代表舵机控制,2026-11-11T08:28:46.797640+00:00
+controller,communication_parameters,"115200 baud, 8 data bits, no parity, 1 stop bit",CONFIRMED,evidence/stage08/upload_real.txt; logs/real/stage08/roundtrip.jsonl,已授权上传及真实双向串口测试通过，不代表舵机控制,2026-11-11T08:28:46.797640+00:00
+controller,host_device_mapping,NodeMCU ESP-32S V1.1 USB bridge → /dev/cu.usbserial-EXAMPLE_ESP32,CONFIRMED,evidence/stage07/01_baseline.json; evidence/stage07/02_unplugged.json; evidence/stage07/03_replugged.json,用户确认隔离后受控插拔；仅确认 USB 归属，不是双向通信,2026-11-11T15:11:34.909781+08:00
+controller,official_document,UNKNOWN,UNKNOWN,NONE,精确型号未确认，尚不能匹配官方文档,2026-11-11T12:37:18.902182+08:00
+power,rated_voltage,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,用户提供 4–6 V 尚未由硬件资料核实,2026-11-11T14:37:41.128106+08:00
+power,required_current,UNKNOWN,UNKNOWN,NONE,需要官方规格与电源输出标签,2026-11-11T12:37:18.902182+08:00
+power,polarity_pinout,UNKNOWN,UNKNOWN,NONE,需要官方引脚与极性定义,2026-11-11T12:37:18.902182+08:00
+power,wiring_and_power_state,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,仅知爪未接 ESP32；外部供电/板 USB 连接情况仍待确认,2026-11-11T14:37:41.128106+08:00
+site,mounting_and_load_support,UNKNOWN,UNKNOWN,NONE,需要现场照片及人工确认,2026-11-11T12:37:18.902182+08:00
+site,pinch_zone_personnel_clearance,UNKNOWN,UNKNOWN,NONE,需要现场确认,2026-11-11T12:37:18.902182+08:00
+site,reachable_stop_method,UNKNOWN,UNKNOWN,NONE,需要现场与官方行为对应确认,2026-11-11T12:37:18.902182+08:00
+sensor_C,acquisition_hardware,UNKNOWN,UNKNOWN,NONE,需要 C 组设备信息,2026-11-11T12:37:18.902182+08:00
+sensor_C,channel_unit_calibration,UNKNOWN,UNKNOWN,NONE,字段已提供，物理量单位与标定未定,2026-11-11T12:37:18.902182+08:00
+sensor_C,transport_time_quality_semantics,UNKNOWN,UNKNOWN,NONE,见 docs/SENSOR_CONTRACT.md 待协商项,2026-11-11T12:37:18.902182+08:00
+gripper,construction,三线舵机驱动的金属机械爪,USER_REPORTED,evidence/stage05_user_reported_hardware.json,准确机械爪与舵机品牌/型号仍 UNKNOWN,2026-11-11T14:37:41.128106+08:00
+servo,brand_model,PM15S; PWM位置控制（用户纠正）,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,reported_voltage,5–8.4 V DC,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,reported_travel,270 deg nominal; NOT safe limits,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,wire_colors,看起来黑/红/白,USER_REPORTED,evidence/stage05_user_reported_hardware.json,不能依据颜色确定电源/地/信号,2026-11-11T14:37:41.128106+08:00
+servo,stall_current,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,需要对应型号堵转电流以核对供电能力,2026-11-11T14:37:41.128106+08:00
+servo,pulse_width_range,500–2500 us reference; NOT safe limits,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,pwm_frequency,50 Hz reference,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,signal_level,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,需要舵机信号电平与 ESP32 输出兼容性资料,2026-11-11T14:37:41.128106+08:00
+servo,pinout,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,需要官方引脚定义，颜色不足以确认,2026-11-11T14:37:41.128106+08:00
+controller,reported_markings,ESP-32; USB-C; EN; BOOT,USER_REPORTED,evidence/stage05_user_reported_hardware.json,非精确板型；不可据此猜 DevKit 型号,2026-11-11T14:37:41.128106+08:00
+controller,soc_variant,ESP32-D0WDQ6 revision v1.1,CONFIRMED,evidence/stage08/flash_identification.txt,esptool 4.10.0 实际检测；未上传固件,2026-11-11T14:37:41.128106+08:00
+controller,pinout,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,需要对应板型官方引脚图,2026-11-11T14:37:41.128106+08:00
+controller,usb_bridge_chip,CP210x family; descriptor CP2102; exact silicon UNKNOWN,OBSERVED,evidence/stage06_host_enumeration.json,IORegistry 父子关联；未进行受控插拔或双向通信,2026-11-11T14:59:31.514944+08:00
+host,reported_product,Apple Silicon MacBook Air,USER_REPORTED,evidence/stage05_user_reported_hardware.json,macOS/arm64 已主机核验；机型来自用户,2026-11-11T14:37:41.128106+08:00
+sensor_C,channel_count_implemented,UNKNOWN,UNKNOWN,evidence/stage05_user_reported_hardware.json,用户称可能 16 通道；协议约定 16，不代表硬件已实现,2026-11-11T14:37:41.128106+08:00
+servo,reported_torque,15KG label; precise torque units UNKNOWN,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,center_reference,1500 us reference; NOT startup command,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,Stage09B10型号纠正；原值保留inventory_before.csv，PM15S原始资料未独立核验，不改运动配置,2026-11-11T22:11:28.822708+08:00
+servo,torque_feedback,不支持（用户转述）,USER_REPORTED,evidence/stage06_user_reported_hardware.json,原始手册未核验；不得直接用于运动配置,2026-11-11T14:59:31.514944+08:00
+controller,usb_vid_pid,10C4:EA60,OBSERVED,evidence/stage06_host_enumeration.json,IORegistry 父子关联；未进行受控插拔或双向通信,2026-11-11T14:59:31.514944+08:00
+controller,usb_driver,AppleUSBSLCOM,OBSERVED,evidence/stage06_host_enumeration.json,IORegistry 父子关联；未进行受控插拔或双向通信,2026-11-11T14:59:31.514944+08:00
+serial_node,stage06_path,/dev/cu.usbserial-EXAMPLE_ESP32,OBSERVED,evidence/stage06_host_enumeration.json,IORegistry 父子关联；未进行受控插拔或双向通信,2026-11-11T14:59:31.514944+08:00
+power,independent_servo_supply,用户已有独立 5V 供电方案，尚未验证,USER_REPORTED,Stage 0.9A user message,电流容量/保护、极性、接线与兼容性仍待核验,2026-11-11T15:11:34.909781+08:00
+controller,flash_capacity,4MB detected,CONFIRMED,evidence/stage08/flash_identification.txt,实际检测,2026-11-11T15:11:34.909781+08:00
+power,supply_nominal_voltage,5.3 V,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,标称非实测；需确认舵机端负载电压、启动电流及限流行为,2026-11-11T22:11:28.822708+08:00
+power,supply_nominal_current,2 A,USER_REPORTED,evidence/stage09b10/user_reported_pm15s.json,标称非实测；需确认舵机端负载电压、启动电流及限流行为,2026-11-11T22:11:28.822708+08:00
+controller_s3,board_marking,YD-ESP32-23 2022-V1.3,USER_REPORTED,evidence/stage09b26/device_identify.txt,用户报告板面丝印；未拍照核验,2026-11-12T13:25:00+08:00
+controller_s3,soc_variant,ESP32-S3 (QFN56) revision v0.2,CONFIRMED,evidence/stage09b26/device_identify.txt,esptool 5.1.0 实际检测；非旧 ESP32-D0WDQ6,2026-11-12T13:25:00+08:00
+controller_s3,mac,02:00:00:00:00:03,CONFIRMED,evidence/stage09b26/device_identify.txt,esptool 5.1.0 实际读取,2026-11-12T13:25:00+08:00
+controller_s3,flash_size,16MB,CONFIRMED,evidence/stage09b26/flash_identify.txt,esptool 实际检测；quad 4 data lines,2026-11-12T13:25:00+08:00
+controller_s3,psram_size,8MB embedded,CONFIRMED,evidence/stage09b26/device_identify.txt; evidence/stage09b26/s3_status.json,esptool 特性 + 固件 getPsramSize()=8388608,2026-11-12T13:25:00+08:00
+controller_s3,usb_bridge,FT232R USB UART serial EXAMPLE_S3,CONFIRMED,evidence/stage09b26/device_identify.txt,ioreg + esptool；COM 口 USB-C,2026-11-12T13:25:00+08:00
+controller_s3,serial_port,/dev/cu.usbserial-EXAMPLE_S3,CONFIRMED,evidence/stage09b26/device_identify.txt,显式选择，主机不写死默认端口,2026-11-12T13:25:00+08:00
+controller_s3,pwm_gpio,4,OBSERVED,evidence/stage09b26/s3_status.json,固件 STATUS 回报；实际接线仍由用户执行,2026-11-12T13:25:00+08:00
+controller_s3,firmware_version,gripper-control-s3-0.9b26.0,CONFIRMED,evidence/stage09b26/s3_status.json; evidence/stage09b26/upload_s3.txt,设备 GET_STATUS；上传 verify 通过,2026-11-12T13:25:00+08:00
+controller_s3,role,PRIMARY_CONTROLLER,CONFIRMED,evidence/stage09b26/summary.json; config/board_s3.json,用户完成真实机械爪验收后指定；后续开发主控制器,2026-11-12T14:10:00+08:00
+controller_s3,real_mechanical_open_close,PASS (USER_REPORTED),USER_REPORTED,logs/real/bench/0e0571fd739d4f638541df1ccae5cc9b/transport.jsonl; evidence/stage09b26/real_acceptance.json,用户亲自观察实际开合，报告与旧 ESP32 基本一致；Agent 未观察机械位置,2026-11-12T14:10:00+08:00
+controller_s3,precise_position_error,UNKNOWN,UNKNOWN,evidence/stage09b26/real_acceptance.json,无独立角度/位移测量；PWM 目标不能当实际位置,2026-11-12T14:10:00+08:00
+controller_s3,long_term_stability,UNKNOWN,UNKNOWN,evidence/stage09b26/real_acceptance.json,未做长时间重复性、温漂、供电波动或寿命统计,2026-11-12T14:10:00+08:00
+controller_s3,real_test_log,logs/real/bench/0e0571fd739d4f638541df1ccae5cc9b/transport.jsonl,CONFIRMED,evidence/stage09b26/real_acceptance.json,REAL_SERIAL；0.9b26.0；0 ERROR/0 FAULT；最终 DISARMED,2026-11-12T14:10:00+08:00
+controller,role,FALLBACK_CONTROLLER,CONFIRMED,config/board_esp32.json; evidence/stage09b26/summary.json,旧 ESP32 作为回退，不覆盖、不重烧；S3 回归时才使用,2026-11-12T14:10:00+08:00
+controller,stable_firmware,gripper-control-bench-0.9b24.0,CONFIRMED,evidence/stage09b26/summary.json; config/board_esp32.json,旧稳定固件保留，GPIO23/16-bit/50Hz,2026-11-12T14:10:00+08:00
+controller,stable_bin_sha256,bd02b1d22165afda4bf6ab5e39907693e238d3c017145368b3a7e0aa9ffb98e1,CONFIRMED,evidence/stage09b26/summary.json,旧基线 BIN 未被修改,2026-11-12T14:10:00+08:00
+power,current_wiring,PM15S V+ external 5.3V supply; PM15S GND common with S3 GND; PWM to GPIO4,USER_REPORTED,logs/real/bench/0e0571fd739d4f638541df1ccae5cc9b/transport.jsonl; evidence/stage09b26/real_acceptance.json,用户完成 S3 真实测试时的接线；未测量舵机端动态电压/堵转电流,2026-11-12T14:15:00+08:00

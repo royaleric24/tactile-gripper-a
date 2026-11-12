@@ -1,0 +1,12 @@
+{
+ "record_type":"TEMPLATE","run_kind":"NOT_EXECUTED","test":"Test1_or_Test2",
+ "trial_id":null,"request_id":null,"timestamp_utc":null,
+ "firmware_version":null,"firmware_sha256":null,"config_sha256":null,
+ "linkage_detached":null,"power_label_and_disconnect_method":null,
+ "physical_condition_confirmation":null,"approved_low_us":null,"approved_high_us":null,
+ "command_pulse_us":null,"visible_motion":null,"observed_direction":null,
+ "measured_shaft_angle_deg":null,"measured_opening_mm":null,"measurement_method":null,
+ "interference_stall_noise_heat":null,"software_stop_response":null,
+ "behavior_after_pwm_off":null,"physical_power_disconnected":null,
+ "video_path_and_time":null,"operator_notes":null
+}

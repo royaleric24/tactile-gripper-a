@@ -1,0 +1,37 @@
+# macOS / editor metadata
+.DS_Store
+**/.DS_Store
+
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local toolchain and downloads (large, reproducible)
+.tools/
+
+# Firmware build outputs and binaries. Stable artifacts are backed up outside Git;
+# see docs/ASSET_MANIFEST.md for paths, versions and SHA-256.
+firmware/**/build/
+firmware/**/build_*/
+firmware/**/*.bin
+firmware/**/*.elf
+firmware/**/*.map
+
+# Experiment data, logs, videos and evidence. Kept on disk and in the independent
+# backup; not committed. See docs/ASSET_MANIFEST.md.
+data/
+logs/
+videos/
+evidence/
+
+# Local secrets / credentials (defensive; no such files were found at S0)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx

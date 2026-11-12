@@ -1,0 +1,69 @@
+{
+  "schema_status": "DESIGN_ONLY_NOT_EXECUTABLE",
+  "hardware_enabled": false,
+  "firmware": {
+    "framework": "Arduino-ESP32",
+    "exact_stable_version": null,
+    "board_id": null,
+    "soc": null
+  },
+  "serial": {
+    "port": null,
+    "baudrate": null,
+    "bytesize": null,
+    "parity": null,
+    "stopbits": null,
+    "read_timeout_s": null,
+    "write_timeout_s": null,
+    "dtr_policy": null,
+    "rts_policy": null
+  },
+  "servo": {
+    "gpio": null,
+    "supply_voltage_v": null,
+    "supply_current_capacity_a": null,
+    "stall_current_a": null,
+    "signal_level_v": null,
+    "pwm_frequency_hz": null,
+    "pwm_resolution_bits": null,
+    "pulse_min_us": null,
+    "pulse_max_us": null,
+    "safe_target_min": null,
+    "safe_target_max": null,
+    "target_unit": null,
+    "zero_reference": null,
+    "closing_direction": null,
+    "target_mapping": null,
+    "max_step": null,
+    "max_cumulative_closing": null,
+    "max_rate": null,
+    "max_action_duration_ms": null,
+    "release_target": null,
+    "stop_policy": null
+  },
+  "safety": {
+    "sensor_timeout_ms": null,
+    "ack_timeout_ms": null,
+    "esp32_communication_timeout_ms": null,
+    "command_lease_ms": null,
+    "heartbeat_interval_ms": null,
+    "max_frame_bytes": null,
+    "parse_budget_ms": null
+  },
+  "sensor": {
+    "transport": null,
+    "contact_threshold": null,
+    "release_threshold": null,
+    "hysteresis": null,
+    "confirmation_frames": null,
+    "quality_allowlist": null,
+    "valid_mask_policy": null
+  },
+  "evidence": {
+    "hardware_verified": false,
+    "wiring_verified": false,
+    "limits_verified": false,
+    "stop_verified": false,
+    "site_verified": false
+  }
+}

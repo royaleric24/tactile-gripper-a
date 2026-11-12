@@ -1,0 +1,43 @@
+{
+  "target": "s3",
+  "role": "PRIMARY_CONTROLLER",
+  "accepted_at": "2026-11-12T13:30:55+08:00",
+  "acceptance": {
+    "firmware_upload": "PASS",
+    "communication": "PASS",
+    "user_reported_mechanical_open_close": "PASS",
+    "precise_position_error": "UNKNOWN",
+    "long_term_stability": "UNKNOWN",
+    "real_log": "logs/real/bench/0e0571fd739d4f638541df1ccae5cc9b/transport.jsonl"
+  },
+  "board_marking": "YD-ESP32-23 2022-V1.3",
+  "module_marking": "S3-N16R8",
+  "fqbn": "esp32:esp32:esp32s3",
+  "fqbn_options": {
+    "FlashSize": "16M",
+    "FlashMode": "qio",
+    "PSRAM": "opi",
+    "PartitionScheme": "app3M_fat9M_16MB",
+    "UploadSpeed": "921600",
+    "USBMode": "hwcdc",
+    "CDCOnBoot": "default",
+    "UploadMode": "default",
+    "EraseFlash": "none"
+  },
+  "storage": {
+    "flash_bytes": 16777216,
+    "flash_source": "ESPTOOL_DETECTED_2026-11-12",
+    "psram_bytes": 8388608,
+    "psram_source": "ESPTOOL_CHIP_FEATURE_DETECTED_2026-11-12",
+    "psram_mode": "opi",
+    "psram_mode_source": "RUNTIME_PSRAM_SIZE_CONFIRMED_2026-11-12; OPI_MODE_CONFIGURED_NOT_SCOPE_MEASURED"
+  },
+  "upload": {
+    "port": "/dev/cu.usbserial-EXAMPLE_S3",
+    "usb_bridge": "FT232R",
+    "usb_serial": "EXAMPLE_S3",
+    "port_source": "IOREG_AND_ESPTOOL_DETECTED_2026-11-12",
+    "preferred_usb_c": "COM",
+    "fallback_baud": 460800
+  }
+}

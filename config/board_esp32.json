@@ -1,0 +1,12 @@
+{
+  "target": "esp32",
+  "role": "FALLBACK_CONTROLLER",
+  "board_marking": "NodeMCU ESP-32S V1.1",
+  "fqbn": "esp32:esp32:nodemcu-32s",
+  "fqbn_options": {},
+  "status": "STABLE_BASELINE_PRESERVED_FOR_ROLLBACK",
+  "stable_firmware": "gripper-control-bench-0.9b24.0",
+  "pwm_gpio": 23,
+  "bin_sha256": "bd02b1d22165afda4bf6ab5e39907693e238d3c017145368b3a7e0aa9ffb98e1",
+  "note": "Do not overwrite or reflash from S3 development work; use only as rollback after a confirmed S3 regression."
+}
