@@ -16,7 +16,8 @@ class InteractiveInputTests(unittest.TestCase):
   r=subprocess.run([sys.executable,'-u','-c',CHILD],input='',capture_output=True,text=True)
   self.assertEqual(r.returncode,2);self.assertIn('REJECT_NON_INTERACTIVE',r.stdout)
  def test_pty_waits_for_explicit_input(self):
-  master,slave=pty.openpty()
+  try:master,slave=pty.openpty()
+  except OSError as exc:self.skipTest(f"PTY unavailable in this sandbox: {exc}")
   p=subprocess.Popen([sys.executable,'-u','-c',CHILD],stdin=slave,stdout=slave,stderr=slave)
   os.close(slave)
   try:
