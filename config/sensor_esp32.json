@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "device_id": "tactile-esp32-01",
-  "firmware_version": "tactile-sense-0.1.0",
+  "firmware_version": "tactile-sense-0.1.1",
   "serial_baud": 921600,
   "pins": {
     "sclk": 18,

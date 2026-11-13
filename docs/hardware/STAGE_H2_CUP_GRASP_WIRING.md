@@ -10,7 +10,7 @@
 - No wiring change, firmware upload, PWM output or mechanical motion was done by
   this task.
 
-## Minimal single-point topology (no new firmware)
+## Minimal single-point topology (existing board; 0.1.1 reflash required)
 
 Use one row and one column of the existing cloth; keep the validated 12-channel
 firmware.
@@ -33,7 +33,7 @@ C1 (column) ──────┼── ADC1 AIN0 (module pin)
 |---|---|
 | R1 row | 3.3 V through 1 kΩ (or GPIO4 if a single-point firmware is later used) |
 | C1 column | ADS1220 ADC1 **AIN0** |
-| R_ref | C1 to GND/AVSS, **100 kΩ 1% provisional** |
+| R_ref | C1 to GND/AVSS, **10 kΩ 1%** (selected from measured 2–36 kΩ) |
 | Other 5 rows | disconnected from any drive; leave high-Z |
 | Other 5 columns | disconnected from ADC inputs or left high-Z; do not add references |
 | Grounds | ESP32 GND, ADS1220 AVSS/DGND, 3.3 V supply ground common |
@@ -47,15 +47,25 @@ mapping; trace it first.**
 
 With 3.3 V row excitation:
 
-`V_col = 3.3 V × R_ref / (R_cell + R_ref)`
+`V_col = 3.3 V × R_ref / (R_cell + R_ref + R_row)` (R_row = 1 kΩ)
 
-Use AVDD–AVSS reference (not internal 2.048 V) so 0–3.3 V can be read:
+With measured R1–C1 = 36 kΩ (no contact), 12 kΩ (light), 2 kΩ (heavier) and
+R_ref = 10 kΩ, the predicted AIN0 voltages are:
+
+| R_cell | V_AIN0 predicted | expected raw at AVDD=3.3 V |
+|---|---:|---:|
+| 36 kΩ | 0.702 V | ~1.78 M counts |
+| 12 kΩ | 1.435 V | ~3.65 M counts |
+| 2 kΩ | 2.538 V | ~6.45 M counts |
+
+Use AVDD–AVSS reference (not internal 2.048 V) so 0–3.3 V can be read; at 2 kΩ
+the 2.538 V would saturate the internal 2.048 V reference.
 
 | measured R_cell | suggested R_ref | note |
 |---|---|---|
 | 1–10 kΩ | 1–10 kΩ | row current higher; keep 1 k series |
-| 10–100 kΩ | 10–100 kΩ | 47 k or 100 k starting point |
-| 100 kΩ–1 MΩ | 100 kΩ–1 MΩ | 100 k provisional |
+| 10–100 kΩ | 10–100 kΩ | **10 k selected for 2–36 kΩ measured range** |
+| 100 kΩ–1 MΩ | 100 kΩ–1 MΩ | 100 k only if the measured range is higher |
 | >1 MΩ | 1–10 MΩ | noise/leakage; longer settling |
 
 Do not use the internal 2.048 V reference and assume 0–3.3 V is measurable. With
@@ -71,19 +81,23 @@ internal 2.048 V, any column voltage above 2.048 V saturates; choose R_ref so
 - Gain 1; no PGA
 - input must stay within AVSS−0.1 V … AVDD+0.1 V
 
-The current validated 12-channel firmware can be used for the **minimal no-flash
-test** if its reference is switched to AVDD–AVSS. Add a host command (not yet
-run) to send `SET_REF AVDD_AVSS`; the selected channel is `ch0` = ADC1_AIN0.
-A dedicated single-channel firmware is cleaner and is recommended only after the
-wiring is confirmed; it would require a separate flash authorization.
+The currently flashed `tactile-sense-0.1.0` **cannot** perform the AVDD–AVSS
+single-point test correctly: its `SET_REF` maps AVDD to VREF code 1, writing
+Reg2=`0x40` (external REFP0/REFN0), not `0x80`. A corrected `tactile-sense-0.1.1`
+build maps AVDD to code 2 (`0x80`) and adds `VERIFY_CONFIG` register readback.
+The single-point test therefore requires a **new flash** after user authorization;
+it cannot run on the current 0.1.0 firmware with a valid AVDD reference.
+
+The selected host channel is `ch0` = ADC1_AIN0. 0xC0 is not AVDD: VREF[1:0]=11
+selects external REFP1/REFN1; do not use it.
 
 ### Single-point validation procedure
 
 1. Power off; wire as above; check R1–C1 resistance with the cloth unpresssed and
    lightly pressed; confirm no short to 3.3 V/GND.
 2. Power only the old ESP32 via Mac USB; do not connect the S3/gripper.
-3. Start the existing 12-channel acquisition; set reference AVDD_AVSS; confirm
-   channel 0 is valid and not saturated at rest.
+3. Flash/confirm `tactile-sense-0.1.1` (user-authorized), set reference AVDD_AVSS,
+   and verify raw registers `[0x81,0x80,0x80,0x00]` before trusting channel 0.
 4. Run at least 5 contact/release cycles at R1C1, 2 s contact / 2 s release.
 5. Compute per-cycle baseline, delta, noise, SNR, saturation, response latency
    and recovery. PASS requires repeatable response above noise, no saturation,
@@ -103,8 +117,9 @@ wiring is confirmed; it would require a separate flash authorization.
 ## Real hardware still required
 
 1. User traces R1/C1 and performs the single-point wiring.
-2. User provides measured R_cell range / selects R_ref.
-3. User authorizes and performs the single-point contact/release test.
+2. User measures AIN0 at rest/light/heavy and checks against 0.702/1.435/2.538 V.
+3. User authorizes the 0.1.1 flash and performs the 5-cycle test; verify registers
+   `[0x81,0x80,0x80,0x00]` and AVDD/DVDD = 3.3 V.
 4. User provides a verified S3 open/close range and authorizes motion; current
    config cannot move.
 5. Only then can real fixed/feedback cup trials be executed.

@@ -11,18 +11,19 @@
 | Tactile feedback FSM | Implemented in core; simulated tested; real motion BLOCKED |
 | S3 real motion | **BLOCKED** (`hardware_enabled=false`, `UNCALIBRATED`, safe range null) |
 | Real tactile signal | **INVALID_OR_FLOATING** until single-point wiring/test passes |
+| Current flashed firmware | `tactile-sense-0.1.0`; **must reflash 0.1.1** for correct AVDD reference |
 | Real cup trials | **NOT_TESTED** |
 
 ## 1. Single-point wiring (user action)
 
 Follow `docs/hardware/STAGE_H2_CUP_GRASP_WIRING.md`:
 
-- R1 -> 3.3 V through 1 kΩ (minimal no-flash path)
+- R1 -> 3.3 V through 1 kΩ
 - C1 -> ADC1 AIN0
-- 100 kΩ provisional from C1 to GND/AVSS
+- **10 kΩ 1%** from C1 to GND/AVSS (measured 2–36 kΩ)
 - other electrodes disconnected/high-Z
-- common ground; use existing `tactile-sense-0.1.0`
-- set reference to AVDD_AVSS (the validator sends the command)
+- common ground; use `tactile-sense-0.1.1` (0.1.0 cannot select AVDD correctly)
+- set reference to AVDD_AVSS and verify Reg2=`0x80` (validator sends `SET_REF` + `VERIFY_CONFIG`; requires 0.1.1)
 
 Do not connect the S3/gripper for this step.
 

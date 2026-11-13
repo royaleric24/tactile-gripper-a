@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 static const char SENSOR_DEVICE_ID[] = "tactile-esp32-01";
-static const char SENSOR_FIRMWARE_VERSION[] = "tactile-sense-0.1.0";
+static const char SENSOR_FIRMWARE_VERSION[] = "tactile-sense-0.1.1";
 static const uint32_t SENSOR_SERIAL_BAUD = 921600UL;
 static const uint8_t SENSOR_ADC_COUNT = 3;
 static const uint8_t SENSOR_CHANNEL_COUNT = 12;

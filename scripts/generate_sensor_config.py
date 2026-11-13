@@ -24,7 +24,7 @@ INPUT_ONLY_PINS = set(range(34, 40))
 STRAPPING_PINS = {0, 2, 5, 12, 15}
 
 DR_CODES = {20: 0, 45: 1, 90: 2, 175: 3, 330: 4, 600: 5, 1000: 6}
-REFERENCE_CODES = {"INTERNAL_2V048": 0, "AVDD_AVSS": 1}
+REFERENCE_CODES = {"INTERNAL_2V048": 0, "AVDD_AVSS": 2}
 
 
 def load_json(path: Path) -> dict:

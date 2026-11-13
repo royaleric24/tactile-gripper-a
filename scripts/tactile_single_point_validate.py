@@ -20,10 +20,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.cup_grasp.model import load_config  # noqa: E402
-from tools.cup_grasp.single_point import summarize_single_point  # noqa: E402
+from tools.cup_grasp.single_point import summarize_single_point, validate_config_report  # noqa: E402
 from tools.cup_grasp.tactile import TactileProcessor  # noqa: E402
 from tools.tactile_acq.protocol import SampleFrame, parse_message  # noqa: E402
 from tools.tactile_acq.transport import SerialSession  # noqa: E402
+from scripts.verify_single_point_config import wait_config_report  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -36,6 +37,10 @@ def main(argv=None) -> int:
     parser.add_argument("--contact", type=float, default=2.0)
     parser.add_argument("--release", type=float, default=2.0)
     parser.add_argument("--config", default=str(ROOT / "config/cup_grasp.template.json"))
+    parser.add_argument("--avdd-mv", type=float, default=3300.0)
+    parser.add_argument("--r-ref-ohm", type=float, default=10000.0)
+    parser.add_argument("--r-row-ohm", type=float, default=1000.0)
+    parser.add_argument("--v-exc", type=float, default=3.3)
     args = parser.parse_args(argv)
     config = load_config(Path(args.config))
     if not 0 <= args.channel <= 11:
@@ -53,9 +58,18 @@ def main(argv=None) -> int:
         time.sleep(0.2)
     try:
         session.send_command("SET_REF", value="AVDD_AVSS")
-        time.sleep(0.2)
+        time.sleep(0.3)
     except Exception:
         pass
+    report = wait_config_report(session)
+    validation = validate_config_report(report or {})
+    print(json.dumps(validation, indent=2))
+    if not validation["passed"]:
+        print("CONFIG VERIFICATION FAILED; refusing single-point interpretation", file=sys.stderr)
+        session.close()
+        return 2
+    print("Expected AIN0 voltage with R_ref=10k, R_row=1k: 36k -> {:.3f} V, 12k -> {:.3f} V, 2k -> {:.3f} V".format(
+        3.3 * 10000 / (36000 + 11000), 3.3 * 10000 / (12000 + 11000), 3.3 * 10000 / (2000 + 11000)))
     records = []
     lock = threading.Lock()
     stop = threading.Event()
@@ -126,7 +140,9 @@ def main(argv=None) -> int:
     with open(out / "samples.jsonl", "w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record) + "\n")
-    summary = summarize_single_point(records, cycles)
+    summary = summarize_single_point(records, cycles, avdd_mv=args.avdd_mv,
+                                     r_ref_ohm=args.r_ref_ohm, r_row_ohm=args.r_row_ohm,
+                                     v_exc=args.v_exc)
     metrics = {
         "trial_id": trial_id,
         "data_kind": "REAL_HARDWARE_SERIAL",
@@ -138,6 +154,8 @@ def main(argv=None) -> int:
         "frames": len(records),
         "reader_error": error["value"],
         "reference_mode_requested": "AVDD_AVSS",
+        "config_report": report,
+        "config_validation": validation,
         "summary": summary,
         "note": "ADC counts only; not pressure/force. Electrical validity must be reviewed.",
     }

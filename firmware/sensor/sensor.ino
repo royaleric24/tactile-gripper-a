@@ -171,6 +171,8 @@ const char* stateName(uint8_t state) {
 }
 
 const char* referenceName(uint8_t mode) {
+  // ADS1220 VREF[1:0]: 00 internal, 01 REFP0/REFN0, 10 AVDD/AVSS, 11 REFP1/REFN1.
+  // Only 0 and 2 are allowed by this firmware.
   return mode == 0 ? "INTERNAL_2V048" : "AVDD_AVSS";
 }
 
@@ -564,6 +566,63 @@ void sendMisoMap(const char* request_id, uint16_t slow_half_us, const MisoMapRes
     writer.ch('}');
   }
   writer.lit("]}");
+  if (request_id != nullptr) {
+    writer.lit(",\"request_id\":");
+    writer.str(request_id);
+  }
+  writer.ch('}');
+  sendWriter(writer);
+}
+
+void sendConfigReport(const char* request_id) {
+  JsonLineWriter writer(out_buffer, sizeof(out_buffer));
+  writer.lit("{\"protocol_version\":1,\"type\":\"STATUS\",\"device_id\":");
+  writer.str(SENSOR_DEVICE_ID);
+  writer.lit(",\"boot_id\":");
+  writer.str(boot_id);
+  writer.lit(",\"firmware_version\":");
+  writer.str(SENSOR_FIRMWARE_VERSION);
+  writer.lit(",\"config_report\":{\"devices\":[");
+  for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+    if (i > 0) writer.ch(',');
+    uint8_t regs[4] = {0, 0, 0, 0};
+    const bool read_ok = devices[i].readRegisters(0, regs, 4);
+    const uint8_t vref = static_cast<uint8_t>((regs[2] >> 6) & 0x03);
+    writer.lit("{\"id\":");
+    writer.u32(i + 1);
+    writer.lit(",\"read_ok\":");
+    writer.boolean(read_ok);
+    writer.lit(",\"registers\":");
+    appendByteArray(writer, regs, 4);
+    writer.lit(",\"mux\":");
+    writer.u32((regs[0] >> 4) & 0x0F);
+    writer.lit(",\"gain_code\":");
+    writer.u32((regs[0] >> 1) & 0x07);
+    writer.lit(",\"pga_bypass\":");
+    writer.boolean((regs[0] & 0x01) != 0);
+    writer.lit(",\"vref_code\":");
+    writer.u32(vref);
+    writer.lit(",\"vref\":");
+    if (vref == 0) {
+      writer.str("INTERNAL_2V048");
+    } else if (vref == 2) {
+      writer.str("AVDD_AVSS");
+    } else if (vref == 1) {
+      writer.str("EXTERNAL_REFP0_REFN0");
+    } else {
+      writer.str("EXTERNAL_REFP1_REFN1");
+    }
+    writer.lit(",\"psw\":");
+    writer.u32((regs[2] >> 3) & 0x01);
+    writer.lit(",\"idac_code\":");
+    writer.u32(regs[2] & 0x07);
+    writer.lit(",\"data_rate_code\":");
+    writer.u32((regs[1] >> 5) & 0x07);
+    writer.lit(",\"config1_raw\":");
+    writer.u32(regs[1]);
+    writer.ch('}');
+  }
+  writer.lit("]}}");
   if (request_id != nullptr) {
     writer.lit(",\"request_id\":");
     writer.str(request_id);
@@ -1192,12 +1251,16 @@ void handleCommand(const PendingCommand& command) {
     runMisoMap(request_id);
     return;
   }
+  if (strcmp(command.cmd, "VERIFY_CONFIG") == 0) {
+    sendConfigReport(request_id);
+    return;
+  }
   if (strcmp(command.cmd, "SET_REF") == 0) {
     uint8_t new_mode = reference_mode;
     if (strcmp(command.value, "INTERNAL_2V048") == 0) {
-      new_mode = 0;
+      new_mode = 0;  // VREF[1:0] = 00
     } else if (strcmp(command.value, "AVDD_AVSS") == 0) {
-      new_mode = 1;
+      new_mode = 2;  // VREF[1:0] = 10 -> Reg2 bits 7:6 = 0x80
     } else {
       sendError("INVALID_VALUE", "SET_REF value must be INTERNAL_2V048 or AVDD_AVSS", request_id);
       return;
@@ -1252,7 +1315,7 @@ void handleCommand(const PendingCommand& command) {
     sendStatus(request_id, nullptr, false);
     return;
   }
-  sendError("UNKNOWN_COMMAND", "supported: PING, STATUS, DIAG, DIAG_SPI, GPIO_DIAG, MISO_MAP, SET_REF, STREAM, RESET_ADC", request_id);
+  sendError("UNKNOWN_COMMAND", "supported: PING, STATUS, DIAG, DIAG_SPI, GPIO_DIAG, MISO_MAP, VERIFY_CONFIG, SET_REF, STREAM, RESET_ADC", request_id);
 }
 
 void processCommands() {
