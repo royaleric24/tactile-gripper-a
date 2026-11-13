@@ -134,7 +134,7 @@ def analysis_page(core) -> None:
                     {"name": "status", "label": "状态", "field": "status", "align": "left"},
                     {"name": "frames", "label": "帧数", "field": "frames", "align": "right"},
                     {"name": "control", "label": "控制事件", "field": "control", "align": "right"},
-                    {"name": "ack", "label": "ACK", "field": "ack", "align": "right"},
+                    {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "right"},
                     {"name": "dropped", "label": "丢帧", "field": "dropped", "align": "right"},
                     {"name": "invalid", "label": "无效通道样本", "field": "invalid", "align": "right"},
                     {"name": "video", "label": "视频", "field": "video", "align": "left"},
