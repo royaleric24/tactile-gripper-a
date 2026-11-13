@@ -127,22 +127,29 @@ bool Ads1220::startConversion() {
   return true;
 }
 
-bool Ads1220::readData(int32_t* value) {
-  if (value == nullptr) {
+bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value) {
+  if (raw == nullptr || value == nullptr) {
     return false;
   }
   select();
   transferByte(CMD_RDATA);
-  uint32_t raw = 0;
-  raw |= static_cast<uint32_t>(transferByte(0x00)) << 16;
-  raw |= static_cast<uint32_t>(transferByte(0x00)) << 8;
-  raw |= static_cast<uint32_t>(transferByte(0x00));
+  raw[0] = transferByte(0x00);
+  raw[1] = transferByte(0x00);
+  raw[2] = transferByte(0x00);
   deselect();
-  if (raw & 0x00800000UL) {
-    raw |= 0xFF000000UL;  // sign-extend the 24-bit two's complement value
+  uint32_t bits = (static_cast<uint32_t>(raw[0]) << 16) |
+                  (static_cast<uint32_t>(raw[1]) << 8) |
+                  static_cast<uint32_t>(raw[2]);
+  if (bits & 0x00800000UL) {
+    bits |= 0xFF000000UL;  // sign-extend the 24-bit two's complement value
   }
-  *value = static_cast<int32_t>(raw);
+  *value = static_cast<int32_t>(bits);
   return true;
+}
+
+bool Ads1220::readData(int32_t* value) {
+  uint8_t raw[3] = {0, 0, 0};
+  return readDataRaw(raw, value);
 }
 
 bool Ads1220::writeVerify(const uint8_t values[4], uint8_t readback[4]) {

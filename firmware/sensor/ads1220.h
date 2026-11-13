@@ -28,6 +28,8 @@ class Ads1220 {
   bool readRegisters(uint8_t start, uint8_t* values, uint8_t count);
   bool startConversion();
   bool readData(int32_t* value);
+  // Diagnostic-only raw RDATA capture: returns the three actual SPI bytes.
+  bool readDataRaw(uint8_t raw[3], int32_t* value);
 
   // Writes four configuration registers, reads them back and compares.  Returns
   // false on a mismatch (including a fixed 0x00/0xFF bus response).

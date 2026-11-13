@@ -22,6 +22,7 @@ STEPS = [
     ("cup_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/cup_grasp/tests", "-t", "."]),
     ("firmware_build", [PY, "scripts/build_sensor_firmware.py"]),
     ("matrix_firmware_build", [PY, "scripts/build_sensor_matrix_firmware.py"]),
+    ("sensor_diag_build", [PY, "scripts/build_sensor_diag_firmware.py"]),
     ("host_ads1220_driver", [PY, "scripts/run_host_tests.py"]),
     ("frame_builder", [PY, "scripts/check_frame_builder.py"]),
 ]
