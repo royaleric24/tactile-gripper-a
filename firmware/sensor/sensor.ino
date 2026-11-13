@@ -45,6 +45,7 @@ struct AdcRuntime {
   uint16_t recovered;
   const char* last_error;
   uint32_t last_reinit_ms;
+  uint32_t last_success_ms;
   uint16_t config_check_counter;
 };
 
@@ -537,6 +538,7 @@ bool initDevice(uint8_t index, bool recovery) {
   rt.last_reinit_ms = millis();
   if (ok) {
     rt.state = ADC_STATE_OK;
+    rt.last_success_ms = millis();
     rt.consecutive_errors = 0;
     rt.last_error = nullptr;
     if (recovery && old_state != ADC_STATE_OK) {
@@ -556,6 +558,11 @@ void maintainDevices() {
   for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
     AdcRuntime& rt = runtime_state[i];
     if (rt.state == ADC_STATE_OK) {
+      if (millis() - rt.last_success_ms > 2000UL) {
+        rt.state = ADC_STATE_CONFIG_ERROR;
+        markDeviceError(i, "DATA_TIMEOUT");
+        continue;
+      }
       ++rt.config_check_counter;
       if (rt.config_check_counter >= 256) {
         rt.config_check_counter = 0;
@@ -613,6 +620,7 @@ void scanFrame() {
       int32_t value = 0;
       if (devices[i].readData(&value)) {
         recordChannel(channel, value, micros());
+        runtime_state[i].last_success_ms = millis();
       } else {
         invalidateChannel(channel);
         markDeviceError(i, "RDATA_FAILED");
@@ -971,6 +979,7 @@ void setup() {
     runtime_state[i].recovered = 0;
     runtime_state[i].last_error = nullptr;
     runtime_state[i].last_reinit_ms = 0;
+    runtime_state[i].last_success_ms = millis();
     runtime_state[i].config_check_counter = 0;
     devices[i].begin();
     invalidateChannel(static_cast<uint8_t>(i * 4 + 0));

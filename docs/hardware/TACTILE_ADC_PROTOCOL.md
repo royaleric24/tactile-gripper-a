@@ -136,6 +136,7 @@
 | `PROBE_OR_CONFIG_READBACK_FAILED` | 复位/两组配置写读回/正常配置写读回失败 |
 | `CONFIG_READ_FAILED` | 周期配置校验读取失败 |
 | `CONFIG_LOST` | 周期配置校验发现寄存器被改写 |
+| `DATA_TIMEOUT` | 设备超过 2 s 没有成功读取数据，触发重新初始化 |
 | `RDATA_FAILED` | RDATA 读取失败 |
 | `SET_REF_FAILED` | 切换参考失败 |
 | `DIAG_RESTORE_FAILED` | DIAG 后恢复配置失败 |

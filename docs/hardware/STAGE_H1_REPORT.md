@@ -5,7 +5,7 @@
 | 项目 | 结果 | 证据/说明 |
 |---|---|---|
 | 固件代码完成（3×ADS1220、12 通道、协议、故障隔离） | **PASSED（编译）** | `evidence/sensor/build_sensor.json` |
-| 固件编译（旧 ESP32 / `esp32:esp32:nodemcu-32s`） | **PASSED** | 301,408 B application，SHA-256 `54b1a8f9…` |
+| 固件编译（旧 ESP32 / `esp32:esp32:nodemcu-32s`） | **PASSED** | 301,504 B application，SHA-256 `ee558ccb…` |
 | Python 协议/统计/记录/传输/CLI 自动测试 | **PASSED** | 36 tests，35 pass，1 skipped（sandbox 无 pty） |
 | 主机 ADS1220 位操作仿真测试 | **PASSED（非实机）** | `evidence/sensor/host_test/test_ads1220.log` |
 | 固件 SAMPLE JSON 精确构建测试 | **PASSED（非实机）** | `evidence/sensor/host_test/frame_builder.json` |
@@ -41,11 +41,11 @@
 - 位置：`firmware/sensor/`
 - 版本：`tactile-sense-0.1.0`
 - 目标：旧 ESP32 only，FQBN `esp32:esp32:nodemcu-32s`，Arduino-ESP32 3.3.2
-- 应用大小：301,408 B（22% of 1,310,720 B）
+- 应用大小：301,504 B（22% of 1,310,720 B）
 - 静态 RAM：24,440 B（7%），剩余 303,240 B
 - 构建元数据：`evidence/sensor/build_sensor.json`
 - 构建日志：`evidence/sensor/build_sensor.txt`
-- BIN SHA-256：`54b1a8f9aae4eb1d20a05e11e5b1a251ca4dfe6e7c9ab816c6e7edfe0571313b`
+- BIN SHA-256：`ee558ccb2aaa3017060b062f792ffb67a74185ebe6a2e1110513c45b9a2829ea`
 
 实现内容：
 
@@ -57,7 +57,7 @@
 - 三颗 ADC 在每个 MUX 步骤同时 START/等待/读取；四个步骤串行。
 - 24-bit 二进制补码符号扩展到 int32。
 - 单颗 ADC 失败时该 ADC 4 路输出 null/valid=false；其他 ADC 继续；每 500 ms 重试。
-- 运行中每 256 帧校验配置，发现 `CONFIG_LOST` 重新初始化。
+- 运行中每 256 帧校验配置，发现 `CONFIG_LOST` 重新初始化；设备超过 2 s 没有成功读取数据时标记 `DATA_TIMEOUT` 并重新初始化。
 - 通道 flags：饱和、near-rail、单端负值、STUCK_EXTREME、NO_DATA。
 - `reference_mode` 支持内部 2.048 V 与 AVDD–AVSS；`SET_REF` 写读回验证，失败回滚。
 - DIAG：三颗寄存器读取、两组配置写读回、内部输入短接 offset、AVDD/4 监测、内部温度、12 路读取。
