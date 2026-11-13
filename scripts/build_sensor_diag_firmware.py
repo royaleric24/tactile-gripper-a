@@ -45,7 +45,7 @@ def main():
     metadata = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "target": "old_esp32_fixed_ADC2_AIN1_diagnostic",
-        "version": "tactile-sense-diag-ain1-0.1.0",
+        "version": "tactile-sense-diag-ain1-0.1.1",
         "result": "PASS",
         "note": "OFFLINE BUILD ONLY - NOT FLASHED",
         "fqbn": "esp32:esp32:nodemcu-32s",

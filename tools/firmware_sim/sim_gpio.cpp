@@ -98,6 +98,8 @@ void delayMicroseconds(unsigned int us) {
 
 void delay(unsigned long ms) { delayMicroseconds(static_cast<unsigned int>(ms * 1000UL)); }
 
+unsigned long micros() { return static_cast<unsigned long>(g_now_us); }
+
 FakeAds1220::FakeAds1220(uint8_t cs, uint8_t miso) : cs_(cs), miso_(miso) {}
 
 void FakeAds1220::setCS(bool low) {

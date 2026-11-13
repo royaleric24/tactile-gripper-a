@@ -127,7 +127,7 @@ bool Ads1220::startConversion() {
   return true;
 }
 
-bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value) {
+bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value, bool extra_clock) {
   if (raw == nullptr || value == nullptr) {
     return false;
   }
@@ -136,6 +136,14 @@ bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value) {
   raw[0] = transferByte(0x00);
   raw[1] = transferByte(0x00);
   raw[2] = transferByte(0x00);
+  if (extra_clock) {
+    // DRDYM=1 state restore: one extra SCLK after the 24 data bits returns
+    // DOUT/DRDY high before CS is raised.  Normal readData() does not use it.
+    digitalWrite(pins_.sclk, HIGH);
+    delayMicroseconds(half_period_us_);
+    digitalWrite(pins_.sclk, LOW);
+    delayMicroseconds(half_period_us_);
+  }
   deselect();
   uint32_t bits = (static_cast<uint32_t>(raw[0]) << 16) |
                   (static_cast<uint32_t>(raw[1]) << 8) |
@@ -145,6 +153,28 @@ bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value) {
   }
   *value = static_cast<int32_t>(bits);
   return true;
+}
+
+bool Ads1220::waitDataReady(uint16_t timeout_us, bool* high_seen, uint32_t* wait_us) {
+  if (high_seen == nullptr || wait_us == nullptr) {
+    return false;
+  }
+  *high_seen = false;
+  *wait_us = 0;
+  const uint32_t start = micros();
+  select();
+  while (static_cast<uint32_t>(micros() - start) < timeout_us) {
+    const int level = digitalRead(pins_.miso);
+    if (!*high_seen && level == HIGH) {
+      *high_seen = true;
+    } else if (*high_seen && level == LOW) {
+      *wait_us = static_cast<uint32_t>(micros() - start);
+      return true;  // CS stays low for RDATA
+    }
+  }
+  *wait_us = static_cast<uint32_t>(micros() - start);
+  deselect();
+  return false;
 }
 
 bool Ads1220::readData(int32_t* value) {

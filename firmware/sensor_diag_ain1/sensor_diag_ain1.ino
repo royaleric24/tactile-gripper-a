@@ -4,15 +4,16 @@
 
 #include "../sensor/ads1220.cpp"
 
-const char* VERSION = "tactile-sense-diag-ain1-0.1.0";
+const char* VERSION = "tactile-sense-diag-ain1-0.1.1";
 const uint8_t FIXED_ADC_INDEX = 1;  // ADC2
 const uint8_t FIXED_MUX = 9;        // AIN1 vs AVSS
 const uint8_t FIXED_REG0 = 0x91;    // AIN1, gain 1, PGA bypass
 const uint8_t FIXED_REG2 = 0xC0;    // AVDD-AVSS, no IDAC/PSW
+const uint8_t FIXED_REG3 = 0x02;    // DRDYM=1: DOUT/DRDY data-ready indication
 char line[640];
 uint32_t seq = 0;
 bool adc2_ok = false;
-uint8_t adc2_config[4] = {FIXED_REG0, 0x80, FIXED_REG2, 0x00};
+uint8_t adc2_config[4] = {FIXED_REG0, 0x80, FIXED_REG2, FIXED_REG3};
 
 Ads1220Pins makePins(uint8_t index) {
   return Ads1220Pins{SENSOR_SCLK_PIN, SENSOR_MOSI_PIN, SENSOR_MISO_PINS[index], SENSOR_CS_PINS[index]};
@@ -39,9 +40,10 @@ void sendHello() {
   snprintf(line, sizeof(line),
            "{\"type\":\"DIAG_HELLO\",\"firmware\":\"%s\",\"target\":\"ADC2_AIN1_FIXED\","
            "\"adc2_ok\":%s,\"adc1_regs\":%s,\"adc2_regs\":%s,\"adc3_regs\":%s,"
-           "\"fixed_mux\":%u,\"fixed_reg0\":%u,\"fixed_reg2\":%u,\"drdy_pin\":%u}\n",
+           "\"fixed_mux\":%u,\"fixed_reg0\":%u,\"fixed_reg2\":%u,\"fixed_reg3\":%u,"
+           "\"drdym\":1,\"drdy_pin\":%u}\n",
            VERSION, adc2_ok ? "true" : "false", a1, a2, a3,
-           FIXED_MUX, FIXED_REG0, FIXED_REG2, SENSOR_MISO_PINS[1]);
+           FIXED_MUX, FIXED_REG0, FIXED_REG2, FIXED_REG3, SENSOR_MISO_PINS[1]);
   Serial.print(line);
 }
 
@@ -64,31 +66,30 @@ void loop() {
   uint8_t before[4] = {0}, after[4] = {0};
   devices[FIXED_ADC_INDEX].readRegisters(0, before, 4);
   bool reconfigured = false;
-  if (before[0] != FIXED_REG0 || before[2] != FIXED_REG2 || before[3] != 0x00) {
+  if (before[0] != FIXED_REG0 || before[2] != FIXED_REG2 || before[3] != FIXED_REG3) {
     uint8_t readback[4];
     adc2_ok = devices[FIXED_ADC_INDEX].configure(adc2_config, readback);
     devices[FIXED_ADC_INDEX].readRegisters(0, before, 4);
     reconfigured = true;
   }
-  const uint32_t start = micros();
+  const uint8_t drdy_pin = devices[FIXED_ADC_INDEX].pins().miso;
   devices[FIXED_ADC_INDEX].startConversion();
   delayMicroseconds(250);
-  const uint8_t drdy_pin = devices[FIXED_ADC_INDEX].pins().miso;
   bool high_seen = false;
-  while (static_cast<uint32_t>(micros() - start) < 1500) {
-    if (digitalRead(drdy_pin) == HIGH) { high_seen = true; break; }
-  }
-  bool ready = false;
-  while (static_cast<uint32_t>(micros() - start) < 12000) {
-    if (digitalRead(drdy_pin) == LOW) { ready = true; break; }
-  }
-  const uint32_t wait_us = static_cast<uint32_t>(micros() - start);
+  uint32_t wait_us = 0;
+  // DRDYM=1: CS is held low by waitDataReady; it stays low when ready so the
+  // following RDATA is in the same CS transaction.  On timeout CS is raised.
+  const bool ready = devices[FIXED_ADC_INDEX].waitDataReady(12000, &high_seen, &wait_us);
   bool read_ok = false;
   uint8_t raw[3] = {0, 0, 0};
   int32_t counts = 0;
   if (ready) {
-    read_ok = devices[FIXED_ADC_INDEX].readDataRaw(raw, &counts);
+    // readDataRaw raises CS after the 24 data bits, returning DOUT/DRDY to the
+    // high (not-ready) state for the next START.
+    read_ok = devices[FIXED_ADC_INDEX].readDataRaw(raw, &counts, true);
   }
+  delayMicroseconds(2);
+  const bool post_cs_high = digitalRead(drdy_pin) == HIGH;
   devices[FIXED_ADC_INDEX].readRegisters(0, after, 4);
   char b[32], a[32];
   appendRegs(b, sizeof(b), before);
@@ -105,12 +106,15 @@ void loop() {
            "{\"type\":\"DIAG_SAMPLE\",\"seq\":%lu,\"ms\":%lu,\"ready\":%s,\"high_seen\":%s,"
            "\"read_ok\":%s,\"wait_us\":%lu,\"before\":%s,\"after\":%s,"
            "\"mux_before\":%u,\"mux_after\":%u,\"vref_before\":%u,\"vref_after\":%u,"
+           "\"reg3_before\":%u,\"reg3_after\":%u,\"post_cs_high\":%s,"
+           "\"extra_clock\":true,"
            "\"raw\":%s,\"counts\":%s,\"volts_nominal\":%s,\"reconfigured\":%s}\n",
            static_cast<unsigned long>(seq++), static_cast<unsigned long>(millis()),
            ready ? "true" : "false", high_seen ? "true" : "false",
            read_ok ? "true" : "false", static_cast<unsigned long>(wait_us), b, a,
            (before[0] >> 4) & 0x0F, (after[0] >> 4) & 0x0F,
            (before[2] >> 6) & 0x03, (after[2] >> 6) & 0x03,
+           before[3], after[3], post_cs_high ? "true" : "false",
            raw_text, counts_text, volts_text, reconfigured ? "true" : "false");
   Serial.print(line);
   delay(30);
