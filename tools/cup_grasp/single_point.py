@@ -39,29 +39,45 @@ def _channel_map_evidence(channel_config: Optional[Dict[str, Any]]) -> Dict[str,
             "actual": channels[:12]}
 
 
-def _frame_evidence(frame: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _frame_evidence(frame: Optional[Dict[str, Any]], channel: int = 0) -> Dict[str, Any]:
     frame = frame or {}
-    valid0 = frame.get("valid0") is True
-    raw0 = frame.get("raw0")
+    # New evidence carries the selected channel explicitly.  Accept legacy
+    # ch0 keys only when channel==0; never silently validate ch0 for ch8.
+    if "valid" in frame or "raw" in frame:
+        valid = frame.get("valid") is True
+        raw = frame.get("raw")
+        sample_us = frame.get("sample_timestamp_us")
+        evidence_channel = frame.get("channel", channel)
+        if evidence_channel != channel:
+            return {"passed": False, "issues": ["frame evidence channel {} != selected {}".format(evidence_channel, channel)],
+                    "frame": frame, "channel": channel}
+    else:
+        valid = frame.get("valid0") is True
+        raw = frame.get("raw0")
+        sample_us = frame.get("sample_timestamp_us0")
+        evidence_channel = 0
+        if channel != 0:
+            return {"passed": False, "issues": ["legacy ch0 evidence cannot validate ch{}".format(channel)],
+                    "frame": frame, "channel": channel}
     frame_seq = frame.get("frame_seq")
-    sample_us0 = frame.get("sample_timestamp_us0")
     issues = []
-    if not valid0:
-        issues.append("ch0 valid=false")
-    if type(raw0) is not int:
-        issues.append("ch0 raw value missing")
+    if not valid:
+        issues.append("ch{} valid=false".format(channel))
+    if type(raw) is not int:
+        issues.append("ch{} raw value missing".format(channel))
     if type(frame_seq) is not int or frame_seq <= 0:
         issues.append("frame_seq missing/zero")
-    if type(sample_us0) is not int or sample_us0 <= 0:
-        issues.append("ch0 sample_timestamp_us missing/zero")
-    return {"passed": not issues, "issues": issues, "frame": frame}
+    if type(sample_us) is not int or sample_us <= 0:
+        issues.append("ch{} sample_timestamp_us missing/zero".format(channel))
+    return {"passed": not issues, "issues": issues, "frame": frame, "channel": channel}
 
 
 def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXPECTED_AVDD_REGISTERS,
                            *, mode: str = "scan", channel_config: Optional[Dict[str, Any]] = None,
                            frame: Optional[Dict[str, Any]] = None,
                            require_scan_evidence: bool = True,
-                           require_full_channel_map: bool = True) -> Dict[str, Any]:
+                           require_full_channel_map: bool = True,
+                           selected_channel: int = 0) -> Dict[str, Any]:
     """Validate actual ADS1220 readback.
 
     scan: Reg0 must be one of the four legal AIN0..AIN3 single-ended MUX values;
@@ -123,7 +139,7 @@ def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXP
     else:
         channel_evidence = {"passed": True, "issues": [], "note": "fixed mode uses channel 0 only"}
         channel_map_status = "NOT_APPLICABLE"
-    frame_evidence = _frame_evidence(frame) if mode == "scan" else {
+    frame_evidence = _frame_evidence(frame, selected_channel) if mode == "scan" else {
         "passed": True, "issues": [], "note": "fixed mode evidence not evaluated"}
     if mode == "scan" and require_full_channel_map and channel_config is None:
         ok = False

@@ -61,6 +61,7 @@ class FakeSession:
         self.lines = list(lines)
         self.sent = []
         self.closed = False
+        self.pending_after_config = False
 
     def open(self):
         pass
@@ -74,10 +75,14 @@ class FakeSession:
             self.lines.append((json.dumps(status_dict(request_id)) + "\n").encode())
         elif cmd == "VERIFY_CONFIG":
             self.lines.append((json.dumps(status_dict(request_id, config=True)) + "\n").encode())
+            self.pending_after_config = True
         return request_id
 
     def read_available(self):
         lines, self.lines = self.lines, []
+        if not lines and self.pending_after_config:
+            self.pending_after_config = False
+            lines = [(json.dumps(sample_dict()) + "\n").encode()]
         return lines
 
     def set_streaming(self, value, timeout_s=1.0):

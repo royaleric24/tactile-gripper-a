@@ -31,6 +31,8 @@ class TactileSample:
     saturation_fraction: float
     flags: int
     baseline_ready: bool
+    channel: int = 0
+    reference_mode: str = "UNKNOWN"
 
 
 class TactileProcessor:
@@ -88,6 +90,8 @@ class TactileProcessor:
             saturation_fraction=saturation_fraction,
             flags=flag,
             baseline_ready=self.baseline_ready,
+            channel=channel,
+            reference_mode=str(getattr(frame, "reference_mode", "UNKNOWN")),
         )
 
     def sensor_ok(self, now_ns: int) -> bool:

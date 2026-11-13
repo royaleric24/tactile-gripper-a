@@ -53,13 +53,20 @@ def wait_sample(session, timeout_s=3.0):
     return None
 
 
-def frame_evidence(frame):
+def frame_evidence(frame, channel=0):
+    if not 0 <= channel < 12:
+        raise ValueError("channel must be 0..11")
     return {
+        "channel": channel,
         "frame_seq": frame.frame_seq,
+        "valid": bool(frame.valid[channel]) if len(frame.valid) > channel else False,
+        "raw": frame.raw_adc[channel] if len(frame.raw_adc) > channel else None,
+        "sample_timestamp_us": frame.sample_timestamp_us[channel] if len(frame.sample_timestamp_us) > channel else None,
+        "reference_mode": frame.reference_mode,
+        # compatibility fields for ch0 callers/tests
         "valid0": bool(frame.valid[0]) if len(frame.valid) else False,
         "raw0": frame.raw_adc[0] if len(frame.raw_adc) else None,
         "sample_timestamp_us0": frame.sample_timestamp_us[0] if len(frame.sample_timestamp_us) else None,
-        "reference_mode": frame.reference_mode,
     }
 
 
@@ -172,9 +179,14 @@ def main(argv=None) -> int:
         except ConfigResponseError as exc:
             print_diagnostics(exc)
             return 2
+        post_frame = wait_sample(session, 3.0)
+        if post_frame is None:
+            print("NO POST-CONFIG SAMPLE: cannot verify ch0 after SET_REF", file=sys.stderr)
+            return 2
         result = validate_config_report(report, mode="scan", channel_config=channel_config,
-                                        frame=frame_evidence(frame), require_scan_evidence=True,
-                                        require_full_channel_map=channel_config is not None)
+                                        frame=frame_evidence(post_frame, 0), require_scan_evidence=True,
+                                        require_full_channel_map=channel_config is not None,
+                                        selected_channel=0)
         print(json.dumps(result, indent=2))
         out = Path(args.out) if args.out else EVIDENCE / ("single_point_config_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -183,7 +195,7 @@ def main(argv=None) -> int:
                                    "firmware_version": identity.firmware_version,
                                    "set_ref": setref, "config_report": report,
                                    "channel_config": channel_config,
-                                   "frame_evidence": frame_evidence(frame),
+                                   "frame_evidence": frame_evidence(post_frame, 0),
                                    "diagnostics": diagnostics, "validation": result}, indent=2) + "\n")
         print("saved: {}".format(out))
         if result["passed"] and result.get("channel_map_status") == "DEVICE_HELLO":

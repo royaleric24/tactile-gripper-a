@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.cup_grasp.model import load_config  # noqa: E402
+from tools.cup_grasp.model import CHANNEL_LABELS, load_config  # noqa: E402
 from tools.cup_grasp.single_point import summarize_single_point, validate_config_report  # noqa: E402
 from tools.cup_grasp.tactile import TactileProcessor  # noqa: E402
 from tools.tactile_acq.protocol import SampleFrame, parse_message  # noqa: E402
@@ -34,6 +34,8 @@ def main(argv=None) -> int:
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument("--channel", type=int, default=0)
     parser.add_argument("--cycles", type=int, default=5)
+    parser.add_argument("--position", default="UNSPECIFIED",
+                        help="physical position label, e.g. R4C3; stored as USER_REPORTED, not device-proven")
     parser.add_argument("--baseline", type=float, default=3.0)
     parser.add_argument("--contact", type=float, default=2.0)
     parser.add_argument("--release", type=float, default=2.0)
@@ -49,7 +51,11 @@ def main(argv=None) -> int:
     processor = TactileProcessor(config.tactile)
     # use the requested channel even if the template says 0
     processor.config = type(processor.config)(**{**processor.config.__dict__, "channel": args.channel})
-    print("Single-point validation: channel {} ({})".format(args.channel, config.tactile.channel_label))
+    channel_label = CHANNEL_LABELS[args.channel]
+    print("Single-point validation: channel {} ({}) at position {}".format(
+        args.channel, channel_label, args.position))
+    if args.position == "UNSPECIFIED":
+        print("WARNING: physical position is UNSPECIFIED; do not attribute the result to a specific cell.")
     print("This uses ADC counts only; it is not a pressure/force calibration.")
     session = SerialSession(args.port, baud=args.baud)
     session.open()
@@ -57,14 +63,9 @@ def main(argv=None) -> int:
     if not identity.streaming:
         session.set_streaming(True)
         time.sleep(0.2)
-    frame = wait_sample(session)
-    if frame is None:
-        print("NO SAMPLE FRAME: cannot verify ch0 conversion mapping", file=sys.stderr)
-        session.close()
-        return 2
     channel_config = channel_config_from_identity(identity)
     if channel_config is None:
-        print("CHANNEL_CONFIG_NOT_REPORTED: continuing with ch0-only validation; full 12-channel map UNVERIFIED",
+        print("CHANNEL_CONFIG_NOT_REPORTED: continuing with selected-channel-only validation; full 12-channel map UNVERIFIED",
               file=sys.stderr)
     try:
         setref_status, setref_diagnostics = wait_set_ref(session)
@@ -79,16 +80,22 @@ def main(argv=None) -> int:
         print_diagnostics(exc)
         session.close()
         return 2
+    frame = wait_sample(session, 3.0)
+    if frame is None:
+        print("NO POST-CONFIG SAMPLE: cannot verify selected channel after SET_REF", file=sys.stderr)
+        session.close()
+        return 2
     validation = validate_config_report(report or {}, mode="scan", channel_config=channel_config,
-                                        frame=frame_evidence(frame), require_scan_evidence=True,
-                                        require_full_channel_map=channel_config is not None)
+                                        frame=frame_evidence(frame, args.channel), require_scan_evidence=True,
+                                        require_full_channel_map=channel_config is not None,
+                                        selected_channel=args.channel)
     print(json.dumps(validation, indent=2))
     if not validation["passed"]:
         print("CONFIG VERIFICATION FAILED; refusing single-point interpretation", file=sys.stderr)
         session.close()
         return 2
-    print("Expected AIN0 voltage with R_ref=10k, R_row=1k: 36k -> {:.3f} V, 12k -> {:.3f} V, 2k -> {:.3f} V".format(
-        3.3 * 10000 / (36000 + 11000), 3.3 * 10000 / (12000 + 11000), 3.3 * 10000 / (2000 + 11000)))
+    print("Selected channel {} ({}); verify its electrode voltage with the meter before attribution.".format(
+        args.channel, channel_label))
     records = []
     lock = threading.Lock()
     stop = threading.Event()
@@ -124,6 +131,8 @@ def main(argv=None) -> int:
                         "saturated": sample.saturated,
                         "saturation_fraction": sample.saturation_fraction,
                         "flags": sample.flags,
+                        "channel": args.channel,
+                        "reference_mode": sample.reference_mode,
                     })
             time.sleep(0.002)
 
@@ -137,7 +146,8 @@ def main(argv=None) -> int:
         print("\n=== BASELINE {:.0f}s: no contact at R1C1 ===".format(args.baseline))
         time.sleep(args.baseline)
         for index in range(1, args.cycles + 1):
-            input("\nCycle {}/{}: position the tool at R1C1, then press Enter to start CONTACT... ".format(index, args.cycles))
+            input("\nCycle {}/{}: position at {} (channel {}), then press Enter to start CONTACT... ".format(
+                index, args.cycles, args.position, args.channel))
             press_ns = time.monotonic_ns()
             print(">>> CONTACT NOW for {:.0f}s".format(args.contact), flush=True)
             time.sleep(args.contact)
@@ -167,6 +177,8 @@ def main(argv=None) -> int:
         "data_kind": "REAL_HARDWARE_SERIAL",
         "port": args.port,
         "channel": args.channel,
+        "channel_label": channel_label,
+        "position": args.position,
         "firmware": identity.firmware_version,
         "cycles_requested": args.cycles,
         "cycles_recorded": len(cycles),
@@ -175,7 +187,7 @@ def main(argv=None) -> int:
         "reference_mode_requested": "AVDD_AVSS",
         "config_report": report,
         "channel_config": channel_config,
-        "frame_evidence": frame_evidence(frame),
+        "frame_evidence": frame_evidence(frame, args.channel),
         "setref_diagnostics": setref_diagnostics,
         "config_diagnostics": config_diagnostics,
         "config_validation": validation,
@@ -186,14 +198,19 @@ def main(argv=None) -> int:
     (out / "meta.json").write_text(json.dumps({
         "trial_id": trial_id,
         "protocol": {"baseline_s": args.baseline, "contact_s": args.contact, "release_s": args.release,
-                     "cycles": args.cycles, "channel": args.channel},
+                     "cycles": args.cycles, "channel": args.channel,
+                     "channel_label": channel_label, "position": args.position,
+                     "position_source": "USER_REPORTED"},
         "identity": identity.__dict__,
     }, indent=2) + "\n")
     (out / "REPORT.md").write_text(
-        "# Single-Point Validation {}\n\n- cycles: {}/{}\n- passed: {}/{}\n- frames: {}\n"
-        "- result: {}\n\nADC counts only; not pressure/force.\n".format(
-            trial_id, len(cycles), args.cycles, summary["passed_cycles"], summary["total_cycles"],
-            len(records), "PASS" if summary["pass"] else "FAIL/INSUFFICIENT"))
+        "# Single-Point Validation {}\n\n- channel: {} ({})\n- position: {} (USER_REPORTED)\n"
+        "- cycles: {}/{}\n- passed: {}/{}\n- frames: {}\n"
+        "- result: {}\n\nADC counts only; not pressure/force. "
+        "This is a statistical response; physical C3-to-channel mapping is not proven by this file.\n".format(
+            trial_id, args.channel, channel_label, args.position, len(cycles), args.cycles,
+            summary["passed_cycles"], summary["total_cycles"], len(records),
+            "PASS" if summary["pass"] else "FAIL/INSUFFICIENT"))
     print("\nSINGLE-POINT SUMMARY: passed {}/{}, result {}".format(
         summary["passed_cycles"], summary["total_cycles"], "PASS" if summary["pass"] else "FAIL/INSUFFICIENT"))
     print("DATA DIR: {}".format(out))

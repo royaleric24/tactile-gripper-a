@@ -1,5 +1,6 @@
 import unittest
 
+from tools.cup_grasp.model import CHANNEL_LABELS
 from tools.cup_grasp.single_point import VREF_ENCODINGS, summarize_single_point, validate_config_report
 
 
@@ -49,6 +50,24 @@ class SinglePointTests(unittest.TestCase):
         for item in summary["cycles"]:
             self.assertGreater(item["snr"], 3)
             self.assertLessEqual(item["saturation_fraction"], 0.05)
+
+    def test_channel_label_8_is_adc3_ain0(self):
+        self.assertEqual(CHANNEL_LABELS[8], "ADC3_AIN0")
+
+    def test_selected_channel_8_frame_evidence(self):
+        cfg = channel_config()
+        report = report_for(0xB1)
+        evidence = {"channel": 8, "frame_seq": 42, "valid": True,
+                    "raw": 4800000, "sample_timestamp_us": 1000,
+                    "reference_mode": "AVDD_AVSS"}
+        result = validate_config_report(report, mode="scan", channel_config=cfg,
+                                        frame=evidence, selected_channel=8)
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["frame_evidence"]["channel"], 8)
+        legacy = {"valid0": True, "raw0": 123, "frame_seq": 42, "sample_timestamp_us0": 1000}
+        failed = validate_config_report(report, mode="scan", channel_config=cfg,
+                                        frame=legacy, selected_channel=8)
+        self.assertFalse(failed["passed"])
 
     def test_scan_mode_accepts_ain3_with_channel_and_frame_evidence(self):
         result = validate_config_report(report_for(0xB1), mode="scan",

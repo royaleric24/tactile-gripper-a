@@ -91,6 +91,7 @@ class CupTrialRecorder:
             "device_timestamp_us": sample.device_timestamp_us,
             "frame_seq": sample.frame_seq,
             "channel": self.config.tactile.channel,
+            "reference_mode": getattr(sample, "reference_mode", "UNKNOWN"),
             "raw": sample.raw,
             "filtered": sample.filtered,
             "baseline": sample.baseline,
