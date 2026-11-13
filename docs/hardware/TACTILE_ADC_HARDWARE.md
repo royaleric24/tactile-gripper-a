@@ -1,7 +1,7 @@
 # 旧 ESP32 + 3 × ADS1220 硬件与固件说明
 
 - 目标板：旧 **NodeMCU ESP-32S V1.1**（ESP32-D0WDQ6，4 MB）
-- 采集固件：`firmware/sensor/`，当前修正构建 `tactile-sense-0.1.2`（0.1.0/0.1.1 的 AVDD 参考映射有误）
+- 采集固件：`firmware/sensor/`，当前修正构建 `tactile-sense-0.1.3`（0.1.0/0.1.1 的 AVDD 参考映射有误）
 - 不涉及 ESP32-S3、不涉及舵机/PWM/机械运动
 - 真实硬件验证：见 [`STAGE_H1_REPORT.md`](STAGE_H1_REPORT.md)（PASSED / FAILED / NOT_TESTED 分项）
 

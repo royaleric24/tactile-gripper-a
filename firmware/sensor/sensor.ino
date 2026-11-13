@@ -624,7 +624,7 @@ void sendConfigReport(const char* request_id) {
     writer.u32(regs[1]);
     writer.ch('}');
   }
-  writer.lit("]}}");
+  writer.lit("]}");  // close devices array and config_report object; root closes below
   if (request_id != nullptr) {
     writer.lit(",\"request_id\":");
     writer.str(request_id);

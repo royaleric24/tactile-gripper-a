@@ -24,7 +24,7 @@ from tools.cup_grasp.single_point import summarize_single_point, validate_config
 from tools.cup_grasp.tactile import TactileProcessor  # noqa: E402
 from tools.tactile_acq.protocol import SampleFrame, parse_message  # noqa: E402
 from tools.tactile_acq.transport import SerialSession  # noqa: E402
-from scripts.verify_single_point_config import wait_config_report  # noqa: E402
+from scripts.verify_single_point_config import ConfigResponseError, print_diagnostics, wait_config_report, wait_set_ref  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -57,11 +57,18 @@ def main(argv=None) -> int:
         session.set_streaming(True)
         time.sleep(0.2)
     try:
-        session.send_command("SET_REF", value="AVDD_AVSS")
-        time.sleep(0.3)
-    except Exception:
-        pass
-    report = wait_config_report(session)
+        setref_status, setref_diagnostics = wait_set_ref(session)
+        print("SET_REF -> reference_mode={}".format(setref_status.reference_mode))
+    except ConfigResponseError as exc:
+        print_diagnostics(exc)
+        session.close()
+        return 2
+    try:
+        report, config_diagnostics = wait_config_report(session)
+    except ConfigResponseError as exc:
+        print_diagnostics(exc)
+        session.close()
+        return 2
     validation = validate_config_report(report or {})
     print(json.dumps(validation, indent=2))
     if not validation["passed"]:
@@ -155,6 +162,8 @@ def main(argv=None) -> int:
         "reader_error": error["value"],
         "reference_mode_requested": "AVDD_AVSS",
         "config_report": report,
+        "setref_diagnostics": setref_diagnostics,
+        "config_diagnostics": config_diagnostics,
         "config_validation": validation,
         "summary": summary,
         "note": "ADC counts only; not pressure/force. Electrical validity must be reviewed.",

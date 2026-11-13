@@ -15,7 +15,7 @@ Per TI ADS1220 Rev.D, Table 8-13 (page 45), register 2 bits 7:6:
 `0.1.1` mapped AVDD to code 2 and wrote **0x80** (external REF1); that was still
 wrong. This correction uses code **3** and Reg2 **0xC0**.
 
-## 2. Firmware fix (0.1.2)
+## 2. Firmware fix (0.1.3)
 
 - `scripts/generate_sensor_config.py`: `AVDD_AVSS = 3`; four-entry
   `VREF_ENCODINGS` table for 00/01/10/11.
@@ -23,8 +23,12 @@ wrong. This correction uses code **3** and Reg2 **0xC0**.
   - `SET_REF AVDD_AVSS` sets code 3;
   - `referenceName()` recognizes 0 internal and 3 AVDD;
   - `VERIFY_CONFIG` decodes 0/1/2/3 to internal/REF0/REF1/AVDD.
-- Version bumped to `tactile-sense-0.1.2`.
-- `VERIFY_CONFIG` reads back Reg0–Reg3 and decoded fields from all three ADCs.
+- `0.1.2` had the correct `0xC0` mapping but its `VERIFY_CONFIG` response wrote
+  an extra closing brace (`]}}`) before `request_id`, producing invalid JSON.
+  `0.1.3` fixes the response shape; host diagnostics/retries were added.
+- Version bumped to `tactile-sense-0.1.3`.
+- `VERIFY_CONFIG` reads back Reg0–Reg3 and decoded fields from all three ADCs
+  via real SPI `RREG` commands, not cached values.
 - Offline build only; **not flashed**.
 
 ## 3. Required registers
@@ -103,10 +107,12 @@ required.
 ## 8. Answers
 
 - **Current flashed 0.1.0 direct test?** No: writes Reg2=0x40 (REF0).
-- **Must reflash?** Yes, to 0.1.2 (built offline, not flashed).
+- **0.1.2 direct test?** No: reference mapping is correct, but its `VERIFY_CONFIG`
+  JSON is malformed (`]}}`), so the host cannot parse it.
+- **Must reflash?** Yes, to 0.1.3 (built offline, not flashed).
 - **Is 0xC0 correct?** Yes: VREF=11 AVDD–AVSS.
 - **Is 0x80 correct?** No: VREF=10 external REFP1/REFN1.
 - **Register readback?** Yes: `VERIFY_CONFIG`; expected
   `[0x81,0x80,0xC0,0x00]`.
 - **Circuit unchanged?** Yes: 1 kΩ row + 10 kΩ reference.
-- **Git checkpoint:** pre-fix `f5d2588`; final fix commit reported in the answer.
+- **Git checkpoint:** pre-fix `5ec7c01`; final fix commit reported in the answer.
