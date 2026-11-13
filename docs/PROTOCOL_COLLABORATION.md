@@ -157,3 +157,11 @@
 - 软件组不会替硬件组修改 Worktree、固件或扫描逻辑。
 - 软件组不会把提案写成 APPROVED，也不会把测试用 SIMULATION 数据当作真实采样。
 - 在 C-01..C-18 确认前，真实传感器联调只允许只读采样与回放核对，不进入 AUTO 闭环。
+
+## 10. 软件 V1.0 接收框架状态
+
+- `SerialSensorTransport` 已实现只读串口生命周期、可配置端口/波特率、DTR/RTS 先置 false、boot wait、有界行读取与超长行丢弃统计。
+- `SensorAdapter` 已实现 HELLO/SAMPLE/STATUS/ERROR 解析、时间戳附加、通道有效性、boot_id/序号跟踪、丢帧/重启、重连退避和错误统计。
+- 串口配置模板：[config/sensor_serial.json](../config/sensor_serial.json)；默认 port=null，不打开端口。
+- 真实 sensor protocol 仍是 `PROPOSED v0.1`；上述框架只验证主机侧行为，不代表硬件已按此发送。
+- 真实接入仍需 [硬件联调前置条件](HARDWARE_INTEGRATION_CHECKLIST.md) 中的 C-01..C-18 与实测标定。

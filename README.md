@@ -1,5 +1,33 @@
 # A 组触觉闭环机械爪项目
 
+## 软件 V1.0（2026-11-13，离线功能完成）
+
+- **状态：OFFLINE_FEATURE_COMPLETE**。Dashboard、Trial 管理、回放/对比、传感器串口接收框架和 AUTO 离线策略框架已完成并通过离线测试；**真实传感器、真实 AUTO、真实 PWM 仍未验证**。
+- 运行 Dashboard（默认 SIMULATION / OFFLINE，不打开真实串口）：
+
+```bash
+cd /home/example/Developer/research/tactile-gripper-a-sw
+UV_CACHE_DIR=/tmp/uv-cache uv sync --locked
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080
+# 明确 SIMULATION 演示（合成数据，只写 data/simulated/）
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port 8080
+```
+
+- 无界面完整演示（写模拟 Trial、导出 CSV）：
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_simulation_demo.py --ticks 30 --interval 0.05
+```
+
+- 文档：
+  - [软件运行手册](docs/SOFTWARE_RUNBOOK.md)
+  - [V1 数据格式](docs/DATA_FORMAT_V1.md)
+  - [硬件联调前置条件/接口清单](docs/HARDWARE_INTEGRATION_CHECKLIST.md)
+  - [协议协作说明](docs/PROTOCOL_COLLABORATION.md)
+  - [V1 交付报告](docs/SOFTWARE_V1_REPORT.md)
+- 安全边界：不连接真实硬件、不发送 PWM、不烧录固件；真实 LIVE 需显式 `--source LIVE --hardware-permission`，真实自动控制仍禁用。共享协议仍为 `PROPOSED v0.1`。
+
+
 ## 当前基线（2026-11-12 Stage 0.9B-26 验收后）
 
 - **主控制器：ESP32-S3**（YD-ESP32-23 2022-V1.3 / S3-N16R8），GPIO4、50 Hz、14-bit LEDC，固件 `gripper-control-s3-0.9b26.0`，串口 `/dev/cu.usbserial-EXAMPLE_S3`。
