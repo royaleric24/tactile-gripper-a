@@ -20,6 +20,7 @@ PYTHONPATH=src .venv/bin/python scripts/run_simulation_demo.py --ticks 30 --inte
 ```
 
 - 文档：
+  - [Dashboard 中文使用指南](docs/DASHBOARD_QUICKSTART_ZH.md)
   - [软件运行手册](docs/SOFTWARE_RUNBOOK.md)
   - [V1 数据格式](docs/DATA_FORMAT_V1.md)
   - [硬件联调前置条件/接口清单](docs/HARDWARE_INTEGRATION_CHECKLIST.md)

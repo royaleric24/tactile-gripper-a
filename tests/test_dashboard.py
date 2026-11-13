@@ -72,7 +72,7 @@ class DashboardServerTests(unittest.TestCase):
                         with urllib.request.urlopen(base + path, timeout=5) as response:
                             self.assertEqual(response.status, 200)
                             body = response.read().decode("utf-8")
-                            self.assertIn("Tactile Gripper A", body)
+                            self.assertIn("触觉闭环机械爪 A", body)
                 log = self._stop(proc)
                 self.assertNotIn("Traceback", log)
                 self.assertFalse((Path(tmp) / "data" / "real").exists())

@@ -82,7 +82,7 @@ def heatmap_options(frame: dict[str, Any]) -> dict[str, Any]:
         },
         "series": [
             {
-                "name": "ADC raw",
+                "name": "ADC 原始值",
                 "type": "heatmap",
                 "data": points,
                 "label": {"show": rows * cols <= 36, "fontSize": 8, "color": "#0f172a"},
@@ -235,7 +235,7 @@ def pwm_timeline_options(events: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "series": [
             {
-                "name": "commanded PWM",
+                "name": "PWM 目标",
                 "type": "line",
                 "step": "end",
                 "data": [

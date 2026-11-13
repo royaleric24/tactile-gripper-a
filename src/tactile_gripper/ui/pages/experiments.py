@@ -12,6 +12,16 @@ from nicegui import ui
 from ...constants import SOFTWARE_VERSION
 from ...sources import DataSource
 from ..theme import card_header, empty_state, notice, pill, set_pill, shell, tone_for_state
+from ..text_zh import (
+    error_text,
+    event_detail_label,
+    mode_label,
+    record_type_label,
+    sensor_label,
+    source_label,
+    source_short,
+    trial_status_label,
+)
 
 
 def _clock(stamp: str | None) -> str:
@@ -41,124 +51,135 @@ def _recent_events(recorder, limit: int = 6) -> list[dict]:
 def experiments_page(core) -> None:
     with shell(
         "experiments",
-        "Experiments",
-        "Trial 创建、录制与元数据留档",
+        "实验管理",
+        "创建实验、记录触觉帧与控制事件、保存实验元数据",
         core,
         SOFTWARE_VERSION,
     ) as refs:
         if core.source is DataSource.REPLAY:
-            notice("REPLAY 来源为只读：不能创建或写入 Trial。", "red")
+            notice("只读回放（REPLAY）来源不能创建或写入实验。", "red")
         recovery_notice = ui.label("").classes("notice notice-amber").style("width:100%")
         recovery_notice.set_visibility(False)
         with ui.element("div").classes("grid-12"):
             with ui.element("div").classes("col-5"):
                 with ui.column().classes("card gap-3"):
-                    with card_header("Create Trial", "记录条件、参数快照与数据来源"):
+                    with card_header("创建实验", "记录实验条件、参数快照与数据来源"):
                         pass
-                    name_input = ui.input("Trial name", placeholder="e.g. silicone cup baseline").props("outlined dense").classes("w-full")
+                    name_input = ui.input("实验名称", placeholder="例如：硅胶杯基线").props("outlined dense").classes("w-full")
                     with ui.row().classes("w-full gap-2"):
-                        object_input = ui.input("Object", placeholder="cup / block / none").props("outlined dense").classes("flex-1")
-                        cup_type_input = ui.input("Cup type", placeholder="glass / paper / none").props("outlined dense").classes("flex-1")
+                        object_input = ui.input("物体名称", placeholder="杯子 / 方块 / 无").props("outlined dense").classes("flex-1")
+                        cup_type_input = ui.input("杯子类型", placeholder="玻璃 / 纸杯 / 无").props("outlined dense").classes("flex-1")
                     with ui.row().classes("w-full gap-2"):
                         material_input = ui.select(
-                            ["UNKNOWN", "FABRIC", "SILICONE", "OTHER"],
+                            {"UNKNOWN": "未知", "FABRIC": "织物（FABRIC）", "SILICONE": "硅胶（SILICONE）", "OTHER": "其他"},
                             value="UNKNOWN",
-                            label="Material",
-                        ).props("outlined dense").classes("w-36")
-                        water_mass_input = ui.number("Water / mass (g)", value=None, min=0, step=1).props("outlined dense").classes("flex-1")
-                        operator_input = ui.input("Operator", placeholder="initials").props("outlined dense").classes("w-28")
-                    target_input = ui.input("Grasp target / condition", placeholder="e.g. 1500 μs approach").props("outlined dense").classes("w-full")
-                    video_input = ui.input("Video path", placeholder="/path/to/capture.mov (optional)").props("outlined dense").classes("w-full")
-                    notes_input = ui.textarea("Notes", placeholder="Setup, observations").props("outlined dense").classes("w-full")
-                    create_button = ui.button("Create Trial", color="primary").props("unelevated no-caps").classes("w-full").style("height:42px")
+                            label="材料",
+                        ).props("outlined dense").classes("w-40")
+                        water_mass_input = ui.number("水量/质量（g）", value=None, min=0, step=1).props("outlined dense").classes("flex-1")
+                        operator_input = ui.input("操作人员", placeholder="姓名/缩写").props("outlined dense").classes("w-32")
+                    target_input = ui.input("抓取目标 / 实验条件", placeholder="例如：1500 μs 接近").props("outlined dense").classes("w-full")
+                    video_input = ui.input("视频文件路径", placeholder="/path/to/capture.mov（可选）").props("outlined dense").classes("w-full")
+                    notes_input = ui.textarea("备注", placeholder="装配、观察、现场条件等").props("outlined dense").classes("w-full")
+                    create_button = ui.button("创建实验", color="primary").props("unelevated no-caps").classes("w-full").style("height:42px")
                     source_note = ui.label("").classes("card-sub")
                     ui.label(
-                        "Trial 目录由来源决定：SIMULATION → data/simulated/trials，LIVE → data/real/trials。"
+                        "创建实验不会自动开始记录；请点击“开始记录”。开始后系统保存触觉帧、控制事件和实验元数据。"
+                    ).classes("card-sub")
+                    ui.label(
+                        "实验目录由来源决定：仿真（SIMULATION）→ data/simulated/trials；真实设备（LIVE）→ data/real/trials。"
                     ).classes("notice").style("width:100%")
 
             with ui.element("div").classes("col-7"):
                 with ui.column().classes("card gap-3"):
                     with ui.row().classes("w-full items-start justify-between"):
                         with ui.column().classes("gap-0"):
-                            ui.label("Active Trial").classes("card-title")
-                            ui.label("Start/stop recording; add markers while running").classes("card-sub")
-                        active_pill = pill("NO TRIAL", "slate")
+                            ui.label("当前实验").classes("card-title")
+                            ui.label("创建后需点击“开始记录”；开始后保存触觉帧、控制事件和元数据").classes("card-sub")
+                        active_pill = pill("暂无实验", "slate")
                     with ui.row().classes("w-full items-start justify-between"):
                         with ui.column().classes("gap-0"):
-                            active_name = ui.label("No trial created").classes("metric-value")
-                            active_meta = ui.label("Create a trial on the left").classes("card-sub")
+                            active_name = ui.label("尚未创建实验").classes("metric-value")
+                            active_meta = ui.label("请在左侧创建实验").classes("card-sub")
                         trial_id_label = ui.label("—").classes("mono")
                     with ui.row().classes("w-full items-center gap-2"):
-                        start_button = ui.button("Start recording", color="primary").props("unelevated no-caps")
-                        stop_button = ui.button("Stop & complete", color="negative").props("outline no-caps")
-                        abort_button = ui.button("Abort trial", color="negative").props("outline no-caps")
-                        export_button = ui.button("Export CSV", color="secondary").props("outline no-caps")
-                        ui.link("Open in Analysis", "/analysis").classes("card-sub").style("color:#0f766e;font-weight:650;margin-left:auto")
+                        start_button = ui.button("开始记录", color="primary").props("unelevated no-caps")
+                        stop_button = ui.button("正常结束", color="negative").props("outline no-caps")
+                        abort_button = ui.button("中止实验", color="negative").props("outline no-caps")
+                        export_button = ui.button("导出 CSV", color="secondary").props("outline no-caps")
+                        ui.link("在分析中打开", "/analysis").classes("card-sub").style("color:#0f766e;font-weight:650;margin-left:auto")
                     trial_alert = ui.label("").classes("notice notice-red").style("width:100%")
                     trial_alert.set_visibility(False)
-                    active_counts = ui.label("frames 0 · events 0").classes("mono")
+                    active_counts = ui.label("触觉帧 0 · 事件 0").classes("mono")
                     active_dir = ui.label("—").classes("mono").style("color:#94a3b8;word-break:break-all")
-                    active_video = ui.label("video: —").classes("card-sub")
+                    active_video = ui.label("视频：—").classes("card-sub")
                     with ui.row().classes("w-full items-center gap-2"):
-                        attach_video_input = ui.input("Attach / update video path", placeholder="/path/to/capture.mov").props("outlined dense").classes("flex-1")
-                        attach_video_button = ui.button("Attach video", color="secondary").props("outline no-caps")
+                        attach_video_input = ui.input("关联/更新视频路径", placeholder="/path/to/capture.mov").props("outlined dense").classes("flex-1")
+                        attach_video_button = ui.button("更新视频", color="secondary").props("outline no-caps")
                     ui.element("div").classes("hairline")
                     with ui.row().classes("w-full items-center gap-2"):
-                        event_input = ui.input("Event message", placeholder="operator note / anomaly").props("outlined dense").classes("flex-1")
-                        event_type = ui.select(["MARKER", "NOTE", "ANOMALY"], value="MARKER", label="Type").props("outlined dense").classes("w-40")
-                        add_event_button = ui.button("Add", color="secondary").props("unelevated no-caps")
+                        event_input = ui.input("事件内容", placeholder="例如：加水 100 g / 发生打滑 / 异常").props("outlined dense").classes("flex-1")
+                        event_type = ui.select(
+                            {"MARKER": "标记", "NOTE": "备注", "ANOMALY": "异常"},
+                            value="MARKER",
+                            label="类型",
+                        ).props("outlined dense").classes("w-40")
+                        add_event_button = ui.button("添加", color="secondary").props("unelevated no-caps")
                     events_table = ui.table(
                         columns=[
-                            {"name": "time", "label": "TIME", "field": "time", "align": "left"},
-                            {"name": "type", "label": "TYPE", "field": "type", "align": "left"},
-                            {"name": "message", "label": "MESSAGE", "field": "message", "align": "left"},
+                            {"name": "time", "label": "时间", "field": "time", "align": "left"},
+                            {"name": "type", "label": "类型", "field": "type", "align": "left"},
+                            {"name": "message", "label": "内容", "field": "message", "align": "left"},
                         ],
                         rows=[],
                         row_key="id",
-                    ).props("flat dense").classes("w-full")
+                    ).props('flat dense no-data-label="暂无数据"').classes("w-full")
 
         with ui.element("div").classes("grid-12"):
             with ui.element("div").classes("col-12"):
                 with ui.column().classes("card gap-3"):
-                    with card_header("Trial History", "只读索引；点击 Analysis 页面查看曲线与事件"):
+                    with card_header("实验历史", "只读索引；可在“分析与诊断”中查看曲线、事件与完整性"):
                         pass
                     history_table = ui.table(
                         columns=[
-                            {"name": "trial_id", "label": "TRIAL ID", "field": "trial_id", "align": "left"},
-                            {"name": "name", "label": "NAME", "field": "name", "align": "left"},
-                            {"name": "source", "label": "SOURCE", "field": "source", "align": "left"},
-                            {"name": "mode", "label": "MODE", "field": "mode", "align": "left"},
-                            {"name": "status", "label": "STATUS", "field": "status", "align": "left"},
-                            {"name": "frames", "label": "FRAMES", "field": "frames", "align": "right"},
-                            {"name": "video", "label": "VIDEO", "field": "video", "align": "left"},
-                            {"name": "created", "label": "CREATED", "field": "created", "align": "left"},
+                            {"name": "trial_id", "label": "实验 ID（Trial ID）", "field": "trial_id", "align": "left"},
+                            {"name": "name", "label": "名称", "field": "name", "align": "left"},
+                            {"name": "source", "label": "来源", "field": "source", "align": "left"},
+                            {"name": "mode", "label": "模式", "field": "mode", "align": "left"},
+                            {"name": "status", "label": "状态", "field": "status", "align": "left"},
+                            {"name": "frames", "label": "帧数", "field": "frames", "align": "right"},
+                            {"name": "video", "label": "视频", "field": "video", "align": "left"},
+                            {"name": "created", "label": "创建时间", "field": "created", "align": "left"},
                         ],
                         rows=[],
                         row_key="trial_id",
-                    ).props("flat dense").classes("w-full")
+                    ).props('flat dense no-data-label="暂无数据"').classes("w-full")
 
     def refresh() -> None:
         trial_items = core.list_trials()
         snapshot = core.snapshot()
-        set_pill(refs["mode"], snapshot["mode"], tone_for_state(snapshot["mode"]))
-        set_pill(refs["source"], snapshot["source"], "purple" if snapshot["source"] == "REPLAY" else "teal")
-        refs["s3"].set_text("ONLINE" if snapshot["gripper"].get("connected") else "OFFLINE")
-        refs["sensor"].set_text(snapshot["sensor_state_label"].replace("SENSOR ", ""))
-        refs["source_side"].set_text(snapshot["source"])
+        set_pill(refs["mode"], mode_label(snapshot["mode"]), tone_for_state(snapshot["mode"]))
+        set_pill(
+            refs["source"],
+            source_label(snapshot["source"]),
+            "purple" if snapshot["source"] == "REPLAY" else "teal",
+        )
+        refs["s3"].set_text("在线" if snapshot["gripper"].get("connected") else "离线")
+        refs["sensor"].set_text(sensor_label(snapshot["sensor_state_label"]))
+        refs["source_side"].set_text(source_short(snapshot["source"]))
         source_note.set_text(
-            f"Recording source: {snapshot['source']} · mode {snapshot['mode']} · "
-            f"{'write allowed' if snapshot['source'] != 'REPLAY' else 'read-only'}"
+            f"记录来源：{source_label(snapshot['source'])} · 模式：{mode_label(snapshot['mode'])} · "
+            f"{'允许写入' if snapshot['source'] != 'REPLAY' else '只读'}"
         )
         trial = core.trial
         if trial is None:
-            active_pill.set_content('<span class="dot"></span>NO TRIAL')
+            active_pill.set_content('<span class="dot"></span>暂无实验')
             active_pill.classes(replace="pill pill-slate")
-            active_name.set_text("No active trial")
-            active_meta.set_text("Create a trial on the left")
+            active_name.set_text("暂无进行中的实验")
+            active_meta.set_text("请在左侧创建实验")
             trial_id_label.set_text("—")
-            active_counts.set_text("frames 0 · events 0")
+            active_counts.set_text("触觉帧 0 · 事件 0")
             active_dir.set_text("—")
-            active_video.set_text("video: —")
+            active_video.set_text("视频：—")
             attach_video_input.value = ""
             attach_video_button.set_enabled(False)
             start_button.set_enabled(False)
@@ -171,29 +192,31 @@ def experiments_page(core) -> None:
         else:
             metadata = trial.metadata
             recording = trial.recording
-            set_pill(active_pill, metadata.status, "green" if recording else tone_for_state(metadata.status))
+            set_pill(active_pill, trial_status_label(metadata.status), "green" if recording else tone_for_state(metadata.status))
             active_name.set_text(metadata.name)
-            active_meta.set_text(f"{metadata.source.value} · {metadata.mode} · started {_clock(metadata.started_at)}")
+            active_meta.set_text(
+                f"{source_label(metadata.source.value)} · {mode_label(metadata.mode)} · 开始 {_clock(metadata.started_at)}"
+            )
             trial_id_label.set_text(metadata.trial_id)
             video = metadata.video_path or "—"
-            exists = " (file found)" if metadata.video_path and Path(metadata.video_path).is_file() else ""
-            active_video.set_text(f"video: {video}{exists}")
+            exists = "（文件存在）" if metadata.video_path and Path(metadata.video_path).is_file() else ""
+            active_video.set_text(f"视频：{video}{exists}")
             attach_video_input.value = metadata.video_path or ""
             attach_video_button.set_enabled(True)
             active_counts.set_text(
-                f"frames {trial.frame_count} · events {trial.event_count}"
-                + (f" · dropped {trial.dropped_frames}" if trial.dropped_frames else "")
-                + (f" · invalid ch {trial.invalid_channel_samples}" if trial.invalid_channel_samples else "")
+                f"触觉帧 {trial.frame_count} · 事件 {trial.event_count}"
+                + (f" · 丢帧 {trial.dropped_frames}" if trial.dropped_frames else "")
+                + (f" · 无效通道样本 {trial.invalid_channel_samples}" if trial.invalid_channel_samples else "")
             )
             active_dir.set_text(str(trial.directory))
-            start_button.set_text("Recording…" if recording else "Start recording")
+            start_button.set_text("记录中（RECORDING）" if recording else "开始记录")
             start_button.set_enabled(not recording and metadata.status in ("CREATED",))
             stop_button.set_enabled(recording)
             abort_button.set_enabled(recording)
             add_event_button.set_enabled(recording)
             export_button.set_enabled(not recording)
             if metadata.write_error or snapshot.get("trial_error"):
-                trial_alert.set_text(f"TRIAL WRITE ERROR: {metadata.write_error or snapshot.get('trial_error')}")
+                trial_alert.set_text(f"实验写入错误（ERROR）：{metadata.write_error or snapshot.get('trial_error')}")
                 trial_alert.set_visibility(True)
             else:
                 trial_alert.set_visibility(False)
@@ -203,8 +226,8 @@ def experiments_page(core) -> None:
                     {
                         "id": item.get("event_id", ""),
                         "time": _clock(item.get("timestamp_utc")),
-                        "type": item.get("record_type", item.get("event_type", "—")),
-                        "message": item.get("message", item.get("detail", "")),
+                        "type": record_type_label(item.get("record_type", item.get("event_type", "—"))),
+                        "message": event_detail_label(item.get("message") or item.get("detail", "")),
                     }
                 )
             events_table.rows = rows
@@ -216,14 +239,14 @@ def experiments_page(core) -> None:
         ]
         if snapshot.get("recovered_trials"):
             recovery_notice.set_text(
-                "已恢复意外中断的 Trial（标记 INTERRUPTED，不视为正常完成）："
+                "已恢复意外中断的实验（INTERRUPTED，不视为正常完成）："
                 + " · ".join(snapshot["recovered_trials"][-3:])
             )
             recovery_notice.set_visibility(True)
         elif incomplete:
             recovery_notice.set_text(
-                f"历史中有 {len(incomplete)} 个 INTERRUPTED/ERROR Trial；"
-                "数据保留但不会计为正常完成。请在 Analysis 查看完整性摘要。"
+                f"历史中有 {len(incomplete)} 个异常中断/写入错误实验；"
+                "数据保留，但不会计为正常完成。请在“分析与诊断”查看完整性摘要。"
             )
             recovery_notice.set_visibility(True)
         else:
@@ -241,9 +264,9 @@ def experiments_page(core) -> None:
                 {
                     "trial_id": metadata.get("trial_id"),
                     "name": metadata.get("name"),
-                    "source": metadata.get("source"),
-                    "mode": metadata.get("mode"),
-                    "status": metadata.get("status"),
+                    "source": source_label(metadata.get("source")),
+                    "mode": mode_label(metadata.get("mode")),
+                    "status": trial_status_label(metadata.get("status")),
                     "frames": frames,
                     "video": (Path(metadata.get("video_path")).name if metadata.get("video_path") else "—"),
                     "created": _clock(metadata.get("created_at")),
@@ -255,7 +278,7 @@ def experiments_page(core) -> None:
     async def create_trial() -> None:
         name = (name_input.value or "").strip()
         if not name:
-            ui.notify("Trial name is required", type="warning")
+            ui.notify("请填写实验名称", type="warning")
             return
         conditions = {
             "object": (object_input.value or "UNKNOWN").strip() or "UNKNOWN",
@@ -274,55 +297,69 @@ def experiments_page(core) -> None:
                 operator=(operator_input.value or "").strip() or None,
                 video_path=(video_input.value or "").strip() or None,
             )
-            ui.notify(f"Trial created: {metadata['trial_id']}", type="positive")
+            ui.notify(f"实验已创建：{metadata['trial_id']}；请点击“开始记录”", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative", timeout=6000)
+            ui.notify(error_text(exc), type="negative", timeout=6000)
         refresh()
 
     async def start_trial() -> None:
         try:
             await asyncio.to_thread(core.start_trial)
-            ui.notify("Recording started", type="positive")
+            ui.notify("已开始记录触觉帧、控制事件和元数据", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative")
+            ui.notify(error_text(exc), type="negative")
         refresh()
 
     async def stop_trial() -> None:
         try:
             metadata = await asyncio.to_thread(core.stop_trial, "operator stop")
-            ui.notify(f"Trial completed: {metadata['trial_id']}", type="positive")
+            ui.notify(f"实验已正常结束并保存：{metadata['trial_id']}", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative", timeout=6000)
+            ui.notify(error_text(exc), type="negative", timeout=6000)
         refresh()
 
     async def abort_trial() -> None:
         try:
             metadata = await asyncio.to_thread(core.stop_trial, "operator abort", aborted=True)
-            ui.notify(f"Trial aborted and saved as ABORTED: {metadata['trial_id']}", type="warning")
+            ui.notify(f"实验已中止并保存为 ABORTED：{metadata['trial_id']}", type="warning")
         except Exception as exc:
-            ui.notify(str(exc), type="negative", timeout=6000)
+            ui.notify(error_text(exc), type="negative", timeout=6000)
         refresh()
+
+    async def confirm_abort() -> None:
+        abort_dialog.close()
+        await abort_trial()
+
+    with ui.dialog() as abort_dialog, ui.card().classes("card gap-3"):
+        ui.label("确认中止当前实验？").classes("card-title")
+        ui.label(
+            "中止后保存为 ABORTED；已记录的触觉帧、控制事件和元数据会保留，"
+            "但不会标记为正常完成。"
+        ).classes("card-sub")
+        with ui.row().classes("w-full justify-end gap-2"):
+            ui.button("取消", on_click=abort_dialog.close).props("flat no-caps")
+            ui.button("确认中止", color="negative", on_click=confirm_abort).props("unelevated no-caps")
 
     async def attach_video() -> None:
         path = (attach_video_input.value or "").strip() or None
         try:
             await asyncio.to_thread(core.set_trial_video, path)
-            ui.notify("Video path updated", type="positive")
+            ui.notify("视频路径已更新（仅关联已有文件，不自动录像）", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative")
+            ui.notify(error_text(exc), type="negative")
         refresh()
 
     async def add_event() -> None:
         message = (event_input.value or "").strip()
         if not message:
-            ui.notify("Event message is required", type="warning")
+            ui.notify("请填写事件内容", type="warning")
             return
         try:
             await asyncio.to_thread(core.add_trial_event, event_type.value or "MARKER", message, {"source": core.source.value})
             event_input.value = ""
-            ui.notify("Event added", type="positive")
+            ui.notify("事件标记已添加", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative")
+            ui.notify(error_text(exc), type="negative")
         refresh()
 
     async def export_csv() -> None:
@@ -332,19 +369,19 @@ def experiments_page(core) -> None:
         elif core.last_trial is not None:
             trial_id = core.last_trial.get("trial_id")
         if not trial_id:
-            ui.notify("No trial to export", type="warning")
+            ui.notify("没有可导出的实验", type="warning")
             return
         try:
             path = await asyncio.to_thread(core.trial_store.export_csv, trial_id)
-            ui.notify(f"CSV exported: {path}", type="positive")
+            ui.notify(f"CSV 已导出：{path}", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative")
+            ui.notify(error_text(exc), type="negative")
         refresh()
 
     create_button.on_click(create_trial)
     start_button.on_click(start_trial)
     stop_button.on_click(stop_trial)
-    abort_button.on_click(abort_trial)
+    abort_button.on_click(abort_dialog.open)
     attach_video_button.on_click(attach_video)
     add_event_button.on_click(add_event)
     export_button.on_click(export_csv)

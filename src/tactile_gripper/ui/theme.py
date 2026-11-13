@@ -7,6 +7,8 @@ from typing import Any
 
 from nicegui import ui
 
+from .text_zh import mode_label, source_label, status_label
+
 CSS = """
 :root {
   --navy-900: #0b1220;
@@ -159,9 +161,9 @@ def tone_for_state(state: str, ok_states=("STREAMING", "CONNECTED", "SESSION_ACT
 def shell(active: str, title: str, subtitle: str, core, version: str):
     apply_theme()
     nav = [
-        ("live", "/", "monitor_heart", "Live Monitor"),
-        ("experiments", "/experiments", "science", "Experiments"),
-        ("analysis", "/analysis", "query_stats", "Analysis & Diagnostics"),
+        ("live", "/", "monitor_heart", "实时监控"),
+        ("experiments", "/experiments", "science", "实验管理"),
+        ("analysis", "/analysis", "query_stats", "分析与诊断"),
     ]
     with ui.element("div").classes("app-shell"):
         with ui.element("aside").classes("sidebar"):
@@ -169,9 +171,9 @@ def shell(active: str, title: str, subtitle: str, core, version: str):
                 with ui.element("div").classes("brand-mark"):
                     ui.icon("precision_manufacturing").style("font-size:22px")
                 with ui.column().classes("gap-0"):
-                    ui.label("TACTILE GRIPPER A").classes("brand-name")
-                    ui.label("Haptic control").classes("brand-sub")
-            ui.label("Workspace").classes("nav-group")
+                    ui.label("触觉闭环机械爪 A").classes("brand-name")
+                    ui.label("触觉控制台 · V1.0").classes("brand-sub")
+            ui.label("工作区").classes("nav-group")
             for key, target, icon, label in nav:
                 classes = "nav-item active" if key == active else "nav-item"
                 with ui.link(target=target).classes(classes):
@@ -179,16 +181,16 @@ def shell(active: str, title: str, subtitle: str, core, version: str):
                     ui.label(label)
             ui.element("div").classes("sidebar-spacer")
             with ui.element("div").classes("side-foot"):
-                ui.label("Device link").classes("side-label")
+                ui.label("设备连接").classes("side-label")
                 with ui.element("div").classes("side-row"):
-                    ui.label("S3 controller").classes("side-name")
-                    s3 = ui.label("OFFLINE").classes("side-value")
+                    ui.label("S3 控制器").classes("side-name")
+                    s3 = ui.label(status_label("OFFLINE")).classes("side-value")
                 with ui.element("div").classes("side-row"):
-                    ui.label("Sensor").classes("side-name")
-                    sensor = ui.label("WAITING").classes("side-value")
+                    ui.label("传感器").classes("side-name")
+                    sensor = ui.label("等待数据").classes("side-value")
                 with ui.element("div").classes("side-row"):
-                    ui.label("Source").classes("side-name")
-                    source = ui.label("SIMULATION").classes("side-value")
+                    ui.label("数据来源").classes("side-name")
+                    source = ui.label(source_label("SIMULATION")).classes("side-value")
                 ui.label(f"{version} · PROPOSED v0.1").classes("side-version")
         with ui.element("main").classes("main-area"):
             with ui.element("div").classes("page-header"):
@@ -196,8 +198,8 @@ def shell(active: str, title: str, subtitle: str, core, version: str):
                     ui.label(title).classes("page-title")
                     ui.label(subtitle).classes("page-subtitle")
                 with ui.element("div").classes("header-pills"):
-                    mode_pill = pill("STANDBY", "amber")
-                    source_pill = pill("SIMULATION", "teal")
+                    mode_pill = pill(mode_label("STANDBY"), "amber")
+                    source_pill = pill(source_label("SIMULATION"), "teal")
             with ui.column().classes("w-full gap-4"):
                 yield {
                     "mode": mode_pill,
