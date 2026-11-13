@@ -29,7 +29,8 @@ class Ads1220 {
   bool startConversion();
   bool readData(int32_t* value);
   // Diagnostic-only raw RDATA capture: returns the three actual SPI bytes.
-  bool readDataRaw(uint8_t raw[3], int32_t* value, bool extra_clock = false);
+  bool readDataRaw(uint8_t raw[3], int32_t* value, bool extra_clock = false,
+                   bool* restored_before_cs = nullptr);
   // DRDYM=1: keep CS low and wait for DOUT/DRDY HIGH -> LOW.  Leaves CS low
   // when ready so the following RDATA stays in the same transaction; raises CS
   // on timeout.  high_seen distinguishes "never asserted" from "ready".

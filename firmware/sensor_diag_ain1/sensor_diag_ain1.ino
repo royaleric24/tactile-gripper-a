@@ -4,7 +4,7 @@
 
 #include "../sensor/ads1220.cpp"
 
-const char* VERSION = "tactile-sense-diag-ain1-0.1.1";
+const char* VERSION = "tactile-sense-diag-ain1-0.1.2";
 const uint8_t FIXED_ADC_INDEX = 1;  // ADC2
 const uint8_t FIXED_MUX = 9;        // AIN1 vs AVSS
 const uint8_t FIXED_REG0 = 0x91;    // AIN1, gain 1, PGA bypass
@@ -81,12 +81,13 @@ void loop() {
   // following RDATA is in the same CS transaction.  On timeout CS is raised.
   const bool ready = devices[FIXED_ADC_INDEX].waitDataReady(12000, &high_seen, &wait_us);
   bool read_ok = false;
+  bool restored_before_cs = false;
   uint8_t raw[3] = {0, 0, 0};
   int32_t counts = 0;
   if (ready) {
-    // readDataRaw raises CS after the 24 data bits, returning DOUT/DRDY to the
-    // high (not-ready) state for the next START.
-    read_ok = devices[FIXED_ADC_INDEX].readDataRaw(raw, &counts, true);
+    // 24 data bits + 8 extra SCLK (DIN low), then CS high.  The helper reports
+    // DOUT/DRDY high immediately before CS is raised.
+    read_ok = devices[FIXED_ADC_INDEX].readDataRaw(raw, &counts, true, &restored_before_cs);
   }
   delayMicroseconds(2);
   const bool post_cs_high = digitalRead(drdy_pin) == HIGH;
@@ -106,15 +107,16 @@ void loop() {
            "{\"type\":\"DIAG_SAMPLE\",\"seq\":%lu,\"ms\":%lu,\"ready\":%s,\"high_seen\":%s,"
            "\"read_ok\":%s,\"wait_us\":%lu,\"before\":%s,\"after\":%s,"
            "\"mux_before\":%u,\"mux_after\":%u,\"vref_before\":%u,\"vref_after\":%u,"
-           "\"reg3_before\":%u,\"reg3_after\":%u,\"post_cs_high\":%s,"
-           "\"extra_clock\":true,"
+           "\"reg3_before\":%u,\"reg3_after\":%u,\"restored_before_cs\":%s,"
+           "\"post_cs_high\":%s,\"extra_clocks\":8,"
            "\"raw\":%s,\"counts\":%s,\"volts_nominal\":%s,\"reconfigured\":%s}\n",
            static_cast<unsigned long>(seq++), static_cast<unsigned long>(millis()),
            ready ? "true" : "false", high_seen ? "true" : "false",
            read_ok ? "true" : "false", static_cast<unsigned long>(wait_us), b, a,
            (before[0] >> 4) & 0x0F, (after[0] >> 4) & 0x0F,
            (before[2] >> 6) & 0x03, (after[2] >> 6) & 0x03,
-           before[3], after[3], post_cs_high ? "true" : "false",
+           before[3], after[3], restored_before_cs ? "true" : "false",
+           post_cs_high ? "true" : "false",
            raw_text, counts_text, volts_text, reconfigured ? "true" : "false");
   Serial.print(line);
   delay(30);

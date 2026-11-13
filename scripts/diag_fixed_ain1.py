@@ -109,7 +109,7 @@ def main(argv=None) -> int:
         vref_ok = sum(1 for r in items if r.get("vref_before") == 3 and r.get("vref_after") == 3)
         reg3_ok = sum(1 for r in items if r.get("reg3_before") == 2 and r.get("reg3_after") == 2)
         post_cs_high = sum(1 for r in items if r.get("post_cs_high") is True)
-        extra_clock = sum(1 for r in items if r.get("extra_clock") is True)
+        restored_before_cs = sum(1 for r in items if r.get("restored_before_cs") is True)
         raw_counts = {}
         for r in items:
             if r.get("raw"): raw_counts[r["raw"]] = raw_counts.get(r["raw"], 0) + 1
@@ -119,7 +119,7 @@ def main(argv=None) -> int:
             "high_seen": sum(1 for r in items if r.get("high_seen")),
             "read_ok": sum(1 for r in items if r.get("read_ok")),
             "mux_ok": mux_ok, "vref_ok": vref_ok, "reg3_ok": reg3_ok,
-            "post_cs_high": post_cs_high, "extra_clock": extra_clock,
+            "post_cs_high": post_cs_high, "restored_before_cs": restored_before_cs,
             "reconfigured": sum(1 for r in items if r.get("reconfigured")),
             "counts_mean": mean(counts), "counts_min": min(counts) if counts else None,
             "counts_max": max(counts) if counts else None,
@@ -132,18 +132,19 @@ def main(argv=None) -> int:
              "- firmware: {}".format(hello.get("firmware")), "- label: {} (USER_REPORTED)".format(args.label),
              "- fixed MUX: AIN1/AVSS (Reg0=0x91), VREF=AVDD_AVSS (Reg2=0xC0), DRDYM=1 (Reg3=0x02)",
              "- AVDD used for display: {} mV (not measured by this host)".format(args.avdd_mv), "",
-             "| phase | frames | ready | high_seen | mux_ok | vref_ok | reg3_ok | post_cs_high | extra_clock | mean counts | mean V | raw top |",
+             "| phase | frames | ready | high_seen | mux_ok | vref_ok | reg3_ok | restored_before_cs | post_cs_high | mean counts | mean V | raw top |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for p in summary["phases"]:
         lines.append("| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
             p["phase"], p["frames"], p["ready"], p["high_seen"], p["mux_ok"], p["vref_ok"],
-            p["reg3_ok"], p["post_cs_high"], p["extra_clock"],
+            p["reg3_ok"], p["restored_before_cs"], p["post_cs_high"],
             "-" if p["counts_mean"] is None else "{:.0f}".format(p["counts_mean"]),
             "-" if p["volts_mean"] is None else "{:.4f}".format(p["volts_mean"]),
             p["raw_top"]))
     lines += ["", "## Interpretation", "",
               "Reg0 before/after must remain 0x91, Reg2 0xC0, and Reg3 0x02 (DRDYM=1). If so, MUX/DRDYM stayed configured during conversion.",
               "Ready requires DOUT/DRDY high then low with CS low; timeout results have no counts and are not valid conversions.",
+              "After the 24-bit result, DIN is low for 8 extra SCLK; restored_before_cs must be true before CS is raised.",
               "If counts remain ~8388607 while the meter at the ADC pin is 1.0/2.4 V, this is an external input/front-end issue, not a MUX-register issue.",
               "No PASS threshold is applied; this is a diagnostic."]
     (out / "REPORT.md").write_text("\n".join(lines) + "\n")

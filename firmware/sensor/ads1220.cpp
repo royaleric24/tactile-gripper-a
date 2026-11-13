@@ -127,7 +127,8 @@ bool Ads1220::startConversion() {
   return true;
 }
 
-bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value, bool extra_clock) {
+bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value, bool extra_clock,
+                          bool* restored_before_cs) {
   if (raw == nullptr || value == nullptr) {
     return false;
   }
@@ -137,12 +138,13 @@ bool Ads1220::readDataRaw(uint8_t raw[3], int32_t* value, bool extra_clock) {
   raw[1] = transferByte(0x00);
   raw[2] = transferByte(0x00);
   if (extra_clock) {
-    // DRDYM=1 state restore: one extra SCLK after the 24 data bits returns
-    // DOUT/DRDY high before CS is raised.  Normal readData() does not use it.
-    digitalWrite(pins_.sclk, HIGH);
-    delayMicroseconds(half_period_us_);
-    digitalWrite(pins_.sclk, LOW);
-    delayMicroseconds(half_period_us_);
+    // ADS1220 Rev.D 8.5.6 / Figure 8-31: after the complete 24-bit result, keep
+    // DIN low and provide 8 additional SCLK cycles before raising CS so
+    // DOUT/DRDY returns high.  These clocks are not part of raw[0..2].
+    transferByte(0x00);
+    if (restored_before_cs != nullptr) {
+      *restored_before_cs = digitalRead(pins_.miso) == HIGH;
+    }
   }
   deselect();
   uint32_t bits = (static_cast<uint32_t>(raw[0]) << 16) |
