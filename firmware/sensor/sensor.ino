@@ -171,9 +171,11 @@ const char* stateName(uint8_t state) {
 }
 
 const char* referenceName(uint8_t mode) {
-  // ADS1220 VREF[1:0]: 00 internal, 01 REFP0/REFN0, 10 AVDD/AVSS, 11 REFP1/REFN1.
-  // Only 0 and 2 are allowed by this firmware.
-  return mode == 0 ? "INTERNAL_2V048" : "AVDD_AVSS";
+  // ADS1220 Rev.D Table 8-13: 00 internal, 01 REFP0/REFN0, 10 REFP1/REFN1,
+  // 11 AVDD/AVSS.  Only 0 and 3 are allowed by this firmware.
+  if (mode == 0) return "INTERNAL_2V048";
+  if (mode == 3) return "AVDD_AVSS";
+  return "UNKNOWN_REFERENCE";
 }
 
 void buildNormalConfig(uint8_t config[4]) {
@@ -605,12 +607,12 @@ void sendConfigReport(const char* request_id) {
     writer.lit(",\"vref\":");
     if (vref == 0) {
       writer.str("INTERNAL_2V048");
-    } else if (vref == 2) {
-      writer.str("AVDD_AVSS");
     } else if (vref == 1) {
       writer.str("EXTERNAL_REFP0_REFN0");
-    } else {
+    } else if (vref == 2) {
       writer.str("EXTERNAL_REFP1_REFN1");
+    } else {
+      writer.str("AVDD_AVSS");
     }
     writer.lit(",\"psw\":");
     writer.u32((regs[2] >> 3) & 0x01);
@@ -1260,7 +1262,7 @@ void handleCommand(const PendingCommand& command) {
     if (strcmp(command.value, "INTERNAL_2V048") == 0) {
       new_mode = 0;  // VREF[1:0] = 00
     } else if (strcmp(command.value, "AVDD_AVSS") == 0) {
-      new_mode = 2;  // VREF[1:0] = 10 -> Reg2 bits 7:6 = 0x80
+      new_mode = 3;  // VREF[1:0] = 11 -> Reg2 bits 7:6 = 0xC0
     } else {
       sendError("INVALID_VALUE", "SET_REF value must be INTERNAL_2V048 or AVDD_AVSS", request_id);
       return;

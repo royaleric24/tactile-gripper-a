@@ -24,7 +24,15 @@ INPUT_ONLY_PINS = set(range(34, 40))
 STRAPPING_PINS = {0, 2, 5, 12, 15}
 
 DR_CODES = {20: 0, 45: 1, 90: 2, 175: 3, 330: 4, 600: 5, 1000: 6}
-REFERENCE_CODES = {"INTERNAL_2V048": 0, "AVDD_AVSS": 2}
+# ADS1220 Rev.D Table 8-13: VREF[1:0] = 00 internal, 01 REFP0/REFN0,
+# 10 REFP1/REFN1, 11 AVDD-AVSS.  Reg2 = code << 6.
+VREF_ENCODINGS = {
+    0: ("INTERNAL_2V048", 0x00),
+    1: ("EXTERNAL_REFP0_REFN0", 0x40),
+    2: ("EXTERNAL_REFP1_REFN1", 0x80),
+    3: ("AVDD_AVSS", 0xC0),
+}
+REFERENCE_CODES = {"INTERNAL_2V048": 0, "AVDD_AVSS": 3}
 
 
 def load_json(path: Path) -> dict:

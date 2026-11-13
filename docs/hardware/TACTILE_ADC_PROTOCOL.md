@@ -149,11 +149,11 @@
 | 值 | ADS1220 VREF[1:0] | 单端输入范围（PGA bypass, gain 1） |
 |---|---|---|
 | `INTERNAL_2V048` | `00` 内部 2.048 V | 约 0 … +2.048 V 对应 0 … +8388607 |
-| `AVDD_AVSS` | `10` AVDD–AVSS | 约 0 … AVDD 对应 0 … +8388607 |
+| `AVDD_AVSS` | `11` AVDD–AVSS | 约 0 … AVDD 对应 0 … +8388607 |
 
 AVDD 参考用于合法输入可能超过 2.048 V 的场合；它不是“提高精度”，且 AVDD 噪声/精度会影响结果。切换命令见第 8 节。单端测量下负值通常是异常，固件会标记 `NEGATIVE_SINGLE_ENDED`，但原始值仍保留。
 
-VREF 编码必须写对：`AVDD_AVSS` 是 VREF=10，即 Reg2=`0x80`；`0xC0` 是 VREF=11（外部 REFP1/REFN1），不是 AVDD。`tactile-sense-0.1.0` 曾把 AVDD 映射成代码 1，实际写 `0x40`（外部 REFP0/REFN0）；`0.1.1` 已改为代码 2（`0x80`）并增加 `VERIFY_CONFIG` 原始寄存器读回。
+VREF 编码必须写对：`AVDD_AVSS` 是 VREF=11，即 Reg2=`0xC0`；`0x80` 是 VREF=10（外部 REFP1/REFN1），不是 AVDD。`tactile-sense-0.1.0` 曾把 AVDD 映射成代码 1，写 `0x40`（REF0）；`0.1.2` 改为代码 3（`0xC0`）并保留 `VERIFY_CONFIG` 原始寄存器读回。
 
 ## 8. 命令（Mac → 设备）
 
@@ -180,7 +180,7 @@ VREF 编码必须写对：`AVDD_AVSS` 是 VREF=10，即 Reg2=`0x80`；`0xC0` 是
 - `STATUS`：返回 `STATUS`，包含帧率、参考、ADC 状态。
 - `DIAG`：执行三颗 ADC 的寄存器读取、两组不同配置写读回、内部输入短接 offset、AVDD/4 监测、内部温度转换、12 路读取；返回 `STATUS`，其 `diag` 字段包含结果。DIAG 是硬件诊断，不是软件组正常运行流的一部分。
 - `SET_REF`：切换参考并写读回验证；失败时返回 `ERROR` 并尝试恢复旧参考。
-- `VERIFY_CONFIG`：每颗 ADC 读回 Reg0–Reg3，返回 `config_report`（原始寄存器、MUX、gain code、PGA bypass、VREF code、PSW、IDAC code）。AVDD 单点配置应为 `[0x81,0x80,0x80,0x00]`。
+- `VERIFY_CONFIG`：每颗 ADC 读回 Reg0–Reg3，返回 `config_report`（原始寄存器、MUX、gain code、PGA bypass、VREF code、PSW、IDAC code）。AVDD 单点配置应为 `[0x81,0x80,0xC0,0x00]`。
 - `STREAM false/true`：暂停/恢复 SAMPLE 输出；STATUS 仍可用。
 - `RESET_ADC`：重新初始化指定 ADC。
 

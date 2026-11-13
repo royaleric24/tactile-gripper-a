@@ -6,7 +6,15 @@ from typing import Any, Dict, List, Optional, Sequence
 
 MIN_SNR = 3.0
 MAX_SATURATION = 0.05
-EXPECTED_AVDD_REGISTERS = (0x81, 0x80, 0x80, 0x00)
+# ADS1220 Rev.D Table 8-13: VREF[1:0] = 00 internal, 01 REFP0/REFN0,
+# 10 REFP1/REFN1, 11 AVDD-AVSS.  Reg2 = code << 6.
+VREF_ENCODINGS = {
+    0: ("INTERNAL_2V048", 0x00),
+    1: ("EXTERNAL_REFP0_REFN0", 0x40),
+    2: ("EXTERNAL_REFP1_REFN1", 0x80),
+    3: ("AVDD_AVSS", 0xC0),
+}
+EXPECTED_AVDD_REGISTERS = (0x81, 0x80, 0xC0, 0x00)
 
 
 def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXPECTED_AVDD_REGISTERS) -> Dict[str, Any]:
@@ -22,7 +30,7 @@ def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXP
             and item.get("mux") == 8
             and item.get("gain_code") == 0
             and item.get("pga_bypass") is True
-            and item.get("vref_code") == 2
+            and item.get("vref_code") == 3
             and item.get("psw") == 0
             and item.get("idac_code") == 0
         )
@@ -45,7 +53,7 @@ def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXP
         "passed": ok,
         "expected_registers": list(expected),
         "devices": checks,
-        "note": "VREF[1:0]=10 (0x80) is AVDD-AVSS; 0x40 is external REF0 and 0xC0 is external REF1.",
+        "note": "VREF[1:0]=11 (0xC0) is AVDD-AVSS; 0x40 is REF0 and 0x80 is REF1.",
     }
 
 

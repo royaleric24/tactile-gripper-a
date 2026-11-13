@@ -15,13 +15,21 @@ class GeneratorTests(unittest.TestCase):
         self.config = json.loads((ROOT / "config/sensor_esp32.json").read_text())
 
     def test_avdd_reference_code(self):
-        self.assertEqual(MODULE.REFERENCE_CODES["AVDD_AVSS"], 2)
+        self.assertEqual(MODULE.REFERENCE_CODES["AVDD_AVSS"], 3)
         self.assertEqual(MODULE.REFERENCE_CODES["INTERNAL_2V048"], 0)
         avdd = dict(self.config)
         avdd["ads1220"] = dict(self.config["ads1220"])
         avdd["ads1220"]["reference_mode"] = "AVDD_AVSS"
         header = MODULE.generate(avdd)
-        self.assertIn("SENSOR_REFERENCE_MODE_INITIAL = 2", header)
+        self.assertIn("SENSOR_REFERENCE_MODE_INITIAL = 3", header)
+
+    def test_four_vref_encodings(self):
+        self.assertEqual(MODULE.VREF_ENCODINGS, {
+            0: ("INTERNAL_2V048", 0x00),
+            1: ("EXTERNAL_REFP0_REFN0", 0x40),
+            2: ("EXTERNAL_REFP1_REFN1", 0x80),
+            3: ("AVDD_AVSS", 0xC0),
+        })
 
     def test_valid_config(self):
         header = MODULE.generate(self.config)

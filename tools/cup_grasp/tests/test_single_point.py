@@ -1,6 +1,6 @@
 import unittest
 
-from tools.cup_grasp.single_point import summarize_single_point, validate_config_report
+from tools.cup_grasp.single_point import VREF_ENCODINGS, summarize_single_point, validate_config_report
 
 
 class SinglePointTests(unittest.TestCase):
@@ -30,8 +30,8 @@ class SinglePointTests(unittest.TestCase):
 
     def test_register_report_avdd(self):
         report = {"devices": [
-            {"id": i, "read_ok": True, "registers": [0x81, 0x80, 0x80, 0x00],
-             "mux": 8, "gain_code": 0, "pga_bypass": True, "vref_code": 2,
+            {"id": i, "read_ok": True, "registers": [0x81, 0x80, 0xC0, 0x00],
+             "mux": 8, "gain_code": 0, "pga_bypass": True, "vref_code": 3,
              "vref": "AVDD_AVSS", "psw": 0, "idac_code": 0}
             for i in (1, 2, 3)
         ]}
@@ -39,10 +39,18 @@ class SinglePointTests(unittest.TestCase):
         self.assertTrue(result["passed"])
         bad = {"devices": [dict(item) for item in report["devices"]]}
         for item in bad["devices"]:
-            item["registers"] = [0x81, 0x80, 0xC0, 0x00]
-            item["vref_code"] = 3
+            item["registers"] = [0x81, 0x80, 0x80, 0x00]
+            item["vref_code"] = 2
             item["vref"] = "EXTERNAL_REFP1_REFN1"
         self.assertFalse(validate_config_report(bad)["passed"])
+
+    def test_four_vref_encodings(self):
+        self.assertEqual(VREF_ENCODINGS, {
+            0: ("INTERNAL_2V048", 0x00),
+            1: ("EXTERNAL_REFP0_REFN0", 0x40),
+            2: ("EXTERNAL_REFP1_REFN1", 0x80),
+            3: ("AVDD_AVSS", 0xC0),
+        })
 
     def test_voltage_and_resistance_conversion(self):
         records = []

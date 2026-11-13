@@ -10,7 +10,7 @@
 - No wiring change, firmware upload, PWM output or mechanical motion was done by
   this task.
 
-## Minimal single-point topology (existing board; 0.1.1 reflash required)
+## Minimal single-point topology (existing board; 0.1.2 reflash required)
 
 Use one row and one column of the existing cloth; keep the validated 12-channel
 firmware.
@@ -76,28 +76,28 @@ internal 2.048 V, any column voltage above 2.048 V saturates; choose R_ref so
 
 - MUX = AIN0 vs AVSS (`0x81` with gain 1, PGA bypass)
 - 330 SPS, normal, single-shot (`Reg1=0x80`)
-- AVDD–AVSS reference (`Reg2=0x80`)
+- AVDD–AVSS reference (`Reg2=0xC0`)
 - IDAC off, PSW off
 - Gain 1; no PGA
 - input must stay within AVSS−0.1 V … AVDD+0.1 V
 
 The currently flashed `tactile-sense-0.1.0` **cannot** perform the AVDD–AVSS
 single-point test correctly: its `SET_REF` maps AVDD to VREF code 1, writing
-Reg2=`0x40` (external REFP0/REFN0), not `0x80`. A corrected `tactile-sense-0.1.1`
-build maps AVDD to code 2 (`0x80`) and adds `VERIFY_CONFIG` register readback.
+Reg2=`0x40` (external REFP0/REFN0). A corrected `tactile-sense-0.1.2` build
+maps AVDD to code 3 (`0xC0`) and adds `VERIFY_CONFIG` register readback.
 The single-point test therefore requires a **new flash** after user authorization;
 it cannot run on the current 0.1.0 firmware with a valid AVDD reference.
 
-The selected host channel is `ch0` = ADC1_AIN0. 0xC0 is not AVDD: VREF[1:0]=11
-selects external REFP1/REFN1; do not use it.
+The selected host channel is `ch0` = ADC1_AIN0. `0xC0` is AVDD: VREF[1:0]=11;
+`0x80` would select external REFP1/REFN1 and is wrong.
 
 ### Single-point validation procedure
 
 1. Power off; wire as above; check R1–C1 resistance with the cloth unpresssed and
    lightly pressed; confirm no short to 3.3 V/GND.
 2. Power only the old ESP32 via Mac USB; do not connect the S3/gripper.
-3. Flash/confirm `tactile-sense-0.1.1` (user-authorized), set reference AVDD_AVSS,
-   and verify raw registers `[0x81,0x80,0x80,0x00]` before trusting channel 0.
+3. Flash/confirm `tactile-sense-0.1.2` (user-authorized), set reference AVDD_AVSS,
+   and verify raw registers `[0x81,0x80,0xC0,0x00]` before trusting channel 0.
 4. Run at least 5 contact/release cycles at R1C1, 2 s contact / 2 s release.
 5. Compute per-cycle baseline, delta, noise, SNR, saturation, response latency
    and recovery. PASS requires repeatable response above noise, no saturation,
@@ -118,8 +118,8 @@ selects external REFP1/REFN1; do not use it.
 
 1. User traces R1/C1 and performs the single-point wiring.
 2. User measures AIN0 at rest/light/heavy and checks against 0.702/1.435/2.538 V.
-3. User authorizes the 0.1.1 flash and performs the 5-cycle test; verify registers
-   `[0x81,0x80,0x80,0x00]` and AVDD/DVDD = 3.3 V.
+3. User authorizes the 0.1.2 flash and performs the 5-cycle test; verify registers
+   `[0x81,0x80,0xC0,0x00]` and AVDD/DVDD = 3.3 V.
 4. User provides a verified S3 open/close range and authorizes motion; current
    config cannot move.
 5. Only then can real fixed/feedback cup trials be executed.

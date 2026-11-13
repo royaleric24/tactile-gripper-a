@@ -1,7 +1,7 @@
 # 旧 ESP32 + 3 × ADS1220 硬件与固件说明
 
 - 目标板：旧 **NodeMCU ESP-32S V1.1**（ESP32-D0WDQ6，4 MB）
-- 采集固件：`firmware/sensor/`，当前修正构建 `tactile-sense-0.1.1`（0.1.0 的 AVDD 参考映射有误）
+- 采集固件：`firmware/sensor/`，当前修正构建 `tactile-sense-0.1.2`（0.1.0/0.1.1 的 AVDD 参考映射有误）
 - 不涉及 ESP32-S3、不涉及舵机/PWM/机械运动
 - 真实硬件验证：见 [`STAGE_H1_REPORT.md`](STAGE_H1_REPORT.md)（PASSED / FAILED / NOT_TESTED 分项）
 
@@ -50,7 +50,7 @@ ADS1220 仅支持 **SPI Mode 1（CPOL=0, CPHA=1）**：
 |---|---:|---|
 | Reg0 | `MUX<<4 \| 0x01` | MUX=1000..1011（AIN0..3 vs AVSS），Gain=1，PGA bypass |
 | Reg1 | `0x80` | DR=100（330 SPS），Normal mode，Single-shot，TS=0，BCS=0 |
-| Reg2 | `0x00` 或 `0x80` | 内部 2.048 V（VREF=00）或 AVDD–AVSS（VREF=10）；`0xC0` 是外部 REFP1/REFN1，不是 AVDD |
+| Reg2 | `0x00` 或 `0xC0` | 内部 2.048 V（VREF=00）或 AVDD–AVSS（VREF=11）；`0x80` 是外部 REFP1/REFN1，不是 AVDD |
 | Reg3 | `0x00` | IDAC 路由关闭，DRDYM=0，保留位 0 |
 
 四个 MUX 步骤对应 Reg0 = `0x81`、`0x91`、`0xA1`、`0xB1`。
