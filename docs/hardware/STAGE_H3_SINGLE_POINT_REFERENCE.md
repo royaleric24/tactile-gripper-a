@@ -104,6 +104,32 @@ required.
   --avdd-mv 3300 --r-ref-ohm 10000 --r-row-ohm 1000
 ```
 
+## 7.1 Scan-mode MUX acceptance (host-only fix)
+
+The normal firmware scans `step=0..3`:
+
+```text
+setMux(MUX[step]) -> startConversion() -> convert -> channel = adc_index*4 + step
+```
+
+`MUX[0..3] = 8..11` (AIN0..AIN3). After step 3 the register is left at AIN3,
+so a running-scan `VERIFY_CONFIG` naturally reads Reg0=`0xB1`. This is not a
+channel error and does not require a firmware change or reflash.
+
+The host verifier now separates:
+
+- **scan mode**: Reg0 may be `0x81/0x91/0xA1/0xB1`; it still requires
+  Reg1=`0x80`, Reg2=`0xC0`, Reg3=`0x00`, gain=1, PGA bypass, VREF AVDD,
+  PSW/IDAC off, the 12-channel map (ch0=Ain0, ch1=Ain1, ...), and a fresh
+  ch0-valid SAMPLE frame. It reports `SCAN_MODE_PASS`, never a generic
+  fixed-mode PASS.
+- **fixed mode**: requires Reg0=`0x81` exactly; no fixed single-channel command
+  is available on 0.1.3, so fixed mode is not inferred from the scan.
+
+A source test checks that `setMux()` occurs before `startConversion()` and that
+`channel = adc_index*4 + step`. This is a code/protocol check; the saved raw
+register and frame evidence remain the actual hardware record.
+
 ## 8. Answers
 
 - **Current flashed 0.1.0 direct test?** No: writes Reg2=0x40 (REF0).

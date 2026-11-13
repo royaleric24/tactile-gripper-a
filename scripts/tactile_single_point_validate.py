@@ -24,7 +24,8 @@ from tools.cup_grasp.single_point import summarize_single_point, validate_config
 from tools.cup_grasp.tactile import TactileProcessor  # noqa: E402
 from tools.tactile_acq.protocol import SampleFrame, parse_message  # noqa: E402
 from tools.tactile_acq.transport import SerialSession  # noqa: E402
-from scripts.verify_single_point_config import ConfigResponseError, print_diagnostics, wait_config_report, wait_set_ref  # noqa: E402
+from scripts.verify_single_point_config import (ConfigResponseError, frame_evidence, print_diagnostics,
+    wait_config_report, wait_sample, wait_set_ref)  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -56,6 +57,12 @@ def main(argv=None) -> int:
     if not identity.streaming:
         session.set_streaming(True)
         time.sleep(0.2)
+    frame = wait_sample(session)
+    if frame is None:
+        print("NO SAMPLE FRAME: cannot verify ch0 conversion mapping", file=sys.stderr)
+        session.close()
+        return 2
+    channel_config = identity.raw.get("channel_config")
     try:
         setref_status, setref_diagnostics = wait_set_ref(session)
         print("SET_REF -> reference_mode={}".format(setref_status.reference_mode))
@@ -69,7 +76,8 @@ def main(argv=None) -> int:
         print_diagnostics(exc)
         session.close()
         return 2
-    validation = validate_config_report(report or {})
+    validation = validate_config_report(report or {}, mode="scan", channel_config=channel_config,
+                                        frame=frame_evidence(frame), require_scan_evidence=True)
     print(json.dumps(validation, indent=2))
     if not validation["passed"]:
         print("CONFIG VERIFICATION FAILED; refusing single-point interpretation", file=sys.stderr)
@@ -162,6 +170,8 @@ def main(argv=None) -> int:
         "reader_error": error["value"],
         "reference_mode_requested": "AVDD_AVSS",
         "config_report": report,
+        "channel_config": channel_config,
+        "frame_evidence": frame_evidence(frame),
         "setref_diagnostics": setref_diagnostics,
         "config_diagnostics": config_diagnostics,
         "config_validation": validation,

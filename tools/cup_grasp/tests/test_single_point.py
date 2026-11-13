@@ -3,6 +3,28 @@ import unittest
 from tools.cup_grasp.single_point import VREF_ENCODINGS, summarize_single_point, validate_config_report
 
 
+def channel_config():
+    return {"channels": [
+        {"channel_id": ch, "mux_channel": 8 + ch % 4, "adc_input": ch % 4,
+         "ads1220_id": ch // 4 + 1} for ch in range(12)
+    ]}
+
+
+def frame_evidence():
+    return {"valid0": True, "raw0": 123456, "frame_seq": 42,
+            "sample_timestamp_us0": 1000000}
+
+
+def report_for(reg0):
+    mux = (reg0 >> 4) & 0x0F
+    return {"devices": [
+        {"id": i, "read_ok": True, "registers": [reg0, 0x80, 0xC0, 0x00],
+         "mux": mux, "gain_code": 0, "pga_bypass": True, "vref_code": 3,
+         "vref": "AVDD_AVSS", "psw": 0, "idac_code": 0}
+        for i in (1, 2, 3)
+    ]}
+
+
 class SinglePointTests(unittest.TestCase):
     def test_five_cycles_with_contact_response(self):
         records = []
@@ -28,21 +50,45 @@ class SinglePointTests(unittest.TestCase):
             self.assertGreater(item["snr"], 3)
             self.assertLessEqual(item["saturation_fraction"], 0.05)
 
-    def test_register_report_avdd(self):
-        report = {"devices": [
-            {"id": i, "read_ok": True, "registers": [0x81, 0x80, 0xC0, 0x00],
-             "mux": 8, "gain_code": 0, "pga_bypass": True, "vref_code": 3,
-             "vref": "AVDD_AVSS", "psw": 0, "idac_code": 0}
-            for i in (1, 2, 3)
-        ]}
-        result = validate_config_report(report)
+    def test_scan_mode_accepts_ain3_with_channel_and_frame_evidence(self):
+        result = validate_config_report(report_for(0xB1), mode="scan",
+                                        channel_config=channel_config(),
+                                        frame=frame_evidence())
         self.assertTrue(result["passed"])
-        bad = {"devices": [dict(item) for item in report["devices"]]}
+        self.assertEqual(result["mode"], "scan")
+        self.assertEqual(result["devices"][0]["mux_name"], "AIN3_AVSS")
+        self.assertTrue(result["channel_evidence"]["passed"])
+        self.assertTrue(result["frame_evidence"]["passed"])
+
+    def test_scan_mode_accepts_four_legal_mux_values(self):
+        for reg0 in (0x81, 0x91, 0xA1, 0xB1):
+            result = validate_config_report(report_for(reg0), mode="scan",
+                                            channel_config=channel_config(),
+                                            frame=frame_evidence())
+            self.assertTrue(result["passed"], hex(reg0))
+
+    def test_scan_mode_rejects_ain3_without_ch0_evidence(self):
+        result = validate_config_report(report_for(0xB1), mode="scan",
+                                        channel_config=None, frame=None)
+        self.assertFalse(result["passed"])
+        self.assertFalse(result["channel_evidence"]["passed"])
+        self.assertFalse(result["frame_evidence"]["passed"])
+
+    def test_fixed_mode_requires_ain0(self):
+        good = validate_config_report(report_for(0x81), mode="fixed")
+        self.assertTrue(good["passed"])
+        bad = validate_config_report(report_for(0xB1), mode="fixed")
+        self.assertFalse(bad["passed"])
+
+    def test_reference_pga_and_registers_still_strict(self):
+        bad = report_for(0xB1)
         for item in bad["devices"]:
-            item["registers"] = [0x81, 0x80, 0x80, 0x00]
+            item["registers"] = [0xB1, 0x80, 0x80, 0x00]
             item["vref_code"] = 2
             item["vref"] = "EXTERNAL_REFP1_REFN1"
-        self.assertFalse(validate_config_report(bad)["passed"])
+        result = validate_config_report(bad, mode="scan", channel_config=channel_config(),
+                                        frame=frame_evidence())
+        self.assertFalse(result["passed"])
 
     def test_four_vref_encodings(self):
         self.assertEqual(VREF_ENCODINGS, {
@@ -78,3 +124,16 @@ class SinglePointTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirmwareScanOrderTests(unittest.TestCase):
+    def test_scan_sets_mux_before_conversion_and_maps_ch0_to_ain0(self):
+        from pathlib import Path
+        text = Path("firmware/sensor/sensor.ino").read_text()
+        scan = text[text.index("void scanFrame()"):text.index("void runDiagnostics")]
+        self.assertIn("for (uint8_t step = 0; step < 4; ++step)", scan)
+        self.assertIn("devices[i].setMux(SENSOR_MUX_CODES[step]);", scan)
+        self.assertIn("devices[i].startConversion();", scan)
+        self.assertIn("const uint8_t channel = static_cast<uint8_t>(i * 4 + step);", scan)
+        self.assertLess(scan.index("devices[i].setMux(SENSOR_MUX_CODES[step]);"),
+                        scan.index("devices[i].startConversion();"))
