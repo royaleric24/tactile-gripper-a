@@ -19,6 +19,7 @@ STEPS = [
     ("python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/tactile_acq/tests", "-t", "."]),
     ("matrix_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/tactile_matrix/tests", "-t", "."]),
     ("experiment_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/tactile_experiment/tests", "-t", "."]),
+    ("cup_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/cup_grasp/tests", "-t", "."]),
     ("firmware_build", [PY, "scripts/build_sensor_firmware.py"]),
     ("matrix_firmware_build", [PY, "scripts/build_sensor_matrix_firmware.py"]),
     ("host_ads1220_driver", [PY, "scripts/run_host_tests.py"]),
