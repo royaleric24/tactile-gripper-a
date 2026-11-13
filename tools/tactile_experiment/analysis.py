@@ -208,11 +208,12 @@ def _common_mode(samples: Sequence[Dict]) -> Dict[str, Any]:
     all_sat = all_neg = any_sat = 0
     for sample in samples:
         valid_values = [v for v, ok in zip(sample["channels"], sample["valid"]) if ok and v is not None]
-        if len(valid_values) >= 2:
+        if len(valid_values) == 12:
+            # Correlations need aligned values for every channel; use only frames
+            # with all 12 valid so a single null cannot empty the common vector.
             means.append(statistics.mean(valid_values))
             for ch, (value, ok) in enumerate(zip(sample["channels"], sample["valid"])):
-                if ok and value is not None:
-                    channel_values[ch].append(value)
+                channel_values[ch].append(value)
         if len(valid_values) == 12:
             if all(v >= SAT_HIGH for v in valid_values):
                 all_sat += 1
@@ -220,7 +221,7 @@ def _common_mode(samples: Sequence[Dict]) -> Dict[str, Any]:
                 all_neg += 1
             if any(v >= SAT_HIGH for v in valid_values):
                 any_sat += 1
-    common = means if len(means) == len(samples) else []
+    common = means
     correlations = []
     for ch in range(12):
         series = channel_values[ch]

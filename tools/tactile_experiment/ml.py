@@ -188,6 +188,8 @@ def feature_names(feature_set: str = "per_channel") -> List[str]:
             names.append(template.format(ch))
     if feature_set == "plus_common":
         names.extend(COMMON_FEATURES)
+    elif feature_set == "common_only":
+        return list(COMMON_FEATURES)
     elif feature_set != "per_channel":
         raise ValueError("unknown feature_set")
     return names
