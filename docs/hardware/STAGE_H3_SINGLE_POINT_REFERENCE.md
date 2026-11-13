@@ -29,7 +29,7 @@ Correct encoding (ADS1220 register 2, bits 7:6):
 - Added command `VERIFY_CONFIG`: reads back Reg0–Reg3 from each ADS1220 and
   returns the raw registers plus decoded MUX/gain/PGA/VREF/PSW/IDAC fields.
 - Firmware version bumped to `tactile-sense-0.1.1`.
-- Built offline: 306,208 B, SHA-256 `42838a433d48afe006f46058142abbf1dc0c34bdd3caaa4a276a55475fafc3dd`.
+- Built offline: 306,208 B; exact SHA-256 is in `evidence/sensor/build_sensor.json` (build may vary by toolchain timestamp).
 - **Not flashed.**
 
 ## 3. Required registers for the single point
@@ -123,5 +123,4 @@ Command:
   is `0x80` = VREF 10.
 - **Register readback added?** Yes, `VERIFY_CONFIG`; host script verifies raw
   bytes and decoded fields.
-- **Git checkpoint:** pre-fix `fe8d1a8`; this H3 change is committed separately
-  after tests.
+- **Git checkpoint:** pre-fix `fe8d1a8`; H3 fix commit `6476797`.
