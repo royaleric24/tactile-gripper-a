@@ -59,8 +59,15 @@ def _demo_setup(core) -> None:
     core.set_demo_stream(True)
     core.create_trial(
         "Demo grasp · SIMULATION",
-        conditions={"object": "demo block", "material": "SIMULATION", "grasp_target": "1500 μs"},
+        conditions={
+            "object": "demo block",
+            "cup_type": "SIMULATION_DEMO",
+            "material": "SIMULATION",
+            "water_mass_g": None,
+            "grasp_target": "1500 μs",
+        },
         notes="Synthetic dashboard demo. Not a real experiment.",
+        operator="demo",
     )
     core.start_trial()
     core.request_pwm(core.gripper.pwm_initial_us or 1500)
@@ -84,6 +91,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--hardware-permission", action="store_true", help="explicit permission for LIVE serial")
     parser.add_argument("--connect-port", help="explicit Mac serial port for LIVE")
     parser.add_argument("--connect", action="store_true", help="connect and begin a manual session at startup")
+    parser.add_argument("--sensor-port", help="explicit sensor serial port (LIVE only)")
+    parser.add_argument("--sensor-baud", type=int, help="sensor baud rate (default from config)")
+    parser.add_argument("--sensor-config", type=Path, default=PROJECT_ROOT / "config" / "sensor_serial.json")
+    parser.add_argument("--connect-sensor", action="store_true", help="open the sensor serial port at startup")
     parser.add_argument("--demo", action="store_true", help="SIMULATION-only dashboard demo data")
     args = parser.parse_args(argv)
 
@@ -91,10 +102,14 @@ def main(argv: list[str] | None = None) -> None:
     if source is DataSource.LIVE:
         if not args.hardware_permission:
             parser.error("--source LIVE requires --hardware-permission")
-        if not args.connect_port:
-            parser.error("--source LIVE requires --connect-port")
+        if args.connect and not args.connect_port:
+            parser.error("--connect requires --connect-port for LIVE")
     if args.sensor_file is not None and source is not DataSource.REPLAY:
         parser.error("--sensor-file requires --source REPLAY")
+    if (args.sensor_port or args.connect_sensor) and source is not DataSource.LIVE:
+        parser.error("--sensor-port/--connect-sensor require --source LIVE")
+    if args.connect_sensor and not args.sensor_port:
+        parser.error("--connect-sensor requires --sensor-port")
     if args.demo and source is not DataSource.SIMULATION:
         parser.error("--demo requires --source SIMULATION")
 
@@ -106,6 +121,10 @@ def main(argv: list[str] | None = None) -> None:
         port=args.connect_port,
         connect=args.connect,
         sensor_file=args.sensor_file,
+        sensor_port=args.sensor_port,
+        sensor_baud=args.sensor_baud,
+        sensor_config_path=args.sensor_config,
+        connect_sensor=args.connect_sensor,
     )
     if args.demo:
         _demo_setup(core)
@@ -114,10 +133,7 @@ def main(argv: list[str] | None = None) -> None:
     def shutdown() -> None:
         stop.set()
         try:
-            if core.trial is not None and core.trial.recording:
-                core.stop_trial("server shutdown")
-            if core.gripper is not None and core.gripper.connected:
-                core.disconnect_gripper()
+            core.shutdown()
         except Exception as exc:  # pragma: no cover - shutdown best effort
             print(f"[shutdown] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 

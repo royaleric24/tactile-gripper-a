@@ -53,6 +53,7 @@ def frame(
     mask: list | None = None,
     source=None,
     device_id: str = "sensor-test",
+    contact_score=None,
 ) -> TactileFrame:
     from tactile_gripper.sources import DataSource
 
@@ -76,7 +77,7 @@ def frame(
         channel_ids=tuple(range(count)),
         matrix_rows=config.matrix_rows,
         matrix_cols=config.matrix_cols,
-        contact_score=None,
+        contact_score=contact_score,
     ).validate(config)
 
 

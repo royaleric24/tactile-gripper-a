@@ -5,7 +5,7 @@ Recordings are written below exactly one source-specific directory:
 REPLAY is read-only and cannot create a recording.
 
 S2-B additions are additive:
-- ``schema_version`` (new trials are v2; v1 files without it still load)
+- ``schema_version`` (new trials are v3; v1/v2 files without it still load)
 - ``git_commit`` / ``write_error`` in metadata
 - recording lock file with PID + heartbeat for interrupted-trial recovery
 - integrity counters (invalid channels, dropped/duplicate frames, restarts)
@@ -63,6 +63,7 @@ class TrialRecord:
     events: list[dict[str, Any]] = field(default_factory=list)
     frames: list[dict[str, Any]] = field(default_factory=list)
     read_errors: list[str] = field(default_factory=list)
+    truncated_tail: bool = False
 
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
@@ -71,27 +72,45 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def _read_jsonl(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+def _read_jsonl_meta(path: Path) -> tuple[list[dict[str, Any]], list[str], bool]:
+    """Read JSONL, tolerating an incomplete final line written by a crash.
+
+    A final line without a trailing newline is reported as ``truncated_tail``
+    and never treated as a valid event/frame.  Earlier complete lines are kept.
+    """
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
     if not path.is_file():
-        return rows, errors
+        return rows, errors, False
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        data = path.read_bytes()
     except OSError as exc:
-        return rows, [f"{path.name}: unreadable ({exc})"]
-    for number, line in enumerate(lines, start=1):
-        if not line.strip():
+        return rows, [f"{path.name}: unreadable ({exc})"], False
+    truncated = bool(data) and not data.endswith(b"\n")
+    lines = data.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+    for number, raw_line in enumerate(lines, start=1):
+        if not raw_line.strip():
             continue
         try:
+            line = raw_line.decode("utf-8")
             value = json.loads(line)
-        except ValueError as exc:
-            errors.append(f"{path.name}:{number}: invalid JSON ({exc})")
+        except (UnicodeError, ValueError) as exc:
+            if truncated and number == len(lines):
+                errors.append(f"{path.name}:{number}: incomplete final line ignored")
+            else:
+                errors.append(f"{path.name}:{number}: invalid JSON ({exc})")
             continue
         if not isinstance(value, dict):
             errors.append(f"{path.name}:{number}: root is not an object")
             continue
         rows.append(value)
+    return rows, errors, truncated
+
+
+def _read_jsonl(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    rows, errors, _ = _read_jsonl_meta(path)
     return rows, errors
 
 
@@ -206,6 +225,7 @@ def trial_integrity(record: TrialRecord) -> dict[str, Any]:
         "boot_switches": boot_switch,
         "read_errors": list(record.read_errors),
         "write_error": record.metadata.write_error,
+        "truncated_tail": record.truncated_tail,
         "complete": record.metadata.status in (STATUS_COMPLETED, STATUS_ABORTED),
         "interrupted": record.metadata.status == STATUS_INTERRUPTED,
         "error": record.metadata.status == STATUS_ERROR,
@@ -249,6 +269,16 @@ class TrialRecorder:
         with self._lock:
             if self.metadata.status != STATUS_CREATED:
                 raise RuntimeError(f"cannot start trial in status {self.metadata.status}")
+            if self.lock_path.exists():
+                lock = _read_recording_lock(self.directory)
+                if _lock_is_active(lock):
+                    raise TrialWriteError(
+                        f"trial is already being recorded by pid {lock.get('pid')} on {lock.get('host')}"
+                    )
+                try:
+                    self.lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
             self.metadata.schema_version = TRIAL_SCHEMA_VERSION
             self.metadata.status = STATUS_RECORDING
             self.metadata.started_at = utc_now_iso()
@@ -373,6 +403,13 @@ class TrialRecorder:
             self._update_counts()
             self._touch_lock()
 
+    def set_video_path(self, path: str | Path | None) -> TrialMetadata:
+        with self._lock:
+            self.metadata.video_path = str(path) if path else None
+            self._write_metadata()
+            self._touch_lock()
+            return self.metadata
+
     def add_event(self, event_type: str, message: str, data: dict | None = None) -> TrialEvent:
         event = TrialEvent(event_type, message, data or {})
         with self._lock:
@@ -429,6 +466,8 @@ class TrialRecorder:
         _atomic_json(self.metadata_path, self.metadata.to_dict())
 
     def _touch_lock(self) -> None:
+        if not self.recording:
+            return
         try:
             self._write_lock(force=False)
         except OSError as exc:
@@ -544,6 +583,9 @@ class TrialStore:
         parameters: dict | None = None,
         notes: str = "",
         git_commit: str | None = None,
+        video_path: str | None = None,
+        operator: str | None = None,
+        tags: list[str] | None = None,
     ) -> TrialRecorder:
         if self.source is DataSource.REPLAY:
             raise PermissionError("REPLAY is read-only")
@@ -552,9 +594,16 @@ class TrialStore:
         parent = self.parent
         parent.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        trial_id = f"T-{timestamp}-{uuid.uuid4().hex[:6]}"
-        directory = parent / trial_id
-        directory.mkdir(parents=True, exist_ok=False)
+        for _ in range(20):
+            trial_id = f"T-{timestamp}-{uuid.uuid4().hex[:8]}"
+            directory = parent / trial_id
+            try:
+                directory.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise RuntimeError("could not allocate a unique trial id")
         metadata = TrialMetadata(
             trial_id=trial_id,
             name=name.strip(),
@@ -565,6 +614,9 @@ class TrialStore:
             notes=notes,
             schema_version=TRIAL_SCHEMA_VERSION,
             git_commit=git_commit,
+            video_path=video_path,
+            operator=operator,
+            tags=list(tags or []),
             files={
                 "metadata": "metadata.json",
                 "events": "events.jsonl",
@@ -631,9 +683,15 @@ class TrialStore:
             metadata = stored.metadata
             reason = "process terminated before normal stop" if lock else "recording lock missing"
             try:
-                events, _ = _read_jsonl(stored.directory / "events.jsonl")
-                frames, _ = _read_jsonl(stored.directory / "frames.jsonl")
-                record = TrialRecord(metadata=metadata, directory=stored.directory, events=events, frames=frames)
+                events, _, event_tail = _read_jsonl_meta(stored.directory / "events.jsonl")
+                frames, _, frame_tail = _read_jsonl_meta(stored.directory / "frames.jsonl")
+                record = TrialRecord(
+                    metadata=metadata,
+                    directory=stored.directory,
+                    events=events,
+                    frames=frames,
+                    truncated_tail=event_tail or frame_tail,
+                )
                 integrity = trial_integrity(record)
                 metadata.status = STATUS_INTERRUPTED
                 metadata.ended_at = utc_now_iso()
@@ -645,6 +703,7 @@ class TrialStore:
                     "dropped_frames": integrity["dropped_frames"],
                     "duplicate_frames": integrity["duplicate_frames"],
                     "restarts": integrity["restarts"],
+                    "truncated_tail": 1 if integrity["truncated_tail"] else 0,
                 }
                 event = TrialEvent(
                     "TRIAL_INTERRUPTED",
@@ -687,14 +746,15 @@ class TrialStore:
         stored = self.find(trial_id)
         if stored is None:
             raise FileNotFoundError(f"trial not found: {trial_id}")
-        events, event_errors = _read_jsonl(stored.directory / "events.jsonl")
-        frames, frame_errors = _read_jsonl(stored.directory / "frames.jsonl")
+        events, event_errors, event_tail = _read_jsonl_meta(stored.directory / "events.jsonl")
+        frames, frame_errors, frame_tail = _read_jsonl_meta(stored.directory / "frames.jsonl")
         return TrialRecord(
             metadata=stored.metadata,
             directory=stored.directory,
             events=events,
             frames=frames,
             read_errors=event_errors + frame_errors,
+            truncated_tail=event_tail or frame_tail,
         )
 
     def export_csv(self, trial_id: str) -> Path:
@@ -718,6 +778,9 @@ def summarize_trial(record: TrialRecord) -> dict[str, Any]:
         "ended_at": record.metadata.ended_at,
         "schema_version": record.metadata.schema_version,
         "git_commit": record.metadata.git_commit,
+        "video_path": record.metadata.video_path,
+        "operator": record.metadata.operator,
+        "tags": list(record.metadata.tags),
         "frames": integrity["frames"],
         "events": integrity["events"],
         "control_events": integrity["control_events"],
@@ -726,4 +789,32 @@ def summarize_trial(record: TrialRecord) -> dict[str, Any]:
         "anomalies": integrity["anomaly_events"],
         "integrity": integrity,
         "read_errors": record.read_errors,
+    }
+
+
+def comparison_summary(record: TrialRecord | dict[str, Any]) -> dict[str, Any]:
+    """Small read-only row used by the Analysis multi-trial comparison."""
+    if isinstance(record, dict):
+        metadata = TrialMetadata.from_dict(record["metadata"])
+        record = TrialRecord(
+            metadata=metadata,
+            directory=Path(record.get("directory", ".")),
+            events=list(record.get("events") or []),
+            frames=list(record.get("frames") or []),
+            read_errors=list(record.get("read_errors") or []),
+        )
+    summary = summarize_trial(record)
+    integrity = summary["integrity"]
+    metadata = record.metadata
+    return {
+        "trial": f"{metadata.trial_id} · {metadata.name}",
+        "trial_id": metadata.trial_id,
+        "source": metadata.source.value,
+        "status": metadata.status,
+        "frames": summary["frames"],
+        "control": summary["control_events"],
+        "ack": summary["ack_events"],
+        "dropped": integrity["dropped_frames"],
+        "invalid": integrity["invalid_channel_samples"],
+        "video": metadata.video_path,
     }

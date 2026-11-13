@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from datetime import datetime
 
 from nicegui import ui
@@ -34,13 +35,29 @@ def _channel_ids(records: list[dict]) -> list[int]:
     return sorted(result)
 
 
+def _option(metadata: dict) -> str:
+    return f"{metadata['trial_id']} · {metadata['name']} · {metadata['source']} · {metadata['status']}"
+
+
+def _matches(metadata: dict, source: str, status: str, search: str) -> bool:
+    if source != "ALL" and metadata.get("source") != source:
+        return False
+    if status != "ALL" and metadata.get("status") != status:
+        return False
+    if search:
+        haystack = " ".join(
+            str(metadata.get(key) or "")
+            for key in ("trial_id", "name", "operator", "video_path", "tags", "conditions")
+        ).lower()
+        if search.lower() not in haystack:
+            return False
+    return True
+
+
 def analysis_page(core) -> None:
-    state: dict = {"record": None, "index": 0, "playing": False, "channels": []}
-    initial_options: dict[str, str] = {}
-    for metadata in core.list_trials():
-        initial_options[metadata["trial_id"]] = (
-            f"{metadata['trial_id']} · {metadata['name']} · {metadata['source']} · {metadata['status']}"
-        )
+    state: dict = {"record": None, "index": 0, "playing": False, "channels": [], "comparison": []}
+    initial_trials = core.list_trials()
+    initial_options = {item["trial_id"]: _option(item) for item in initial_trials}
 
     with shell(
         "analysis",
@@ -51,18 +68,53 @@ def analysis_page(core) -> None:
     ) as refs:
         with ui.element("div").classes("card gap-3"):
             with ui.row().classes("w-full items-center gap-3"):
-                with ui.column().classes("gap-0 min-w-[260px]"):
-                    ui.label("Trial Index").classes("card-kicker")
-                    trial_select = ui.select(
-                        initial_options,
-                        value=next(iter(initial_options), None),
-                    ).props("outlined dense placeholder=\"Select a saved trial\"").style("width:420px")
-                refresh_button = ui.button("Refresh list", color="secondary").props("outline no-caps")
+                ui.label("Trial Index").classes("card-kicker")
+                source_filter = ui.select(
+                    {"ALL": "ALL sources", "SIMULATION": "SIMULATION", "LIVE": "LIVE", "REPLAY": "REPLAY"},
+                    value="ALL",
+                    label="Source",
+                ).props("outlined dense").classes("w-40")
+                status_filter = ui.select(
+                    {"ALL": "ALL status", "COMPLETED": "COMPLETED", "ABORTED": "ABORTED", "INTERRUPTED": "INTERRUPTED", "ERROR": "ERROR", "RECORDING": "RECORDING", "CREATED": "CREATED"},
+                    value="ALL",
+                    label="Status",
+                ).props("outlined dense").classes("w-44")
+                search_input = ui.input("Search", placeholder="name / id / operator / video").props("outlined dense").classes("flex-1")
+                refresh_button = ui.button("Refresh", color="secondary").props("outline no-caps")
+                export_button = ui.button("Export CSV", color="secondary").props("outline no-caps")
+                ui.label("READ-ONLY REPLAY · 不发送 PWM").classes("notice").style("width:auto")
+            with ui.row().classes("w-full items-center gap-3"):
+                trial_select = ui.select(
+                    initial_options,
+                    value=next(iter(initial_options), None),
+                ).props("outlined dense placeholder=\"Select a saved trial\"").classes("flex-1")
                 load_button = ui.button("Load trial", color="primary").props("unelevated no-caps")
-                ui.label("READ-ONLY REPLAY · 不发送 PWM").classes("notice").style("width:auto;margin-left:auto")
+            with ui.row().classes("w-full items-center gap-3"):
+                compare_select = ui.select(
+                    initial_options, value=[], multiple=True, label="Compare trials",
+                ).props("outlined dense").classes("flex-1")
+                compare_button = ui.button("Compare selected", color="secondary").props("outline no-caps")
             ui.label(
                 "回放只读取 JSONL/CSV 与元数据；此页面没有 Apply PWM 入口，也不会触碰 S3 串口。"
             ).classes("card-sub")
+            comparison_holder = ui.column().classes("w-full")
+            comparison_table = ui.table(
+                columns=[
+                    {"name": "trial", "label": "TRIAL", "field": "trial", "align": "left"},
+                    {"name": "source", "label": "SOURCE", "field": "source", "align": "left"},
+                    {"name": "status", "label": "STATUS", "field": "status", "align": "left"},
+                    {"name": "frames", "label": "FRAMES", "field": "frames", "align": "right"},
+                    {"name": "control", "label": "CONTROL", "field": "control", "align": "right"},
+                    {"name": "ack", "label": "ACK", "field": "ack", "align": "right"},
+                    {"name": "dropped", "label": "DROPPED", "field": "dropped", "align": "right"},
+                    {"name": "invalid", "label": "INVALID", "field": "invalid", "align": "right"},
+                    {"name": "video", "label": "VIDEO", "field": "video", "align": "left"},
+                ],
+                rows=[],
+                row_key="trial",
+            ).props("flat dense").classes("w-full")
+            comparison_holder.set_visibility(False)
+            comparison_table.set_visibility(False)
 
         analysis_body = ui.column().classes("w-full gap-4")
 
@@ -73,20 +125,62 @@ def analysis_page(core) -> None:
             replay_status = ui.label("No trial loaded").classes("mono")
             ui.label("replay ticker 只更新界面帧索引").classes("card-sub").style("margin-left:auto")
 
+    def filtered_trials() -> list[dict]:
+        return [
+            item for item in core.list_trials()
+            if _matches(item, source_filter.value or "ALL", status_filter.value or "ALL", (search_input.value or "").strip())
+        ]
+
     def trial_options() -> dict[str, str]:
-        options = {}
-        for metadata in core.list_trials():
-            options[metadata["trial_id"]] = (
-                f"{metadata['trial_id']} · {metadata['name']} · {metadata['source']} · {metadata['status']}"
-            )
-        return options
+        return {item["trial_id"]: _option(item) for item in filtered_trials()}
 
     def refresh_list() -> None:
         options = trial_options()
         trial_select.options = options
         if options and trial_select.value not in options:
             trial_select.value = next(iter(options))
+        if not options:
+            trial_select.value = None
         trial_select.update()
+        compare_select.options = options
+        if compare_select.value:
+            compare_select.value = [item for item in compare_select.value if item in options]
+        compare_select.update()
+
+    def compare_selected() -> None:
+        ids = list(compare_select.value or [])
+        if len(ids) < 2:
+            ui.notify("Select at least two trials to compare", type="warning")
+            return
+        rows = []
+        comparisons = []
+        for trial_id in ids[:8]:
+            try:
+                record = core.read_trial(trial_id)
+            except Exception as exc:
+                ui.notify(f"{trial_id}: {exc}", type="negative")
+                continue
+            comparisons.append(record)
+            row = comparison_summary(record)
+            row["video"] = Path(row["video"]).name if row.get("video") else "—"
+            rows.append(row)
+        state["comparison"] = comparisons
+        comparison_table.rows = rows
+        comparison_table.update()
+        comparison_table.set_visibility(bool(rows))
+        if rows:
+            ui.notify(f"Compared {len(rows)} trials (read-only)", type="info")
+
+    def export_selected() -> None:
+        trial_id = trial_select.value
+        if not trial_id:
+            ui.notify("Select a trial first", type="warning")
+            return
+        try:
+            path = core.trial_store.export_csv(trial_id)
+            ui.notify(f"CSV exported: {path}", type="positive")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative")
 
     def load_selected() -> None:
         trial_id = trial_select.value
@@ -132,6 +226,8 @@ def analysis_page(core) -> None:
             )
         if status == "ERROR" or metadata.get("write_error"):
             notice(f"TRIAL WRITE ERROR：{metadata.get('write_error') or '写入失败，详见事件日志'}。", "red")
+        if integrity.get("truncated_tail"):
+            notice("检测到不完整的 JSONL 尾行；已忽略该尾行并保留之前完整记录。", "amber")
         if integrity.get("dropped_frames") or integrity.get("frames_with_invalid_channels"):
             notice(
                 f"数据完整性：丢帧 {integrity.get('dropped_frames', 0)}，"
@@ -150,6 +246,10 @@ def analysis_page(core) -> None:
                                 f"{metadata.get('trial_id')} · {metadata.get('mode')} · {metadata.get('source')} · "
                                 f"{status} · schema v{metadata.get('schema_version', 1)} · git {git}"
                             ).classes("card-sub")
+                            ui.label(
+                                f"operator: {metadata.get('operator') or '—'} · "
+                                f"video: {metadata.get('video_path') or '—'}"
+                            ).classes("card-sub").style("word-break:break-all")
                         with ui.row().classes("items-center gap-2"):
                             source_pill = pill(metadata.get("source", "UNKNOWN"), "purple" if metadata.get("source") == "REPLAY" else "teal" if metadata.get("source") == "SIMULATION" else "blue")
                             pill(status, tone_for_state(status))
@@ -397,6 +497,11 @@ def analysis_page(core) -> None:
     step_forward.on_click(lambda: step(1))
     refresh_button.on_click(lambda: (refresh_list(), ui.notify("Trial list refreshed", type="info")))
     load_button.on_click(load_selected)
+    compare_button.on_click(compare_selected)
+    export_button.on_click(export_selected)
+    source_filter.on_value_change(lambda _: refresh_list())
+    status_filter.on_value_change(lambda _: refresh_list())
+    search_input.on_value_change(lambda _: refresh_list())
 
     refresh_list()
     if trial_select.value:

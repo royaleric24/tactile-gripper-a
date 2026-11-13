@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tactile_gripper.control import build_core
 from tactile_gripper.ui.charts import pwm_timeline_options
+from tactile_gripper.ui.pages.analysis import _matches
 from tactile_gripper.ui.server import create_ui
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -123,6 +124,26 @@ class DashboardChartTests(unittest.TestCase):
         self.assertEqual([item["value"] for item in options["series"][0]["data"]], [1500, 1520])
         self.assertEqual(options["yAxis"]["name"], "μs")
         self.assertNotIn("actual", str(options))
+
+
+class AnalysisFilterTests(unittest.TestCase):
+    def test_filters_source_status_and_search(self):
+        item = {
+            "trial_id": "T-1",
+            "name": "cup baseline",
+            "source": "SIMULATION",
+            "status": "COMPLETED",
+            "operator": "eric",
+            "video_path": "/tmp/cup.mov",
+            "tags": ["cup"],
+            "conditions": {"cup_type": "glass"},
+        }
+        self.assertTrue(_matches(item, "ALL", "ALL", ""))
+        self.assertTrue(_matches(item, "SIMULATION", "COMPLETED", "glass"))
+        self.assertTrue(_matches(item, "ALL", "ALL", "cup.mov"))
+        self.assertFalse(_matches(item, "LIVE", "ALL", ""))
+        self.assertFalse(_matches(item, "ALL", "INTERRUPTED", ""))
+        self.assertFalse(_matches(item, "ALL", "ALL", "not-present"))
 
 
 class DashboardStructureTests(unittest.TestCase):

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from tactile_gripper.devices.sensor import default_demo_config
 from tactile_gripper.errors import TrialWriteError
-from tactile_gripper.experiments.store import TrialStore, summarize_trial, trial_integrity
+from tactile_gripper.experiments.store import TrialStore, comparison_summary, summarize_trial, trial_integrity
 from tactile_gripper.models import ControlAction, ControlCommand, ControlEvent, TrialMetadata
 from tactile_gripper.sources import DataSource
 
@@ -137,7 +137,7 @@ class TrialStoreTests(unittest.TestCase):
     def test_schema_version_and_git_commit_metadata(self):
         recorder = self.store.create_trial("schema", mode="MANUAL", git_commit="a" * 40)
         metadata = json.loads((recorder.directory / "metadata.json").read_text())
-        self.assertEqual(metadata["schema_version"], 2)
+        self.assertEqual(metadata["schema_version"], 3)
         self.assertEqual(metadata["git_commit"], "a" * 40)
         legacy = dict(metadata)
         legacy.pop("schema_version")
@@ -228,11 +228,63 @@ class TrialStoreTests(unittest.TestCase):
         self.assertEqual(integrity["dropped_frames"], 1)
         self.assertEqual(integrity["restarts"], 1)
 
+    def test_video_operator_tags_and_video_update(self):
+        recorder = self.store.create_trial(
+            "video", mode="MANUAL", video_path="/tmp/capture.mp4", operator="eric", tags=["cup", "silicone"]
+        )
+        metadata = json.loads((recorder.directory / "metadata.json").read_text())
+        self.assertEqual(metadata["video_path"], "/tmp/capture.mp4")
+        self.assertEqual(metadata["operator"], "eric")
+        self.assertEqual(metadata["tags"], ["cup", "silicone"])
+        recorder.set_video_path("/tmp/capture-2.mp4")
+        self.assertEqual(recorder.metadata.video_path, "/tmp/capture-2.mp4")
+        self.assertEqual(recorder.metadata.schema_version, 3)
+        # Attaching video before Start must not create a recording lock.
+        self.assertFalse((recorder.directory / "recording.json").exists())
+        recorder.start()
+        recorder.stop("done")
+
+    def test_incomplete_final_jsonl_line_is_ignored_and_reported(self):
+        recorder = self.store.create_trial("tail", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        recorder.stop("done")
+        with open(recorder.directory / "frames.jsonl", "ab") as handle:
+            handle.write(b'{"record_type":"SENSOR_FRAME","frame_seq":2')
+        record = self.store.load(recorder.metadata.trial_id)
+        self.assertTrue(record.truncated_tail)
+        self.assertEqual(len(record.frames), 1)
+        self.assertTrue(any("incomplete final line" in item for item in record.read_errors))
+        self.assertTrue(summarize_trial(record)["integrity"]["truncated_tail"])
+
+    def test_trial_ids_are_unique(self):
+        recorder = self.store.create_trial("unique", mode="MANUAL")
+        trial_ids = {recorder.metadata.trial_id}
+        for _ in range(5):
+            trial_ids.add(self.store.create_trial("unique", mode="MANUAL").metadata.trial_id)
+        self.assertEqual(len(trial_ids), 6)
+
+    def test_comparison_summary_is_read_only_and_source_tagged(self):
+        first = self.store.create_trial("first", mode="MANUAL", video_path="/tmp/first.mov")
+        first.start()
+        first.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        first.stop("done")
+        second = self.store.create_trial("second", mode="MANUAL")
+        second.start()
+        second.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        second.stop("done")
+        row1 = comparison_summary(self.store.load(first.metadata.trial_id))
+        row2 = comparison_summary(self.store.load(second.metadata.trial_id))
+        self.assertEqual(row1["source"], "SIMULATION")
+        self.assertEqual(row1["video"], "/tmp/first.mov")
+        self.assertEqual(row1["frames"], 1)
+        self.assertNotEqual(row1["trial_id"], row2["trial_id"])
+
     def test_git_commit_is_recorded_in_integrity_metadata(self):
         recorder = self.store.create_trial("git", mode="MANUAL", git_commit="b" * 40)
         metadata = json.loads((recorder.directory / "metadata.json").read_text())
         self.assertEqual(metadata["git_commit"], "b" * 40)
-        self.assertEqual(metadata["schema_version"], 2)
+        self.assertEqual(metadata["schema_version"], 3)
 
 
 if __name__ == "__main__":

@@ -135,7 +135,7 @@ class SimulationCoreTests(unittest.TestCase):
         self.core.connect_gripper()
         self.core.begin_manual_session()
         metadata = self.core.create_trial("metadata")
-        self.assertEqual(metadata["schema_version"], 2)
+        self.assertEqual(metadata["schema_version"], 3)
         self.assertIsNotNone(metadata["git_commit"])
         self.assertIn("environment", metadata["parameters"])
         self.assertIn("python", metadata["parameters"]["environment"])
@@ -300,6 +300,22 @@ class BuildCoreTests(unittest.TestCase):
     def test_live_without_permission_is_refused(self):
         with self.assertRaises(ControlDenied):
             build_core(source="LIVE", hardware_permission=False)
+
+    def test_live_core_can_prepare_sensor_without_opening_it(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "sensor.json"
+            config_path.write_text(json.dumps({"sensor_serial": {"port": None, "baudrate": 115200}}))
+            core = build_core(
+                source="LIVE",
+                root=tmp,
+                hardware_permission=True,
+                sensor_config_path=config_path,
+            )
+            self.assertIsNotNone(core.sensor)
+            self.assertFalse(core.sensor.connected)
+            self.assertEqual(core.sensor.reconnect_attempts, 0)
+            core.shutdown()
 
     def test_live_core_without_connect_opens_no_controller(self):
         with tempfile.TemporaryDirectory() as tmp:

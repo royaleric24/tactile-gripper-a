@@ -53,6 +53,10 @@ class SensorAdapter:
         clock_ns=time.monotonic_ns,
         stale_after_s: float = DEFAULT_SENSOR_STALE_S,
         max_line_bytes: int = MAX_SENSOR_LINE_BYTES,
+        transport_factory=None,
+        reconnect_initial_s: float = 0.5,
+        reconnect_max_s: float = 10.0,
+        max_reconnect_attempts: int | None = None,
     ):
         self.transport = transport
         self.channel_config = channel_config
@@ -72,6 +76,15 @@ class SensorAdapter:
         self.last_anomalies: list = []
         self.state = "OFFLINE"
         self.started_ns = clock_ns()
+        self.transport_factory = transport_factory
+        self.reconnect_initial_s = max(0.0, float(reconnect_initial_s))
+        self.reconnect_max_s = max(self.reconnect_initial_s, float(reconnect_max_s))
+        self.max_reconnect_attempts = max_reconnect_attempts
+        self.reconnect_count = 0
+        self.reconnect_attempts = 0
+        self.last_reconnect_error: str | None = None
+        self._reconnect_delay = self.reconnect_initial_s
+        self.next_reconnect_ns = 0
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -87,6 +100,8 @@ class SensorAdapter:
         self.state = "WAITING"
         self.started_ns = self.clock_ns()
         self.last_error = None
+        self.last_reconnect_error = None
+        self.next_reconnect_ns = 0
         return self.status()
 
     def close(self) -> None:
@@ -107,9 +122,7 @@ class SensorAdapter:
             try:
                 line = self.transport.readline(remaining)
             except Exception as exc:
-                self.connected = False
-                self.state = "OFFLINE"
-                self.last_error = f"transport: {exc}"
+                self._mark_offline(f"transport: {exc}")
                 raise SensorOffline(f"transport read failed: {exc}") from exc
             if line is None:
                 break
@@ -126,6 +139,45 @@ class SensorAdapter:
                 break
         self._update_state()
         return None
+
+    def _mark_offline(self, reason: str) -> None:
+        self.connected = False
+        self.state = "OFFLINE"
+        self.last_error = reason
+        self._reconnect_delay = self.reconnect_initial_s
+        self.next_reconnect_ns = self.clock_ns() + int(self._reconnect_delay * 1_000_000_000)
+        try:
+            self.transport.close()
+        except Exception:
+            pass
+
+    def maybe_reconnect(self) -> bool:
+        """Attempt one bounded reconnect attempt.  Never runs implicitly in connect()."""
+        if self.connected or self.transport_factory is None:
+            return False
+        now = self.clock_ns()
+        if now < self.next_reconnect_ns:
+            return False
+        if self.max_reconnect_attempts is not None and self.reconnect_attempts >= self.max_reconnect_attempts:
+            return False
+        self.reconnect_attempts += 1
+        try:
+            new_transport = self.transport_factory()
+            new_transport.connect()
+        except Exception as exc:
+            self.last_reconnect_error = str(exc)
+            self._reconnect_delay = min(self.reconnect_max_s, max(self.reconnect_initial_s, self._reconnect_delay * 2))
+            self.next_reconnect_ns = now + int(self._reconnect_delay * 1_000_000_000)
+            return False
+        self.transport = new_transport
+        self.connected = True
+        self.state = "WAITING"
+        self.last_error = None
+        self.last_reconnect_error = None
+        self.reconnect_count += 1
+        self._reconnect_delay = self.reconnect_initial_s
+        self.next_reconnect_ns = 0
+        return True
 
     def _handle_line(self, line: bytes | str) -> TactileFrame | None:
         self.last_anomalies = []
@@ -201,6 +253,18 @@ class SensorAdapter:
             "recent_anomalies": self.tracker.recent_anomalies(10),
             "last_error_message": self.last_error_message.raw if self.last_error_message else None,
             "channel_config_status": self.channel_config.status if self.channel_config else None,
+            "matrix": (
+                [self.channel_config.matrix_rows, self.channel_config.matrix_cols]
+                if self.channel_config is not None
+                else None
+            ),
+            "reconnect_count": self.reconnect_count,
+            "reconnect_attempts": self.reconnect_attempts,
+            "last_reconnect_error": self.last_reconnect_error,
+            "next_reconnect_ns": self.next_reconnect_ns,
+            "transport": type(self.transport).__name__,
+            "oversize_lines": getattr(self.transport, "oversize_lines", 0),
+            "anomaly_overflow_count": self.tracker.anomaly_overflow_count,
         }
         if self.last_hello is not None:
             detail["hello"] = {

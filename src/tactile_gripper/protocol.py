@@ -408,6 +408,7 @@ class FrameTracker:
         self.dropped_frames = 0
         self.restart_count = 0
         self.accepted_frames = 0
+        self.anomaly_overflow_count = 0
         self.anomalies: deque[FrameAnomaly] = deque(maxlen=max_anomalies)
 
     def reset(self) -> None:
@@ -418,6 +419,8 @@ class FrameTracker:
 
     def _record(self, anomalies: list[FrameAnomaly], anomaly: FrameAnomaly) -> None:
         anomalies.append(anomaly)
+        if len(self.anomalies) >= self.anomalies.maxlen:
+            self.anomaly_overflow_count += 1
         self.anomalies.append(anomaly)
 
     def accept(self, frame: TactileFrame) -> list[FrameAnomaly]:

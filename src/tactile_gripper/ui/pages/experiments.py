@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from datetime import datetime
 
 from nicegui import ui
@@ -57,13 +58,18 @@ def experiments_page(core) -> None:
                     name_input = ui.input("Trial name", placeholder="e.g. silicone cup baseline").props("outlined dense").classes("w-full")
                     with ui.row().classes("w-full gap-2"):
                         object_input = ui.input("Object", placeholder="cup / block / none").props("outlined dense").classes("flex-1")
+                        cup_type_input = ui.input("Cup type", placeholder="glass / paper / none").props("outlined dense").classes("flex-1")
+                    with ui.row().classes("w-full gap-2"):
                         material_input = ui.select(
                             ["UNKNOWN", "FABRIC", "SILICONE", "OTHER"],
                             value="UNKNOWN",
                             label="Material",
                         ).props("outlined dense").classes("w-36")
+                        water_mass_input = ui.number("Water / mass (g)", value=None, min=0, step=1).props("outlined dense").classes("flex-1")
+                        operator_input = ui.input("Operator", placeholder="initials").props("outlined dense").classes("w-28")
                     target_input = ui.input("Grasp target / condition", placeholder="e.g. 1500 μs approach").props("outlined dense").classes("w-full")
-                    notes_input = ui.textarea("Notes", placeholder="Setup, observations, operator").props("outlined dense").classes("w-full")
+                    video_input = ui.input("Video path", placeholder="/path/to/capture.mov (optional)").props("outlined dense").classes("w-full")
+                    notes_input = ui.textarea("Notes", placeholder="Setup, observations").props("outlined dense").classes("w-full")
                     create_button = ui.button("Create Trial", color="primary").props("unelevated no-caps").classes("w-full").style("height:42px")
                     source_note = ui.label("").classes("card-sub")
                     ui.label(
@@ -92,6 +98,10 @@ def experiments_page(core) -> None:
                     trial_alert.set_visibility(False)
                     active_counts = ui.label("frames 0 · events 0").classes("mono")
                     active_dir = ui.label("—").classes("mono").style("color:#94a3b8;word-break:break-all")
+                    active_video = ui.label("video: —").classes("card-sub")
+                    with ui.row().classes("w-full items-center gap-2"):
+                        attach_video_input = ui.input("Attach / update video path", placeholder="/path/to/capture.mov").props("outlined dense").classes("flex-1")
+                        attach_video_button = ui.button("Attach video", color="secondary").props("outline no-caps")
                     ui.element("div").classes("hairline")
                     with ui.row().classes("w-full items-center gap-2"):
                         event_input = ui.input("Event message", placeholder="operator note / anomaly").props("outlined dense").classes("flex-1")
@@ -120,6 +130,7 @@ def experiments_page(core) -> None:
                             {"name": "mode", "label": "MODE", "field": "mode", "align": "left"},
                             {"name": "status", "label": "STATUS", "field": "status", "align": "left"},
                             {"name": "frames", "label": "FRAMES", "field": "frames", "align": "right"},
+                            {"name": "video", "label": "VIDEO", "field": "video", "align": "left"},
                             {"name": "created", "label": "CREATED", "field": "created", "align": "left"},
                         ],
                         rows=[],
@@ -147,6 +158,9 @@ def experiments_page(core) -> None:
             trial_id_label.set_text("—")
             active_counts.set_text("frames 0 · events 0")
             active_dir.set_text("—")
+            active_video.set_text("video: —")
+            attach_video_input.value = ""
+            attach_video_button.set_enabled(False)
             start_button.set_enabled(False)
             stop_button.set_enabled(False)
             abort_button.set_enabled(False)
@@ -161,6 +175,11 @@ def experiments_page(core) -> None:
             active_name.set_text(metadata.name)
             active_meta.set_text(f"{metadata.source.value} · {metadata.mode} · started {_clock(metadata.started_at)}")
             trial_id_label.set_text(metadata.trial_id)
+            video = metadata.video_path or "—"
+            exists = " (file found)" if metadata.video_path and Path(metadata.video_path).is_file() else ""
+            active_video.set_text(f"video: {video}{exists}")
+            attach_video_input.value = metadata.video_path or ""
+            attach_video_button.set_enabled(True)
             active_counts.set_text(
                 f"frames {trial.frame_count} · events {trial.event_count}"
                 + (f" · dropped {trial.dropped_frames}" if trial.dropped_frames else "")
@@ -226,6 +245,7 @@ def experiments_page(core) -> None:
                     "mode": metadata.get("mode"),
                     "status": metadata.get("status"),
                     "frames": frames,
+                    "video": (Path(metadata.get("video_path")).name if metadata.get("video_path") else "—"),
                     "created": _clock(metadata.get("created_at")),
                 }
             )
@@ -239,13 +259,20 @@ def experiments_page(core) -> None:
             return
         conditions = {
             "object": (object_input.value or "UNKNOWN").strip() or "UNKNOWN",
+            "cup_type": (cup_type_input.value or "UNKNOWN").strip() or "UNKNOWN",
             "material": material_input.value or "UNKNOWN",
+            "water_mass_g": float(water_mass_input.value) if water_mass_input.value is not None else None,
             "grasp_target": (target_input.value or "").strip() or "UNKNOWN",
             "protocol_note": "conditions entered by operator; no force/angle claim",
         }
         try:
             metadata = await asyncio.to_thread(
-                core.create_trial, name, conditions=conditions, notes=(notes_input.value or "")
+                core.create_trial,
+                name,
+                conditions=conditions,
+                notes=(notes_input.value or ""),
+                operator=(operator_input.value or "").strip() or None,
+                video_path=(video_input.value or "").strip() or None,
             )
             ui.notify(f"Trial created: {metadata['trial_id']}", type="positive")
         except Exception as exc:
@@ -274,6 +301,15 @@ def experiments_page(core) -> None:
             ui.notify(f"Trial aborted and saved as ABORTED: {metadata['trial_id']}", type="warning")
         except Exception as exc:
             ui.notify(str(exc), type="negative", timeout=6000)
+        refresh()
+
+    async def attach_video() -> None:
+        path = (attach_video_input.value or "").strip() or None
+        try:
+            await asyncio.to_thread(core.set_trial_video, path)
+            ui.notify("Video path updated", type="positive")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative")
         refresh()
 
     async def add_event() -> None:
@@ -309,6 +345,7 @@ def experiments_page(core) -> None:
     start_button.on_click(start_trial)
     stop_button.on_click(stop_trial)
     abort_button.on_click(abort_trial)
+    attach_video_button.on_click(attach_video)
     add_event_button.on_click(add_event)
     export_button.on_click(export_csv)
 

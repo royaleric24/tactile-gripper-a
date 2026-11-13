@@ -598,6 +598,9 @@ class TrialMetadata:
     schema_version: int = TRIAL_SCHEMA_VERSION
     git_commit: str | None = None
     write_error: str | None = None
+    video_path: str | None = None
+    operator: str | None = None
+    tags: list[str] = field(default_factory=list)
     files: dict[str, str] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
 
@@ -622,6 +625,9 @@ class TrialMetadata:
             "schema_version": self.schema_version,
             "git_commit": self.git_commit,
             "write_error": self.write_error,
+            "video_path": self.video_path,
+            "operator": self.operator,
+            "tags": list(self.tags),
             "files": self.files,
             "counts": self.counts,
         }
@@ -653,6 +659,9 @@ class TrialMetadata:
             schema_version=int(value.get("schema_version", 1)),
             git_commit=value.get("git_commit"),
             write_error=value.get("write_error"),
+            video_path=value.get("video_path"),
+            operator=value.get("operator"),
+            tags=list(value.get("tags") or []),
             files=dict(value.get("files") or {}),
             counts=dict(value.get("counts") or {}),
         )

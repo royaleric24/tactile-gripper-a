@@ -84,6 +84,7 @@ def live_page(core) -> None:
                             ui.label("Tactile Field").classes("card-title")
                             ui.label("原始 ADC 计数 · 无效通道不当作零接触").classes("card-sub")
                         with ui.row().classes("items-center gap-3"):
+                            sensor_connect_button = ui.button("Connect sensor", color="secondary").props("outline no-caps")
                             demo_switch = ui.switch("SIMULATION demo", value=False).props("dense")
                             source_pill = pill("SIMULATION", "teal")
                     chart_holder = ui.column().classes("w-full")
@@ -227,9 +228,17 @@ def live_page(core) -> None:
             f"{gripper.get('firmware_version') or 'firmware UNKNOWN'} · boot {gripper.get('boot_id') or '—'}"
         )
         sensor_value.set_text(snapshot["sensor_state_label"])
+        rate = snapshot.get("sensor_sample_rate_hz")
+        freshness = snapshot.get("sensor_freshness_ns")
+        freshness_text = "age —" if freshness is None else f"age {freshness / 1e9:.2f}s"
         sensor_caption.set_text(
-            f"{snapshot['sensor'].get('channel_count') or '—'} ch · {snapshot['frames_received']} frames · "
-            f"{snapshot['sensor'].get('last_error') or 'no sensor error'}"
+            f"{snapshot['sensor'].get('channel_count') or '—'} ch"
+            + (f" · matrix {snapshot['sensor']['detail'].get('matrix')[0]}×{snapshot['sensor']['detail'].get('matrix')[1]}"
+               if (snapshot['sensor'].get('detail') or {}).get('matrix') and (snapshot['sensor']['detail']['matrix'][0] is not None) else "")
+            + f" · {snapshot['frames_received']} frames · "
+            f"{f'{rate:.1f} Hz' if rate else 'rate UNKNOWN'} · {freshness_text}"
+            + (f" · reconnect {snapshot.get('sensor_reconnect_count', 0)}" if snapshot.get("sensor_reconnect_count") else "")
+            + (f" · {snapshot['sensor'].get('last_error')}" if snapshot['sensor'].get('last_error') else "")
         )
         mode_value.set_text(snapshot["mode"])
         mode_caption.set_text(
@@ -332,6 +341,12 @@ def live_page(core) -> None:
         decision_table.rows = [_format_event(item) for item in (snapshot.get("recent_events") or [])[:8]]
         decision_table.update()
 
+        demo_switch.set_visibility(core.source is DataSource.SIMULATION)
+        sensor_connect_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
+        if core.source is DataSource.LIVE and core.sensor is not None:
+            sensor_connected = bool(snapshot.get("sensor_connected"))
+            sensor_connect_button.set_text("Sensor connected" if sensor_connected else "Connect sensor")
+            sensor_connect_button.set_enabled(not sensor_connected)
         if core.source is DataSource.SIMULATION:
             connected = bool(snapshot.get("sensor_connected"))
             if demo_switch.value != connected:
@@ -397,6 +412,14 @@ def live_page(core) -> None:
             ui.notify(str(exc), type="negative", timeout=6000)
         refresh()
 
+    async def connect_sensor() -> None:
+        try:
+            await asyncio.to_thread(core.connect_sensor)
+            ui.notify("Sensor transport connected; protocol still PROPOSED", type="positive")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", timeout=6000)
+        refresh()
+
     async def on_demo_change(event) -> None:
         if state["syncing"]:
             return
@@ -413,6 +436,7 @@ def live_page(core) -> None:
     connect_button.on_click(toggle_connection)
     manual_mode_button.on_click(set_manual_mode)
     standby_mode_button.on_click(set_standby_mode)
+    sensor_connect_button.on_click(connect_sensor)
     fault_reset_button.on_click(reset_fault)
     demo_switch.on_value_change(on_demo_change)
 

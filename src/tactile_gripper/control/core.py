@@ -16,6 +16,7 @@ from ..devices.sensor import (
     SimulatedSensorAdapter,
     default_demo_config,
 )
+from ..devices.sensor_serial import SerialSensorConfig, serial_sensor_adapter
 from ..errors import (
     ControlDenied,
     FrameValidationError,
@@ -96,6 +97,7 @@ class ApplicationCore:
         self.mode = Mode.STANDBY
         self.fault_reason: str | None = None
         self.events: deque[dict[str, Any]] = deque(maxlen=250)
+        self.event_overflow_count = 0
         self._lock = threading.RLock()
         self._busy = False
         self.latest_frame: TactileFrame | None = None
@@ -111,15 +113,20 @@ class ApplicationCore:
 
     # -- event log ---------------------------------------------------------
 
+    def _push_event(self, payload: dict[str, Any]) -> None:
+        if len(self.events) >= self.events.maxlen:
+            self.event_overflow_count += 1
+        self.events.append(payload)
+
     def _append(self, event: ControlEvent) -> ControlEvent:
         payload = event.to_dict()
-        self.events.append(payload)
+        self._push_event(payload)
         self.last_control_event = payload
         if self.trial is not None:
             try:
                 self.trial.record_control(event)
             except ValueError as exc:
-                self.events.append(
+                self._push_event(
                     ControlEvent(
                         action="SYSTEM",
                         stage="WARNING",
@@ -145,7 +152,7 @@ class ApplicationCore:
             mode=self.mode.value,
             detail=self.trial_error,
         ).to_dict()
-        self.events.append(payload)
+        self._push_event(payload)
         self.last_control_event = payload
 
     def _system(self, action: str, detail: str, **data) -> ControlEvent:
@@ -201,6 +208,33 @@ class ApplicationCore:
             self._system("CONNECT", f"gripper connected ({self.source.value})")
             return status
 
+    def shutdown(self) -> None:
+        """Best-effort resource cleanup; does not claim a safe mechanical stop."""
+        with self._lock:
+            if self.trial is not None and self.trial.recording:
+                try:
+                    self.stop_trial("application shutdown", aborted=True)
+                except Exception as exc:
+                    self.trial_error = str(exc)
+            if self.trial is not None:
+                try:
+                    self.trial.close()
+                except Exception:
+                    pass
+                self.trial = None
+            if self.sensor is not None:
+                try:
+                    self.sensor.close()
+                except Exception:
+                    pass
+            if self.gripper is not None:
+                try:
+                    self.gripper.close()
+                except Exception as exc:
+                    self.last_sensor_error = f"gripper close failed: {exc}"
+            self.mode = Mode.STANDBY
+            self.fault_reason = None
+
     def disconnect_gripper(self) -> None:
         with self._lock:
             if self.trial is not None and self.trial.recording:
@@ -245,7 +279,13 @@ class ApplicationCore:
     # -- modes -------------------------------------------------------------
 
     def auto_available(self) -> tuple[bool, list[str]]:
-        reasons = ["AUTO 闭环算法未实现（S2-B 仍不启用）"]
+        from .auto import AUTO_REAL_ENABLED
+
+        reasons = ["V1.0 真实 AUTO 强制禁用（AUTO_REAL_ENABLED=False）"]
+        if not AUTO_REAL_ENABLED:
+            reasons.append("等待传感器协议、PWM 方向/范围、触觉标定与实测验证")
+        else:
+            reasons = ["AUTO 闭环算法未实现"]
         if self.source is not DataSource.LIVE:
             reasons.append("数据来源不是 LIVE")
         if self.sensor is None or getattr(self.sensor, "state", "OFFLINE") != "STREAMING":
@@ -411,6 +451,28 @@ class ApplicationCore:
 
     # -- sensors -----------------------------------------------------------
 
+    def connect_sensor(self) -> dict[str, Any]:
+        with self._lock:
+            if self.sensor is None:
+                raise ControlDenied("no sensor adapter configured")
+            try:
+                status = self.sensor.connect()
+            except SensorOffline as exc:
+                self.last_sensor_error = str(exc)
+                self._append(
+                    ControlEvent(
+                        action="SENSOR",
+                        stage="CONNECT_FAILED",
+                        source=self.source,
+                        mode=self.mode.value,
+                        detail=self.last_sensor_error,
+                    )
+                )
+                raise
+            self.last_sensor_error = None
+            self._system("SENSOR_CONNECT", "sensor transport connected; no control write")
+            return status.to_dict()
+
     def set_demo_stream(self, enabled: bool) -> DeviceStatus | None:
         with self._lock:
             if self.source is not DataSource.SIMULATION:
@@ -439,6 +501,19 @@ class ApplicationCore:
             return
         try:
             if not self.sensor.connected:
+                before = getattr(self.sensor, "reconnect_attempts", 0)
+                try:
+                    reconnected = bool(self.sensor.maybe_reconnect())
+                except Exception as exc:
+                    self.last_sensor_error = f"sensor reconnect failed: {exc}"
+                    return
+                if reconnected:
+                    self._system("SENSOR_RECONNECT", "sensor serial transport reconnected")
+                elif getattr(self.sensor, "reconnect_attempts", 0) != before:
+                    self.last_sensor_error = (
+                        getattr(self.sensor, "last_reconnect_error", None)
+                        or "sensor reconnect attempt failed"
+                    )
                 return
         except AttributeError:
             return
@@ -529,6 +604,9 @@ class ApplicationCore:
         *,
         conditions: dict | None = None,
         notes: str = "",
+        operator: str | None = None,
+        video_path: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             if self.source is DataSource.REPLAY:
@@ -570,6 +648,9 @@ class ApplicationCore:
                 parameters=parameters,
                 notes=notes,
                 git_commit=environment["git_commit"],
+                video_path=video_path,
+                operator=operator,
+                tags=tags,
             )
             self.trial_error = None
             self._system("TRIAL_CREATED", f"trial {self.trial.metadata.trial_id} created")
@@ -607,6 +688,14 @@ class ApplicationCore:
             self.trial_error = None
             self._system("TRIAL_STOP", f"trial {metadata.trial_id} stopped: {reason}")
             return self.last_trial
+
+    def set_trial_video(self, path: str | None) -> dict[str, Any]:
+        with self._lock:
+            if self.trial is None:
+                raise ControlDenied("no active trial")
+            metadata = self.trial.set_video_path(path)
+            self._system("TRIAL_VIDEO", f"video path set to {path or 'NONE'}")
+            return metadata.to_dict()
 
     def add_trial_event(self, event_type: str, message: str, data: dict | None = None) -> dict[str, Any]:
         with self._lock:
@@ -724,6 +813,9 @@ class ApplicationCore:
             elif self.last_trial is not None:
                 trial = self.last_trial
                 trial["recording"] = False
+            freshness_ns = None
+            if sensor_status.get("last_host_received_ns"):
+                freshness_ns = max(0, self.clock_ns() - int(sensor_status["last_host_received_ns"]))
             return {
                 "time": utc_now_iso(),
                 "mode": self.mode.value,
@@ -750,6 +842,12 @@ class ApplicationCore:
                 "recent_events": list(self.events)[-15:][::-1],
                 "manual_session_active": self._manual_session_active(),
                 "sensor_connected": sensor_status.get("connected", False),
+                "sensor_freshness_ns": freshness_ns,
+                "sensor_sample_rate_hz": sensor_status.get("sample_rate_hz"),
+                "sensor_reconnect_count": (sensor_status.get("detail") or {}).get("reconnect_count", 0),
+                "sensor_reconnect_attempts": (sensor_status.get("detail") or {}).get("reconnect_attempts", 0),
+                "sensor_oversize_lines": (sensor_status.get("detail") or {}).get("oversize_lines", 0),
+                "event_overflow_count": self.event_overflow_count,
             }
 
 
@@ -762,6 +860,10 @@ def build_core(
     port: str | None = None,
     connect: bool = False,
     sensor_file: Path | str | None = None,
+    sensor_port: str | None = None,
+    sensor_baud: int | None = None,
+    sensor_config_path: Path | str | None = None,
+    connect_sensor: bool = False,
 ) -> ApplicationCore:
     source = parse_source(source)
     gripper = None
@@ -776,10 +878,18 @@ def build_core(
         if source is not DataSource.REPLAY:
             raise ControlDenied("sensor_file replay requires --source REPLAY")
         sensor = ReplaySensorAdapter(sensor_file)
+    elif source is DataSource.LIVE and (sensor_port is not None or sensor_config_path is not None):
+        sensor_config = SerialSensorConfig.from_file(sensor_config_path).with_port(
+            sensor_port,
+            sensor_baud,
+        )
+        sensor = serial_sensor_adapter(sensor_config)
     core = ApplicationCore(root=root, source=source, gripper=gripper, sensor=sensor)
     if connect:
         if source is DataSource.REPLAY:
             raise ControlDenied("REPLAY cannot connect a gripper")
         core.connect_gripper(port)
         core.begin_manual_session()
+    if connect_sensor:
+        core.connect_sensor()
     return core

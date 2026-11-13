@@ -1,0 +1,16 @@
+{
+  "_note": "No real sensor port is assigned. The sensor protocol is PROPOSED v0.1; open a port only with explicit authorization.",
+  "sensor_serial": {
+    "port": null,
+    "baudrate": 115200,
+    "bytesize": 8,
+    "parity": "N",
+    "stopbits": 1,
+    "read_timeout_s": 0.1,
+    "boot_wait_s": 0.0,
+    "max_line_bytes": 16384,
+    "reconnect_enabled": true,
+    "reconnect_initial_s": 0.5,
+    "reconnect_max_s": 10.0
+  }
+}
