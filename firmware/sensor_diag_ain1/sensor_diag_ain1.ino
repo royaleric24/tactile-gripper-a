@@ -4,7 +4,7 @@
 
 #include "../sensor/ads1220.cpp"
 
-const char* VERSION = "tactile-sense-diag-ain1-0.1.2";
+const char* VERSION = "tactile-sense-diag-ain1-0.1.3";
 const uint8_t FIXED_ADC_INDEX = 1;  // ADC2
 const uint8_t FIXED_MUX = 9;        // AIN1 vs AVSS
 const uint8_t FIXED_REG0 = 0x91;    // AIN1, gain 1, PGA bypass
@@ -12,6 +12,7 @@ const uint8_t FIXED_REG2 = 0xC0;    // AVDD-AVSS, no IDAC/PSW
 const uint8_t FIXED_REG3 = 0x02;    // DRDYM=1: DOUT/DRDY data-ready indication
 char line[640];
 uint32_t seq = 0;
+uint32_t last_hello_ms = 0;
 bool adc2_ok = false;
 uint8_t adc2_config[4] = {FIXED_REG0, 0x80, FIXED_REG2, FIXED_REG3};
 
@@ -60,9 +61,25 @@ void setup() {
   devices[2].configure(aux, readback);
   adc2_ok = devices[FIXED_ADC_INDEX].configure(adc2_config, readback);
   sendHello();
+  last_hello_ms = millis();
 }
 
 void loop() {
+  // Handshake: HELLO on request or every second, so a host connecting after
+  // boot can always recover identity without a reset.
+  if (Serial.available()) {
+    while (Serial.available()) {
+      const int c = Serial.read();
+      if (c == 'H' || c == 'h') {
+        sendHello();
+        last_hello_ms = millis();
+      }
+    }
+  }
+  if (millis() - last_hello_ms >= 1000) {
+    sendHello();
+    last_hello_ms = millis();
+  }
   uint8_t before[4] = {0}, after[4] = {0};
   devices[FIXED_ADC_INDEX].readRegisters(0, before, 4);
   bool reconfigured = false;

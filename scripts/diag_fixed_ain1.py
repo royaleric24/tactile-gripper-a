@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Host for the fixed ADC2-AIN1 diagnostic firmware.
+"""Reliable host for the fixed ADC2-AIN1 diagnostic firmware.
 
-The firmware must be `tactile-sense-diag-ain1-0.1.0` or newer.  This host does
-not use the normal SAMPLE/HELLO protocol; it reads DIAG_HELLO/DIAG_SAMPLE lines.
+- raw bytes are written to raw.bin and raw_hex.log;
+- only complete, strictly validated DIAG_SAMPLE lines are recorded;
+- a HELLO request is sent and periodic HELLO is also accepted;
+- no PASS threshold is applied.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.tactile_acq.transport import SerialSession
+from tools.cup_grasp.diag_serial import DiagProtocolError, LineFramer, parse_diag_line
 
 
 def mean(values):
@@ -32,54 +34,104 @@ def main(argv=None) -> int:
     parser.add_argument("--port", default="/dev/cu.usbserial-EXAMPLE_ESP32")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument("--seconds", type=float, default=3.0)
-    parser.add_argument("--avdd-mv", type=float, default=3390.0)
+    parser.add_argument("--avdd-mv", type=float, default=3388.0)
     parser.add_argument("--label", default="R4C3")
+    parser.add_argument("--hello-timeout", type=float, default=8.0)
     args = parser.parse_args(argv)
-    session = SerialSession(args.port, baud=args.baud)
-    session.open()
+    import serial
+    try:
+        ser = serial.Serial(args.port, args.baud, timeout=0.05, exclusive=True)
+    except (serial.SerialException, OSError) as exc:
+        print("OPEN FAILED: {}".format(exc), file=sys.stderr)
+        return 2
+    try:
+        ser.dtr = False
+        ser.rts = False
+    except Exception:
+        pass
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+    out = ROOT / "data/real/diag_fixed_ain1" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:6])
+    out.mkdir(parents=True, exist_ok=True)
+    raw_bin = open(out / "raw.bin", "wb")
+    raw_hex = open(out / "raw_hex.log", "w", encoding="utf-8")
+    framer = LineFramer()
     hello = None
     bad_lines = []
-    deadline = time.monotonic() + 6.0
-    while time.monotonic() < deadline and hello is None:
-        for raw in session.read_available():
-            text = raw.decode("utf-8", errors="replace")
-            try:
-                item = json.loads(text)
-            except ValueError:
-                bad_lines.append(text); continue
-            if item.get("type") == "DIAG_HELLO":
-                hello = item; break
-        time.sleep(0.003)
-    if hello is None:
-        print("NO DIAG_HELLO: is the fixed-AIN1 diagnostic firmware flashed?", file=sys.stderr)
-        for line in bad_lines[-10:]: print("RAW", line, file=sys.stderr)
-        session.close(); return 2
+    raw_bytes = 0
+
+    def read_chunk():
+        chunk = ser.read(4096)
+        if not chunk:
+            return b""
+        raw_bin.write(chunk); raw_bin.flush()
+        raw_hex.write("{} {}\n".format(time.monotonic_ns(), chunk.hex())); raw_hex.flush()
+        return chunk
+
+    # Handshake: request HELLO explicitly; periodic HELLO is also accepted.
+    try:
+        ser.write(b"HELLO\n"); ser.flush()
+        deadline = time.monotonic() + args.hello_timeout
+        while time.monotonic() < deadline and hello is None:
+            chunk = read_chunk()
+            if not chunk:
+                continue
+            raw_bytes += len(chunk)
+            for line in framer.feed(chunk):
+                try:
+                    kind, item = parse_diag_line(line)
+                except DiagProtocolError as exc:
+                    bad_lines.append({"error": str(exc), "raw_hex": line.hex(),
+                                      "raw_text": line.decode("utf-8", errors="replace")})
+                    continue
+                if kind == "DIAG_HELLO":
+                    hello = item
+                    break
+    finally:
+        if hello is None:
+            raw_bin.close(); raw_hex.close(); ser.close()
+            print("NO DIAG_HELLO after {:.1f}s; raw bytes saved: {}".format(args.hello_timeout, out / "raw_hex.log"), file=sys.stderr)
+            print("BAD LINE COUNT: {}; last errors:".format(len(bad_lines)), file=sys.stderr)
+            for item in bad_lines[-5:]:
+                print("  {} raw={}".format(item["error"], item["raw_hex"][:120]), file=sys.stderr)
+            return 2
     print("DIAG_HELLO", json.dumps(hello, indent=2))
     rows = []
     phases = []
     lock = threading.Lock()
     stop = threading.Event()
+    reader_error = {"value": None}
 
     def reader():
+        nonlocal raw_bytes
         while not stop.is_set():
             try:
-                lines = session.read_available()
+                chunk = ser.read(4096)
             except Exception as exc:
-                print("READER_ERROR", exc, file=sys.stderr); return
-            for raw in lines:
-                text = raw.decode("utf-8", errors="replace")
+                reader_error["value"] = str(exc); return
+            if not chunk:
+                continue
+            with lock:
+                raw_bytes += len(chunk)
+            raw_bin.write(chunk); raw_bin.flush()
+            raw_hex.write("{} {}\n".format(time.monotonic_ns(), chunk.hex())); raw_hex.flush()
+            for line in framer.feed(chunk):
                 try:
-                    item = json.loads(text)
-                except ValueError:
-                    with lock: bad_lines.append(text)
+                    kind, item = parse_diag_line(line)
+                except DiagProtocolError as exc:
+                    with lock:
+                        bad_lines.append({"error": str(exc), "raw_hex": line.hex(),
+                                          "raw_text": line.decode("utf-8", errors="replace")})
                     continue
-                if item.get("type") != "DIAG_SAMPLE":
-                    continue
-                item["host_monotonic_ns"] = time.monotonic_ns()
-                with lock: rows.append(item)
-            time.sleep(0.002)
+                if kind == "DIAG_SAMPLE":
+                    item["host_monotonic_ns"] = time.monotonic_ns()
+                    with lock: rows.append(item)
+            time.sleep(0.001)
 
     thread = threading.Thread(target=reader, daemon=True); thread.start()
+
     def mark(label, start):
         phases.append({"phase": label, "start_ns": start, "end_ns": time.monotonic_ns()})
     try:
@@ -94,13 +146,17 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        stop.set(); thread.join(timeout=2.0); session.close()
-    out = ROOT / "data/real/diag_fixed_ain1" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:6])
-    out.mkdir(parents=True, exist_ok=True)
+        stop.set(); thread.join(timeout=2.0); ser.close()
+        raw_bin.close(); raw_hex.close()
     with open(out / "samples.jsonl", "w") as h:
         for row in rows: h.write(json.dumps(row) + "\n")
+    with open(out / "bad_lines.jsonl", "w") as h:
+        for item in bad_lines: h.write(json.dumps(item) + "\n")
     summary = {"trial_id": out.name, "hello": hello, "label": args.label,
-               "avdd_mv": args.avdd_mv, "phases": []}
+               "avdd_mv": args.avdd_mv, "raw_bytes": raw_bytes,
+               "raw_bin": str(out / "raw.bin"), "raw_hex": str(out / "raw_hex.log"),
+               "bad_lines": len(bad_lines), "reader_error": reader_error["value"],
+               "phases": []}
     for phase in phases:
         items = [r for r in rows if phase["start_ns"] <= r["host_monotonic_ns"] < phase["end_ns"]]
         counts = [r["counts"] for r in items if r.get("read_ok") and isinstance(r.get("counts"), int)]
@@ -108,8 +164,8 @@ def main(argv=None) -> int:
         mux_ok = sum(1 for r in items if r.get("mux_before") == 9 and r.get("mux_after") == 9)
         vref_ok = sum(1 for r in items if r.get("vref_before") == 3 and r.get("vref_after") == 3)
         reg3_ok = sum(1 for r in items if r.get("reg3_before") == 2 and r.get("reg3_after") == 2)
-        post_cs_high = sum(1 for r in items if r.get("post_cs_high") is True)
-        restored_before_cs = sum(1 for r in items if r.get("restored_before_cs") is True)
+        restored = sum(1 for r in items if r.get("restored_before_cs") is True)
+        post_high = sum(1 for r in items if r.get("post_cs_high") is True)
         raw_counts = {}
         for r in items:
             if r.get("raw"): raw_counts[r["raw"]] = raw_counts.get(r["raw"], 0) + 1
@@ -119,8 +175,7 @@ def main(argv=None) -> int:
             "high_seen": sum(1 for r in items if r.get("high_seen")),
             "read_ok": sum(1 for r in items if r.get("read_ok")),
             "mux_ok": mux_ok, "vref_ok": vref_ok, "reg3_ok": reg3_ok,
-            "post_cs_high": post_cs_high, "restored_before_cs": restored_before_cs,
-            "reconfigured": sum(1 for r in items if r.get("reconfigured")),
+            "restored_before_cs": restored, "post_cs_high": post_high,
             "counts_mean": mean(counts), "counts_min": min(counts) if counts else None,
             "counts_max": max(counts) if counts else None,
             "volts_mean": mean(volts), "volts_min": min(volts) if volts else None,
@@ -130,8 +185,9 @@ def main(argv=None) -> int:
     (out / "SUMMARY.json").write_text(json.dumps(summary, indent=2) + "\n")
     lines = ["# Fixed ADC2 AIN1 Diagnostic", "",
              "- firmware: {}".format(hello.get("firmware")), "- label: {} (USER_REPORTED)".format(args.label),
-             "- fixed MUX: AIN1/AVSS (Reg0=0x91), VREF=AVDD_AVSS (Reg2=0xC0), DRDYM=1 (Reg3=0x02)",
-             "- AVDD used for display: {} mV (not measured by this host)".format(args.avdd_mv), "",
+             "- fixed MUX AIN1/AVSS, VREF=AVDD_AVSS, DRDYM=1",
+             "- raw bytes: {}; malformed lines: {}".format(raw_bytes, len(bad_lines)),
+             "- AVDD used for display: {} mV".format(args.avdd_mv), "",
              "| phase | frames | ready | high_seen | mux_ok | vref_ok | reg3_ok | restored_before_cs | post_cs_high | mean counts | mean V | raw top |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for p in summary["phases"]:
@@ -142,11 +198,9 @@ def main(argv=None) -> int:
             "-" if p["volts_mean"] is None else "{:.4f}".format(p["volts_mean"]),
             p["raw_top"]))
     lines += ["", "## Interpretation", "",
-              "Reg0 before/after must remain 0x91, Reg2 0xC0, and Reg3 0x02 (DRDYM=1). If so, MUX/DRDYM stayed configured during conversion.",
-              "Ready requires DOUT/DRDY high then low with CS low; timeout results have no counts and are not valid conversions.",
-              "After the 24-bit result, DIN is low for 8 extra SCLK; restored_before_cs must be true before CS is raised.",
-              "If counts remain ~8388607 while the meter at the ADC pin is 1.0/2.4 V, this is an external input/front-end issue, not a MUX-register issue.",
-              "No PASS threshold is applied; this is a diagnostic."]
+              "Only complete valid DIAG_SAMPLE JSON lines are counted. Malformed lines are in bad_lines.jsonl and raw_hex.log.",
+              "A timeout or restored_before_cs=false is not a valid state-restored conversion.",
+              "Reg0 before/after 0x91, Reg2 0xC0, Reg3 0x02, MUX 9, VREF 3 are required for a trustworthy result."]
     (out / "REPORT.md").write_text("\n".join(lines) + "\n")
     print("\n" + "\n".join(lines))
     print("OUT", out)
