@@ -64,9 +64,8 @@ def main(argv=None) -> int:
         return 2
     channel_config = channel_config_from_identity(identity)
     if channel_config is None:
-        print("CHANNEL_CONFIG_MISSING: HELLO/channel_config absent; refusing SCAN_MODE_PASS", file=sys.stderr)
-        session.close()
-        return 2
+        print("CHANNEL_CONFIG_NOT_REPORTED: continuing with ch0-only validation; full 12-channel map UNVERIFIED",
+              file=sys.stderr)
     try:
         setref_status, setref_diagnostics = wait_set_ref(session)
         print("SET_REF -> reference_mode={}".format(setref_status.reference_mode))
@@ -81,7 +80,8 @@ def main(argv=None) -> int:
         session.close()
         return 2
     validation = validate_config_report(report or {}, mode="scan", channel_config=channel_config,
-                                        frame=frame_evidence(frame), require_scan_evidence=True)
+                                        frame=frame_evidence(frame), require_scan_evidence=True,
+                                        require_full_channel_map=channel_config is not None)
     print(json.dumps(validation, indent=2))
     if not validation["passed"]:
         print("CONFIG VERIFICATION FAILED; refusing single-point interpretation", file=sys.stderr)

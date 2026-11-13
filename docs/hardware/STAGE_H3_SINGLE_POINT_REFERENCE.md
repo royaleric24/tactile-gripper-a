@@ -120,9 +120,11 @@ The host verifier now separates:
 
 - **scan mode**: Reg0 may be `0x81/0x91/0xA1/0xB1`; it still requires
   Reg1=`0x80`, Reg2=`0xC0`, Reg3=`0x00`, gain=1, PGA bypass, VREF AVDD,
-  PSW/IDAC off, the 12-channel map (ch0=Ain0, ch1=Ain1, ...), and a fresh
-  ch0-valid SAMPLE frame. It reports `SCAN_MODE_PASS`, never a generic
-  fixed-mode PASS.
+  PSW/IDAC off, and a fresh ch0-valid SAMPLE frame. If a real HELLO
+  `channel_config` was received, it also validates all 12 channel mappings and
+  reports `SCAN_MODE_PASS`. If HELLO was missed, it reports
+  `SINGLE_POINT_CH0_PASS` with the full map marked `NOT_REPORTED`; this is not
+  a full 12-channel PASS.
 - **fixed mode**: requires Reg0=`0x81` exactly; no fixed single-channel command
   is available on 0.1.3, so fixed mode is not inferred from the scan.
 
@@ -135,16 +137,25 @@ register and frame evidence remain the actual hardware record.
 `DeviceIdentity` now carries `channel_config` from the real HELLO payload, and
 `HelloMessage.channel_config` exposes the same raw object. The host verifier
 uses `identity.channel_config` (falling back to `identity.hello["channel_config"]`
-for compatibility), never a nonexistent `identity.raw`. Missing HELLO/channel
-config, missing/failed SAMPLE, malformed JSON and timeout each produce an
-explicit error and never `SCAN_MODE_PASS`.
+for compatibility), never a nonexistent `identity.raw`.
+
+A real 0.1.3 HELLO captured from the old ESP32 contains `channel_config` but
+**not** a top-level `channel_ids` array; `parse_hello()` now derives the list
+from `channel_config.channels[].channel_id` (device-provided data). If HELLO is
+missed because it is emitted only at boot, the verifier falls back to
+`SINGLE_POINT_CH0_PASS`: real SPI readback + fresh ch0 SAMPLE are required, while
+the full 12-channel map is explicitly marked `NOT_REPORTED`. It never outputs
+`SCAN_MODE_PASS` without the real HELLO map. Missing/failed SAMPLE, malformed
+JSON, malformed channel metadata and timeout remain explicit failures.
 
 ## 8. Answers
 
 - **Current flashed 0.1.0 direct test?** No: writes Reg2=0x40 (REF0).
 - **0.1.2 direct test?** No: reference mapping is correct, but its `VERIFY_CONFIG`
   JSON is malformed (`]}}`), so the host cannot parse it.
-- **Must reflash?** Yes, to 0.1.3 (built offline, not flashed).
+- **Current 0.1.3 real HELLO?** It includes `channel_config` but no top-level
+  `channel_ids`; host derives IDs from the real channel metadata.
+- **Must reflash?** No further reflash for this host-side issue; 0.1.3 remains.
 - **Is 0xC0 correct?** Yes: VREF=11 AVDD–AVSS.
 - **Is 0x80 correct?** No: VREF=10 external REFP1/REFN1.
 - **Register readback?** Yes: `VERIFY_CONFIG`; expected

@@ -127,16 +127,29 @@ class VerifyEndToEndTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("NO SAMPLE FRAME", stderr.getvalue())
 
-    def test_missing_channel_config_is_clear_failure_not_crash(self):
+    def test_missing_hello_channel_config_falls_back_to_ch0_only(self):
         identity = identity_from_hello(include_channel_config=False)
         fake = FakeSession(identity, [(json.dumps(sample_dict()) + "\n").encode()])
         with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.json"
             with mock.patch.object(verifier, "SerialSession", lambda *a, **k: fake):
-                with contextlib.redirect_stdout(io.StringIO()), \
+                with contextlib.redirect_stdout(io.StringIO()) as stdout, \
                         contextlib.redirect_stderr(io.StringIO()) as stderr:
-                    rc = verifier.main(["--port", "/dev/fake", "--out", str(Path(tmp) / "x.json")])
-        self.assertEqual(rc, 2)
-        self.assertIn("CHANNEL_CONFIG_MISSING", stderr.getvalue())
+                    rc = verifier.main(["--port", "/dev/fake", "--out", str(out)])
+                    self.assertEqual(rc, 0, stderr.getvalue())
+                    self.assertIn("SINGLE_POINT_CH0_PASS", stdout.getvalue())
+                    saved = json.loads(out.read_text())
+                    self.assertEqual(saved["validation"]["channel_map_status"], "NOT_REPORTED")
+                    self.assertFalse(saved["validation"]["channel_evidence"].get("passed") is False)
+
+    def test_real_0_1_3_hello_fixture_has_full_channel_config(self):
+        fixture = Path(__file__).resolve().parent / "fixtures/hello_0_1_3_real.json"
+        raw = json.loads(fixture.read_text())
+        self.assertEqual(raw["firmware_version"], "tactile-sense-0.1.3")
+        hello = parse_hello(raw)
+        self.assertEqual(len(hello.channel_config["channels"]), 12)
+        self.assertEqual(hello.channel_config["channels"][0]["mux_channel"], 8)
+        self.assertEqual(hello.channel_config["channels"][11]["mux_channel"], 11)
 
 
 if __name__ == "__main__":

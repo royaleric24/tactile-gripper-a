@@ -60,7 +60,8 @@ def _frame_evidence(frame: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXPECTED_AVDD_REGISTERS,
                            *, mode: str = "scan", channel_config: Optional[Dict[str, Any]] = None,
                            frame: Optional[Dict[str, Any]] = None,
-                           require_scan_evidence: bool = True) -> Dict[str, Any]:
+                           require_scan_evidence: bool = True,
+                           require_full_channel_map: bool = True) -> Dict[str, Any]:
     """Validate actual ADS1220 readback.
 
     scan: Reg0 must be one of the four legal AIN0..AIN3 single-ended MUX values;
@@ -111,12 +112,24 @@ def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXP
             "idac_code": item.get("idac_code"),
             "passed": device_ok,
         })
-    channel_evidence = _channel_map_evidence(channel_config) if mode == "scan" else {
-        "passed": True, "issues": [], "note": "fixed mode uses channel 0 only"}
+    if mode == "scan" and channel_config is not None:
+        channel_evidence = _channel_map_evidence(channel_config)
+        channel_map_status = "DEVICE_HELLO"
+    elif mode == "scan":
+        channel_evidence = {"passed": True, "issues": [],
+                            "status": "NOT_REPORTED",
+                            "note": "HELLO not received; full 12-channel map unverified"}
+        channel_map_status = "NOT_REPORTED"
+    else:
+        channel_evidence = {"passed": True, "issues": [], "note": "fixed mode uses channel 0 only"}
+        channel_map_status = "NOT_APPLICABLE"
     frame_evidence = _frame_evidence(frame) if mode == "scan" else {
         "passed": True, "issues": [], "note": "fixed mode evidence not evaluated"}
-    evidence_ok = channel_evidence["passed"] and frame_evidence["passed"]
-    if mode == "scan" and require_scan_evidence and not evidence_ok:
+    if mode == "scan" and require_full_channel_map and channel_config is None:
+        ok = False
+    if mode == "scan" and channel_config is not None and not channel_evidence["passed"]:
+        ok = False
+    if mode == "scan" and require_scan_evidence and not frame_evidence["passed"]:
         ok = False
     return {
         "passed": ok,
@@ -124,9 +137,11 @@ def validate_config_report(report: Dict[str, Any], expected: Sequence[int] = EXP
         "expected_non_mux_registers": list(expected[1:]),
         "devices": checks,
         "channel_evidence": channel_evidence,
+        "channel_map_status": channel_map_status,
         "frame_evidence": frame_evidence,
-        "note": ("Scan mode accepts AIN0..AIN3 residue but requires channel map and fresh ch0 frame; "
-                 "fixed mode requires AIN0 and is not inferred from a scan."),
+        "note": ("Scan mode accepts AIN0..AIN3 residue and requires a fresh ch0 frame; "
+                 "full 12-channel metadata is verified only when a real HELLO channel_config was received. "
+                 "Fixed mode requires AIN0 and is not inferred from a scan."),
     }
 
 

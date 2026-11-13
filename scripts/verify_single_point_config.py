@@ -149,13 +149,16 @@ def main(argv=None) -> int:
             print("NO SAMPLE FRAME: cannot verify ch0 conversion mapping", file=sys.stderr)
             return 2
         channel_config = channel_config_from_identity(identity)
-        if channel_config is None:
-            print("CHANNEL_CONFIG_MISSING: HELLO/channel_config absent; refusing SCAN_MODE_PASS", file=sys.stderr)
-            return 2
-        channels = channel_config.get("channels") or []
+        channels = (channel_config or {}).get("channels") or []
         first = channels[0] if channels else {}
-        print("ch0 map {} frame_seq={} raw0={} valid0={}".format(
-            first.get("mux_channel"), frame.frame_seq, frame.raw_adc[0], frame.valid[0]))
+        if channel_config is None:
+            print("CHANNEL_CONFIG_NOT_REPORTED: HELLO was not received; full 12-channel map "
+                  "will be marked UNVERIFIED, ch0-only validation continues", file=sys.stderr)
+            print("ch0 map NOT_REPORTED frame_seq={} raw0={} valid0={}".format(
+                frame.frame_seq, frame.raw_adc[0], frame.valid[0]))
+        else:
+            print("ch0 map {} frame_seq={} raw0={} valid0={}".format(
+                first.get("mux_channel"), frame.frame_seq, frame.raw_adc[0], frame.valid[0]))
         setref = None
         if not args.skip_set_ref:
             try:
@@ -170,7 +173,8 @@ def main(argv=None) -> int:
             print_diagnostics(exc)
             return 2
         result = validate_config_report(report, mode="scan", channel_config=channel_config,
-                                        frame=frame_evidence(frame), require_scan_evidence=True)
+                                        frame=frame_evidence(frame), require_scan_evidence=True,
+                                        require_full_channel_map=channel_config is not None)
         print(json.dumps(result, indent=2))
         out = Path(args.out) if args.out else EVIDENCE / ("single_point_config_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -182,10 +186,12 @@ def main(argv=None) -> int:
                                    "frame_evidence": frame_evidence(frame),
                                    "diagnostics": diagnostics, "validation": result}, indent=2) + "\n")
         print("saved: {}".format(out))
-        if result["passed"]:
-            print("SCAN_MODE_PASS (fixed mode not evaluated; ch0 map and fresh frame checked)")
+        if result["passed"] and result.get("channel_map_status") == "DEVICE_HELLO":
+            print("SCAN_MODE_PASS (full 12-channel map from HELLO, fresh ch0 frame, SPI readback)")
+        elif result["passed"]:
+            print("SINGLE_POINT_CH0_PASS (full 12-channel map NOT_REPORTED; ch0 mapping is static-source-audited)")
         else:
-            print("SCAN_MODE_FAIL")
+            print("CONFIG_VERIFICATION_FAIL")
         return 0 if result["passed"] else 1
     finally:
         session.close()

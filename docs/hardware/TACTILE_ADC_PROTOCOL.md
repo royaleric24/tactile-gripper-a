@@ -104,6 +104,9 @@
 - `scan_mode = "SINGLE_SHOT_3X4"`
 - `channel_count = 12`、`channel_ids = [0..11]`
 - `channel_config`：软件组 `ChannelConfiguration.from_dict` 可直接解析的结构；`matrix_rows`/`matrix_cols` 为 null（矩阵映射 UNKNOWN）
+- 0.1.3 的实际 HELLO 不发送顶层 `channel_ids`；主机从真实
+  `channel_config.channels[].channel_id` 推导，不伪造映射。兼容旧样例中带
+  `channel_ids` 的 HELLO。
 - `pins`：SCLK/MOSI/MISO/CS
 - `reference_mode`、`reference_modes_allowed`
 - `data_rate_sps = 330`、`conversion_wait_us = 4500`

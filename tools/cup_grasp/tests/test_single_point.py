@@ -71,8 +71,17 @@ class SinglePointTests(unittest.TestCase):
         result = validate_config_report(report_for(0xB1), mode="scan",
                                         channel_config=None, frame=None)
         self.assertFalse(result["passed"])
-        self.assertFalse(result["channel_evidence"]["passed"])
+        self.assertEqual(result["channel_map_status"], "NOT_REPORTED")
         self.assertFalse(result["frame_evidence"]["passed"])
+
+    def test_scan_mode_rejects_bad_device_channel_map(self):
+        bad = channel_config()
+        bad["channels"][0]["mux_channel"] = 11
+        result = validate_config_report(report_for(0xB1), mode="scan",
+                                        channel_config=bad, frame=frame_evidence())
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["channel_map_status"], "DEVICE_HELLO")
+        self.assertFalse(result["channel_evidence"]["passed"])
 
     def test_fixed_mode_requires_ain0(self):
         good = validate_config_report(report_for(0x81), mode="fixed")

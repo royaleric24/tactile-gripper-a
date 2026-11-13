@@ -419,7 +419,17 @@ def parse_hello(message: Dict[str, Any]) -> HelloMessage:
     channel_count = _require_int(message.get("channel_count"), "channel_count", 0)
     if channel_count != CHANNEL_COUNT:
         raise FrameValidationError("HELLO channel_count must be 12", code="LENGTH_MISMATCH")
-    channel_ids = _require_list(message.get("channel_ids"), "channel_ids", CHANNEL_COUNT)
+    channel_ids = message.get("channel_ids")
+    if channel_ids is None:
+        # 0.1.3 emits channel identity inside channel_config, not a top-level
+        # channel_ids array.  Derive it only from device-provided channel
+        # metadata; never synthesize a map when the field is absent.
+        config = message.get("channel_config")
+        channels = config.get("channels") if isinstance(config, dict) else None
+        if not isinstance(channels, list):
+            raise FrameValidationError("HELLO missing channel_ids and channel_config", code="MISSING_FIELD")
+        channel_ids = [item.get("channel_id") for item in channels if isinstance(item, dict)]
+    channel_ids = _require_list(channel_ids, "channel_ids", CHANNEL_COUNT)
     if [int(item) for item in channel_ids] != list(range(CHANNEL_COUNT)):
         raise FrameValidationError("HELLO channel_ids must be 0..11", code="INVALID_CHANNEL")
     reference_mode = message.get("reference_mode")

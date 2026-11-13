@@ -38,7 +38,7 @@ After wiring and visual/electrical checks:
 
 The script first reports `SCAN_MODE_PASS` only with real HELLO channel-map + ch0-frame evidence, then prompts 5 contact/release cycles, records `samples.jsonl`, and writes
 `metrics.json`/`REPORT.md` under `data/real/single_point/<trial_id>/`.
-It reports per-cycle baseline, delta, SNR, saturation, latency and recovery.
+It reports per-cycle baseline, delta, SNR, saturation, latency and recovery. If HELLO was missed, it reports `SINGLE_POINT_CH0_PASS` and marks the full 12-channel map `NOT_REPORTED`; that is not a full scan PASS.
 ADC counts are not pressure/force. If it does not pass, do not proceed to cup
 feedback trials.
 
