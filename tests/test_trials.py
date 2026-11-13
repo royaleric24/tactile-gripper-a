@@ -2,15 +2,19 @@
 
 import csv
 import json
+import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
-from tactile_gripper.experiments.store import TrialStore, summarize_trial
-from tactile_gripper.models import ControlAction, ControlCommand, ControlEvent
+from tactile_gripper.devices.sensor import default_demo_config
+from tactile_gripper.errors import TrialWriteError
+from tactile_gripper.experiments.store import TrialStore, summarize_trial, trial_integrity
+from tactile_gripper.models import ControlAction, ControlCommand, ControlEvent, TrialMetadata
 from tactile_gripper.sources import DataSource
 
-from support import frame
+from support import FailingWriter, frame
 
 
 class TrialStoreTests(unittest.TestCase):
@@ -127,6 +131,108 @@ class TrialStoreTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             recorder.start()
         recorder.stop("done")
+        with self.assertRaises(RuntimeError):
+            recorder.start()
+
+    def test_schema_version_and_git_commit_metadata(self):
+        recorder = self.store.create_trial("schema", mode="MANUAL", git_commit="a" * 40)
+        metadata = json.loads((recorder.directory / "metadata.json").read_text())
+        self.assertEqual(metadata["schema_version"], 2)
+        self.assertEqual(metadata["git_commit"], "a" * 40)
+        legacy = dict(metadata)
+        legacy.pop("schema_version")
+        parsed = TrialMetadata.from_dict(legacy)
+        self.assertEqual(parsed.schema_version, 1)
+
+    def test_interrupted_trial_is_recovered_not_completed(self):
+        recorder = self.store.create_trial("crash", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        recorder.record_frame(frame(seq=2, source=DataSource.SIMULATION))
+        recorder.close()
+        lock_path = recorder.directory / "recording.json"
+        lock = json.loads(lock_path.read_text())
+        lock["pid"] = 999999  # definitely dead in this test process
+        lock["heartbeat_ns"] = 0
+        lock_path.write_text(json.dumps(lock))
+
+        recovered = self.store.recover_interrupted()
+        self.assertEqual(recovered, [recorder.metadata.trial_id])
+        record = self.store.load(recorder.metadata.trial_id)
+        self.assertEqual(record.metadata.status, "INTERRUPTED")
+        self.assertIsNotNone(record.metadata.ended_at)
+        self.assertEqual(len(record.frames), 2)
+        self.assertTrue(any(item.get("event_type") == "TRIAL_INTERRUPTED" for item in record.events))
+        summary = summarize_trial(record)
+        self.assertFalse(summary["integrity"]["complete"])
+        self.assertTrue(summary["integrity"]["interrupted"])
+        self.assertFalse(lock_path.exists())
+        self.assertTrue((recorder.directory / "frames.csv").is_file())
+
+    def test_completed_trial_is_not_recovered(self):
+        recorder = self.store.create_trial("normal", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        recorder.stop("done")
+        self.assertEqual(self.store.recover_interrupted(), [])
+        self.assertEqual(self.store.load(recorder.metadata.trial_id).metadata.status, "COMPLETED")
+
+    def test_active_recording_is_not_marked_interrupted(self):
+        recorder = self.store.create_trial("active", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        self.assertEqual(self.store.recover_interrupted(), [])
+        self.assertEqual(recorder.metadata.status, "RECORDING")
+        recorder.stop("done")
+
+    def test_missing_lock_is_recovered(self):
+        recorder = self.store.create_trial("no-lock", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        recorder.close()
+        (recorder.directory / "recording.json").unlink()
+        recovered = self.store.recover_interrupted()
+        self.assertEqual(recovered, [recorder.metadata.trial_id])
+        self.assertEqual(self.store.load(recorder.metadata.trial_id).metadata.status, "INTERRUPTED")
+
+    def test_frame_write_failure_marks_error_and_preserves_prior_data(self):
+        recorder = self.store.create_trial("disk", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        recorder._frame_file.close()
+        recorder._frame_file = FailingWriter()
+        with self.assertRaises(TrialWriteError):
+            recorder.record_frame(frame(seq=2, source=DataSource.SIMULATION))
+        self.assertEqual(recorder.metadata.status, "ERROR")
+        self.assertIsNotNone(recorder.metadata.write_error)
+        self.assertFalse((recorder.directory / "recording.json").exists())
+        record = self.store.load(recorder.metadata.trial_id)
+        self.assertEqual(record.metadata.status, "ERROR")
+        self.assertEqual(len(record.frames), 1)
+        self.assertTrue(summarize_trial(record)["integrity"]["error"])
+
+    def test_integrity_counts_invalid_channels_gaps_and_restarts(self):
+        recorder = self.store.create_trial("integrity", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(
+            frame(seq=1, values=[10, None, 30, 40], mask=[True, False, True, True], source=DataSource.SIMULATION)
+        )
+        recorder.record_frame(frame(seq=3, source=DataSource.SIMULATION))
+        recorder.record_frame(frame(seq=1, boot_id="boot-2", source=DataSource.SIMULATION))
+        recorder.stop("done")
+        record = self.store.load(recorder.metadata.trial_id)
+        integrity = trial_integrity(record)
+        self.assertEqual(integrity["frames"], 3)
+        self.assertEqual(integrity["invalid_channel_samples"], 1)
+        self.assertEqual(integrity["frames_with_invalid_channels"], 1)
+        self.assertEqual(integrity["dropped_frames"], 1)
+        self.assertEqual(integrity["restarts"], 1)
+
+    def test_git_commit_is_recorded_in_integrity_metadata(self):
+        recorder = self.store.create_trial("git", mode="MANUAL", git_commit="b" * 40)
+        metadata = json.loads((recorder.directory / "metadata.json").read_text())
+        self.assertEqual(metadata["git_commit"], "b" * 40)
+        self.assertEqual(metadata["schema_version"], 2)
 
 
 if __name__ == "__main__":

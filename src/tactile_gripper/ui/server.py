@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> None:
     app.on_shutdown(shutdown)
     create_ui(core)
     print(
-        f"Tactile Gripper A · S2-A dashboard · source={source.value} · "
+        f"Tactile Gripper A · S2-B dashboard · source={source.value} · "
         f"http://{args.host}:{args.port}",
         flush=True,
     )

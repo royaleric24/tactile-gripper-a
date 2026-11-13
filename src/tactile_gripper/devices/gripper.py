@@ -241,6 +241,7 @@ class GripperAdapter:
                 if command.action is ControlAction.QUERY_STATUS:
                     response = self.controller.get_status()
                     self.last_status = response
+                    self._sync_state(response)
                     return self._event(
                         command,
                         "DEVICE_ACK" if not self.dry_run else "SIMULATED",
@@ -254,9 +255,11 @@ class GripperAdapter:
                     if self.session_active:
                         return self._event(command, "INFO", mode, detail="session already active")
                     self.controller.begin(assembled=True)
-                    self.controller.select_mode(True)
+                    mode_response = self.controller.select_mode(True)
+                    self.last_status = mode_response if isinstance(mode_response, dict) else self.last_status
                     self.session_active = True
                     self.state = "SESSION_ACTIVE"
+                    self._sync_state(mode_response)
                     return self._event(
                         command,
                         "DEVICE_ACK" if not self.dry_run else "SIMULATED",
@@ -282,6 +285,17 @@ class GripperAdapter:
                         )
                     response = self.controller.pulse(value)
                     self.last_pwm_us = value
+                    if self.dry_run and isinstance(response, dict):
+                        # The shared dry-run controller does not model ACTIVE for
+                        # BENCH_HOLD; label it explicitly as simulated rather
+                        # than presenting a real firmware state.
+                        response = {
+                            **response,
+                            "state": "SIMULATED_ACTIVE",
+                            "output_state": "SIMULATED_UNMEASURED",
+                        }
+                    self.last_status = response if isinstance(response, dict) else self.last_status
+                    self._sync_state(response)
                     if self.dry_run:
                         return self._event(
                             command,
@@ -304,33 +318,44 @@ class GripperAdapter:
                 if command.action is ControlAction.STOP:
                     response = self.controller.stop()
                     self.session_active = False
-                    self.state = "CONNECTED"
                     self.last_pwm_us = None
+                    self.last_status = response if isinstance(response, dict) else self.last_status
+                    self._sync_state(response)
                     return self._event(
                         command,
                         "DEVICE_ACK" if not self.dry_run else "SIMULATED",
                         mode,
                         serial_write_ok=not self.dry_run,
                         device_ack=not self.dry_run,
-                        detail="STOP sent; hold/release behaviour is UNKNOWN, not a hardware E-stop",
+                        detail=(
+                            "STOP revokes permits and calls firmware output.off() "
+                            "(zero duty + detach); no hold/release guarantee, not a hardware E-stop. "
+                            "STOP does not clear an existing firmware FAULT (DISARM does)."
+                        ),
                         response=response,
                     )
                 if command.action is ControlAction.DISARM:
                     response = self.controller.disarm()
                     self.session_active = False
-                    self.state = "CONNECTED"
                     self.last_pwm_us = None
+                    self.last_status = response if isinstance(response, dict) else self.last_status
+                    self._sync_state(response)
                     return self._event(
                         command,
                         "DEVICE_ACK" if not self.dry_run else "SIMULATED",
                         mode,
                         serial_write_ok=not self.dry_run,
                         device_ack=not self.dry_run,
-                        detail="DISARM sent; output state may be UNKNOWN",
+                        detail=(
+                            "DISARM revokes permits and calls firmware output.off(); "
+                            "if off succeeds firmware DISARM clears FAULT to DISARMED"
+                        ),
                         response=response,
                     )
                 if command.action is ControlAction.HEARTBEAT:
                     response = self.controller.heartbeat()
+                    self.last_status = response if isinstance(response, dict) else self.last_status
+                    self._sync_state(response)
                     return self._event(
                         command,
                         "DEVICE_ACK" if not self.dry_run else "SIMULATED",
@@ -363,6 +388,21 @@ class GripperAdapter:
     def _event(self, command: ControlCommand, stage: str, mode: str, **kwargs) -> ControlEvent:
         return ControlEvent.from_command(command, stage, mode, **kwargs)
 
+    def _sync_state(self, response: dict | None) -> None:
+        """Reflect the firmware state; never infer position from ACK."""
+        firmware_state = response.get("state") if isinstance(response, dict) else None
+        if not isinstance(firmware_state, str):
+            firmware_state = getattr(self.controller, "state", None) if self.controller else None
+        if firmware_state == "FAULT":
+            self.state = "FAULT"
+            return
+        if not self.connected:
+            self.state = "OFFLINE"
+        elif self.session_active:
+            self.state = "SESSION_ACTIVE"
+        else:
+            self.state = "CONNECTED"
+
     # -- explicit semantic helpers ----------------------------------------
 
     def stop_updates(self) -> None:
@@ -388,7 +428,11 @@ class GripperAdapter:
             "actual_pwm_us": None,
             "actual_position_known": False,
             "output_state": getattr(self.controller, "output_state", "UNKNOWN") if self.controller else "UNKNOWN",
-            "firmware_state": getattr(self.controller, "state", "UNKNOWN") if self.controller else "UNKNOWN",
+            "firmware_state": (
+                (self.last_status or {}).get("state")
+                if self.dry_run and self.last_status
+                else (getattr(self.controller, "state", "UNKNOWN") if self.controller else "UNKNOWN")
+            ),
             "write_authority_owner": self.authority.owner,
             "config_path": self.config_path,
         }

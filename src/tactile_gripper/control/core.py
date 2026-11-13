@@ -9,14 +9,21 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from ..constants import SOFTWARE_VERSION
+from ..constants import SOFTWARE_VERSION, TRIAL_SCHEMA_VERSION
 from ..devices.gripper import GripperAdapter
 from ..devices.sensor import (
     ReplaySensorAdapter,
     SimulatedSensorAdapter,
     default_demo_config,
 )
-from ..errors import ControlDenied, FrameValidationError, ModeUnavailable, ProtocolError, SensorOffline
+from ..errors import (
+    ControlDenied,
+    FrameValidationError,
+    ModeUnavailable,
+    ProtocolError,
+    SensorOffline,
+    TrialWriteError,
+)
 from ..experiments.store import TrialRecorder, TrialStore, summarize_trial
 from ..models import (
     ControlAction,
@@ -26,7 +33,7 @@ from ..models import (
     TactileFrame,
     utc_now_iso,
 )
-from ..paths import PROJECT_ROOT
+from ..paths import PROJECT_ROOT, environment_snapshot
 from ..sources import DataSource, parse_source
 
 
@@ -97,6 +104,8 @@ class ApplicationCore:
         self.last_control_event: dict[str, Any] | None = None
         self.trial: TrialRecorder | None = None
         self.last_trial: dict[str, Any] | None = None
+        self.trial_error: str | None = None
+        self.recovered_trials: list[str] = []
         self.started_at = utc_now_iso()
         self._last_anomaly_seq: int | None = None
 
@@ -119,7 +128,25 @@ class ApplicationCore:
                         detail=f"trial event source mismatch: {exc}",
                     ).to_dict()
                 )
+            except TrialWriteError as exc:
+                self._note_trial_write_error(exc)
         return event
+
+    def _note_trial_write_error(self, exc: BaseException) -> None:
+        """Trial persistence failed; latch a visible FAULT without touching PWM."""
+        self.trial_error = str(exc)
+        self.fault_reason = f"trial write failure: {exc}"
+        if self.mode is not Mode.FAULT:
+            self.mode = Mode.FAULT
+        payload = ControlEvent(
+            action="TRIAL_WRITE_ERROR",
+            stage="FAILED",
+            source=self.source,
+            mode=self.mode.value,
+            detail=self.trial_error,
+        ).to_dict()
+        self.events.append(payload)
+        self.last_control_event = payload
 
     def _system(self, action: str, detail: str, **data) -> ControlEvent:
         event = ControlEvent(
@@ -177,14 +204,19 @@ class ApplicationCore:
     def disconnect_gripper(self) -> None:
         with self._lock:
             if self.trial is not None and self.trial.recording:
+                directory = str(self.trial.directory)
                 try:
                     self.trial.stop("gripper disconnected", aborted=True)
-                    self.last_trial = self.trial.metadata.to_dict()
+                except TrialWriteError as exc:
+                    self._note_trial_write_error(exc)
                 finally:
+                    if self.trial is not None:
+                        self.last_trial = {**self.trial.metadata.to_dict(), "directory": directory}
                     self.trial = None
             if self.gripper is not None:
                 self.gripper.close()
             self.mode = Mode.STANDBY
+            self.fault_reason = None
             self._system("DISCONNECT", "gripper closed; output state may be UNKNOWN")
 
     def begin_manual_session(self) -> ControlEvent:
@@ -195,7 +227,7 @@ class ApplicationCore:
             command = ControlCommand(ControlAction.BEGIN_SESSION, self.source)
             event = self.gripper.execute(command, mode=self.mode.value)
             self._append(event)
-            if event.stage in ("DEVICE_ACK", "SIMULATED", "INFO"):
+            if event.stage in ("DEVICE_ACK", "SIMULATED", "INFO") and event.firmware_state != "FAULT":
                 self.mode = Mode.MANUAL
                 self.fault_reason = None
             elif event.stage == "FAILED":
@@ -213,7 +245,7 @@ class ApplicationCore:
     # -- modes -------------------------------------------------------------
 
     def auto_available(self) -> tuple[bool, list[str]]:
-        reasons = ["AUTO 闭环算法未实现（S2-A 仅建立状态/接口）"]
+        reasons = ["AUTO 闭环算法未实现（S2-B 仍不启用）"]
         if self.source is not DataSource.LIVE:
             reasons.append("数据来源不是 LIVE")
         if self.sensor is None or getattr(self.sensor, "state", "OFFLINE") != "STREAMING":
@@ -254,6 +286,8 @@ class ApplicationCore:
                     raise ModeUnavailable("REPLAY cannot enter MANUAL")
                 if self.gripper is None or not self.gripper.connected:
                     raise ModeUnavailable("MANUAL requires a connected gripper")
+                if self.gripper.state == "FAULT":
+                    raise ModeUnavailable("MANUAL requires a non-FAULT controller; reconnect explicitly")
                 if not self._manual_session_active():
                     raise ModeUnavailable("MANUAL requires a started manual session")
             previous = self.mode
@@ -275,6 +309,8 @@ class ApplicationCore:
             return f"mode is {self.mode.value}, not MANUAL"
         if self.gripper is None or not self.gripper.connected:
             return "gripper is OFFLINE"
+        if self.gripper.state == "FAULT":
+            return "gripper is in FAULT; reconnect before further targets"
         if not self._manual_session_active():
             return "manual session is not active"
         return None
@@ -316,8 +352,12 @@ class ApplicationCore:
                 return self._deny("STOP", "gripper is OFFLINE", command=command)
             event = self.gripper.execute(command, mode=self.mode.value)
             self._append(event)
-            if event.stage in ("DEVICE_ACK", "SIMULATED"):
+            if event.firmware_state == "FAULT" or getattr(self.gripper, "state", None) == "FAULT":
+                self.mode = Mode.FAULT
+                self.fault_reason = "device reports FAULT after STOP; STOP does not clear FAULT"
+            elif event.stage in ("DEVICE_ACK", "SIMULATED"):
                 self.mode = Mode.STANDBY
+                self.fault_reason = None
             elif event.stage == "FAILED":
                 self.mode = Mode.FAULT
                 self.fault_reason = event.detail
@@ -460,6 +500,8 @@ class ApplicationCore:
                             detail=f"frame not recorded: {exc}",
                         )
                     )
+                except TrialWriteError as exc:
+                    self._note_trial_write_error(exc)
 
     def _record_frame_anomalies(self) -> None:
         if self.sensor is None or not hasattr(self.sensor, "last_anomalies"):
@@ -493,12 +535,23 @@ class ApplicationCore:
                 raise ControlDenied("REPLAY is read-only; it cannot create a trial")
             if self.trial is not None and self.trial.recording:
                 raise ControlDenied("a trial is already recording")
+            environment = environment_snapshot()
+            environment["software_version"] = SOFTWARE_VERSION
             parameters = {
                 "software_version": SOFTWARE_VERSION,
                 "source": self.source.value,
                 "mode": self.mode.value,
+                "schema_version": TRIAL_SCHEMA_VERSION,
+                "git_commit": environment["git_commit"],
+                "environment": environment,
                 "firmware_version": self.gripper.firmware_version if self.gripper else None,
                 "pwm_limits": self.gripper.pwm_limits if self.gripper else None,
+                "gripper_config": dict(self.gripper.config) if self.gripper else None,
+                "sensor_config": (
+                    self.sensor.channel_config.to_dict()
+                    if self.sensor is not None and self.sensor.channel_config is not None
+                    else None
+                ),
                 "sensor": (
                     {
                         "channel_count": self.sensor.channel_config.expected_channel_count,
@@ -516,7 +569,9 @@ class ApplicationCore:
                 conditions=conditions,
                 parameters=parameters,
                 notes=notes,
+                git_commit=environment["git_commit"],
             )
+            self.trial_error = None
             self._system("TRIAL_CREATED", f"trial {self.trial.metadata.trial_id} created")
             return self.trial.metadata.to_dict()
 
@@ -526,7 +581,11 @@ class ApplicationCore:
                 raise ControlDenied("no trial created")
             if self.trial.recording:
                 raise ControlDenied("trial is already recording")
-            self.trial.start()
+            try:
+                self.trial.start()
+            except TrialWriteError as exc:
+                self._note_trial_write_error(exc)
+                raise
             self._system("TRIAL_START", f"recording {self.trial.metadata.trial_id}")
             return self.trial.metadata.to_dict()
 
@@ -535,9 +594,17 @@ class ApplicationCore:
             if self.trial is None or not self.trial.recording:
                 raise ControlDenied("no trial recording")
             directory = str(self.trial.directory)
-            metadata = self.trial.stop(reason, aborted=aborted)
+            try:
+                metadata = self.trial.stop(reason, aborted=aborted)
+            except TrialWriteError as exc:
+                self._note_trial_write_error(exc)
+                metadata = self.trial.metadata
+                self.last_trial = {**metadata.to_dict(), "directory": directory}
+                self.trial = None
+                raise
             self.last_trial = {**metadata.to_dict(), "directory": directory}
             self.trial = None
+            self.trial_error = None
             self._system("TRIAL_STOP", f"trial {metadata.trial_id} stopped: {reason}")
             return self.last_trial
 
@@ -545,10 +612,15 @@ class ApplicationCore:
         with self._lock:
             if self.trial is None:
                 raise ControlDenied("no active trial")
-            event = self.trial.add_event(event_type, message, data)
+            try:
+                event = self.trial.add_event(event_type, message, data)
+            except TrialWriteError as exc:
+                self._note_trial_write_error(exc)
+                raise
             return event.to_dict()
 
     def list_trials(self) -> list[dict[str, Any]]:
+        self.recovered_trials = self.trial_store.recover_interrupted()
         items = []
         for stored in self.trial_store.list_trials():
             item = stored.metadata.to_dict()
@@ -557,6 +629,7 @@ class ApplicationCore:
         return items
 
     def read_trial(self, trial_id: str) -> dict[str, Any]:
+        self.trial_store.recover_interrupted()
         record = self.trial_store.load(trial_id)
         return {
             "metadata": record.metadata.to_dict(),
@@ -572,6 +645,11 @@ class ApplicationCore:
     def tick(self) -> None:
         with self._lock:
             self._read_sensor()
+            if self.trial is not None and self.trial.recording:
+                try:
+                    self.trial.heartbeat()
+                except TrialWriteError as exc:
+                    self._note_trial_write_error(exc)
             if (
                 self.gripper is not None
                 and self.gripper.connected
@@ -638,6 +716,10 @@ class ApplicationCore:
                 trial["counts"] = {
                     "frames": self.trial.frame_count,
                     "events": self.trial.event_count,
+                    "invalid_channel_samples": self.trial.invalid_channel_samples,
+                    "frames_with_invalid_channels": self.trial.frames_with_invalid,
+                    "dropped_frames": self.trial.dropped_frames,
+                    "restarts": self.trial.restarts,
                 }
             elif self.last_trial is not None:
                 trial = self.last_trial
@@ -663,6 +745,8 @@ class ApplicationCore:
                 "pwm": self.gripper.pwm_limits if self.gripper else None,
                 "last_pwm_us": (gripper_status.get("detail") or {}).get("last_pwm_us"),
                 "trial": trial,
+                "trial_error": self.trial_error,
+                "recovered_trials": list(self.recovered_trials),
                 "recent_events": list(self.events)[-15:][::-1],
                 "manual_session_active": self._manual_session_active(),
                 "sensor_connected": sensor_status.get("connected", False),

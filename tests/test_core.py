@@ -6,10 +6,11 @@ from pathlib import Path
 
 from tactile_gripper.control import ApplicationCore, Mode, build_core
 from tactile_gripper.devices.gripper import GripperAdapter, WriteAuthority
+from tactile_gripper.devices.sensor import SensorAdapter
 from tactile_gripper.errors import ControlDenied, ModeUnavailable
 from tactile_gripper.sources import DataSource
 
-from support import FakeBenchTransport
+from support import FakeBenchTransport, FakeLineTransport, FailingWriter, channel_config, hello_line, sample_line
 
 
 def simulation_core(tmp: str, *, authority=None) -> ApplicationCore:
@@ -130,6 +131,52 @@ class SimulationCoreTests(unittest.TestCase):
             all(row["source"] == "SIMULATION" for row in trial["frames"])
         )
 
+    def test_trial_metadata_records_git_and_environment(self):
+        self.core.connect_gripper()
+        self.core.begin_manual_session()
+        metadata = self.core.create_trial("metadata")
+        self.assertEqual(metadata["schema_version"], 2)
+        self.assertIsNotNone(metadata["git_commit"])
+        self.assertIn("environment", metadata["parameters"])
+        self.assertIn("python", metadata["parameters"]["environment"])
+        self.assertEqual(metadata["source"], "SIMULATION")
+        self.assertEqual(metadata["parameters"]["firmware_version"], "gripper-control-s3-0.9b26.0")
+        self.assertIsNotNone(metadata["parameters"]["gripper_config"])
+        self.assertEqual(metadata["parameters"]["gripper_config"]["gpio"], 4)
+
+    def test_frame_write_error_latches_fault(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gripper = GripperAdapter(
+                source=DataSource.SIMULATION,
+                log_path=Path(tmp) / "gripper.jsonl",
+                clock=lambda: 1000.0,
+            )
+            sensor = SensorAdapter(
+                FakeLineTransport([hello_line(), sample_line(seq=1)]),
+                channel_config(4),
+                source=DataSource.SIMULATION,
+                clock_ns=lambda: 1_000_000_000,
+            )
+            sensor.connect()
+            core = ApplicationCore(
+                root=tmp,
+                source=DataSource.SIMULATION,
+                gripper=gripper,
+                sensor=sensor,
+                demo_period_s=0,
+            )
+            core.connect_gripper()
+            core.begin_manual_session()
+            core.create_trial("write failure")
+            core.start_trial()
+            core.trial._frame_file = FailingWriter()
+            for _ in range(3):
+                core.tick()
+            self.assertEqual(core.mode, Mode.FAULT)
+            self.assertIsNotNone(core.trial_error)
+            self.assertEqual(core.trial.metadata.status, "ERROR")
+            core.disconnect_gripper()
+
     def test_trial_cannot_record_mixed_source(self):
         from tactile_gripper.models import ControlCommand, ControlAction
 
@@ -151,6 +198,45 @@ class SimulationCoreTests(unittest.TestCase):
 
 
 class LiveFaultTests(unittest.TestCase):
+    def test_stop_from_firmware_fault_keeps_fault_latched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transport = FakeBenchTransport()
+            gripper = GripperAdapter(
+                source=DataSource.LIVE,
+                transport=transport,
+                hardware_permission=True,
+                log_path=Path(tmp) / "gripper.jsonl",
+                clock=lambda: 1000.0,
+            )
+            core = ApplicationCore(root=tmp, source=DataSource.LIVE, gripper=gripper, demo_period_s=0)
+            core.connect_gripper()
+            core.begin_manual_session()
+            transport.state = "FAULT"
+            transport.fault_reason = "COMM_TIMEOUT"
+            event = core.stop()
+            self.assertEqual(event.firmware_state, "FAULT")
+            self.assertEqual(core.mode, Mode.FAULT)
+            self.assertIn("does not clear", core.fault_reason)
+            core.disconnect_gripper()
+
+    def test_auto_is_refused_without_any_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transport = FakeBenchTransport()
+            gripper = GripperAdapter(
+                source=DataSource.LIVE,
+                transport=transport,
+                hardware_permission=True,
+                log_path=Path(tmp) / "gripper.jsonl",
+                clock=lambda: 1000.0,
+            )
+            core = ApplicationCore(root=tmp, source=DataSource.LIVE, gripper=gripper, demo_period_s=0)
+            core.connect_gripper()
+            before = list(transport.commands)
+            with self.assertRaises(ModeUnavailable):
+                core.set_mode(Mode.AUTO)
+            self.assertEqual(transport.commands, before)
+            core.disconnect_gripper()
+
     def test_device_rejection_latches_fault(self):
         with tempfile.TemporaryDirectory() as tmp:
             transport = FakeBenchTransport()
@@ -207,10 +293,21 @@ class BuildCoreTests(unittest.TestCase):
             self.assertEqual(core.source, DataSource.SIMULATION)
             self.assertIsNotNone(core.gripper)
             self.assertTrue(core.gripper.dry_run)
+            self.assertIsNone(core.gripper.controller)
+            self.assertFalse(core.gripper.connected)
+            self.assertEqual(core.mode, Mode.STANDBY)
 
     def test_live_without_permission_is_refused(self):
         with self.assertRaises(ControlDenied):
             build_core(source="LIVE", hardware_permission=False)
+
+    def test_live_core_without_connect_opens_no_controller(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core = build_core(source="LIVE", root=tmp, hardware_permission=True)
+            self.assertFalse(core.gripper.dry_run)
+            self.assertIsNone(core.gripper.controller)
+            self.assertFalse(core.gripper.connected)
+            core.disconnect_gripper()
 
     def test_replay_build(self):
         core = build_core(source="REPLAY")

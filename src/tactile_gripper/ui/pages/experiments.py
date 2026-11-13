@@ -47,6 +47,8 @@ def experiments_page(core) -> None:
     ) as refs:
         if core.source is DataSource.REPLAY:
             notice("REPLAY 来源为只读：不能创建或写入 Trial。", "red")
+        recovery_notice = ui.label("").classes("notice notice-amber").style("width:100%")
+        recovery_notice.set_visibility(False)
         with ui.element("div").classes("grid-12"):
             with ui.element("div").classes("col-5"):
                 with ui.column().classes("card gap-3"):
@@ -82,9 +84,12 @@ def experiments_page(core) -> None:
                         trial_id_label = ui.label("—").classes("mono")
                     with ui.row().classes("w-full items-center gap-2"):
                         start_button = ui.button("Start recording", color="primary").props("unelevated no-caps")
-                        stop_button = ui.button("Stop recording", color="negative").props("outline no-caps")
+                        stop_button = ui.button("Stop & complete", color="negative").props("outline no-caps")
+                        abort_button = ui.button("Abort trial", color="negative").props("outline no-caps")
                         export_button = ui.button("Export CSV", color="secondary").props("outline no-caps")
                         ui.link("Open in Analysis", "/analysis").classes("card-sub").style("color:#0f766e;font-weight:650;margin-left:auto")
+                    trial_alert = ui.label("").classes("notice notice-red").style("width:100%")
+                    trial_alert.set_visibility(False)
                     active_counts = ui.label("frames 0 · events 0").classes("mono")
                     active_dir = ui.label("—").classes("mono").style("color:#94a3b8;word-break:break-all")
                     ui.element("div").classes("hairline")
@@ -122,6 +127,7 @@ def experiments_page(core) -> None:
                     ).props("flat dense").classes("w-full")
 
     def refresh() -> None:
+        trial_items = core.list_trials()
         snapshot = core.snapshot()
         set_pill(refs["mode"], snapshot["mode"], tone_for_state(snapshot["mode"]))
         set_pill(refs["source"], snapshot["source"], "purple" if snapshot["source"] == "REPLAY" else "teal")
@@ -143,8 +149,9 @@ def experiments_page(core) -> None:
             active_dir.set_text("—")
             start_button.set_enabled(False)
             stop_button.set_enabled(False)
+            abort_button.set_enabled(False)
             add_event_button.set_enabled(False)
-            export_button.set_enabled(False)
+            export_button.set_enabled(core.last_trial is not None)
             events_table.rows = []
             events_table.update()
         else:
@@ -154,13 +161,23 @@ def experiments_page(core) -> None:
             active_name.set_text(metadata.name)
             active_meta.set_text(f"{metadata.source.value} · {metadata.mode} · started {_clock(metadata.started_at)}")
             trial_id_label.set_text(metadata.trial_id)
-            active_counts.set_text(f"frames {trial.frame_count} · events {trial.event_count}")
+            active_counts.set_text(
+                f"frames {trial.frame_count} · events {trial.event_count}"
+                + (f" · dropped {trial.dropped_frames}" if trial.dropped_frames else "")
+                + (f" · invalid ch {trial.invalid_channel_samples}" if trial.invalid_channel_samples else "")
+            )
             active_dir.set_text(str(trial.directory))
             start_button.set_text("Recording…" if recording else "Start recording")
             start_button.set_enabled(not recording and metadata.status in ("CREATED",))
             stop_button.set_enabled(recording)
+            abort_button.set_enabled(recording)
             add_event_button.set_enabled(recording)
             export_button.set_enabled(not recording)
+            if metadata.write_error or snapshot.get("trial_error"):
+                trial_alert.set_text(f"TRIAL WRITE ERROR: {metadata.write_error or snapshot.get('trial_error')}")
+                trial_alert.set_visibility(True)
+            else:
+                trial_alert.set_visibility(False)
             rows = []
             for item in _recent_events(trial):
                 rows.append(
@@ -173,9 +190,30 @@ def experiments_page(core) -> None:
                 )
             events_table.rows = rows
             events_table.update()
+        incomplete = [
+            item["trial_id"]
+            for item in trial_items
+            if item.get("status") in ("INTERRUPTED", "ERROR")
+        ]
+        if snapshot.get("recovered_trials"):
+            recovery_notice.set_text(
+                "已恢复意外中断的 Trial（标记 INTERRUPTED，不视为正常完成）："
+                + " · ".join(snapshot["recovered_trials"][-3:])
+            )
+            recovery_notice.set_visibility(True)
+        elif incomplete:
+            recovery_notice.set_text(
+                f"历史中有 {len(incomplete)} 个 INTERRUPTED/ERROR Trial；"
+                "数据保留但不会计为正常完成。请在 Analysis 查看完整性摘要。"
+            )
+            recovery_notice.set_visibility(True)
+        else:
+            recovery_notice.set_visibility(False)
+        if core.trial is None:
+            trial_alert.set_visibility(False)
         create_button.set_enabled(core.source is not DataSource.REPLAY and core.trial is None)
         rows = []
-        for metadata in core.list_trials():
+        for metadata in trial_items:
             counts = metadata.get("counts") or {}
             frames = counts.get("frames", 0)
             if core.trial is not None and metadata.get("trial_id") == core.trial.metadata.trial_id:
@@ -225,9 +263,17 @@ def experiments_page(core) -> None:
     async def stop_trial() -> None:
         try:
             metadata = await asyncio.to_thread(core.stop_trial, "operator stop")
-            ui.notify(f"Trial saved: {metadata['trial_id']}", type="positive")
+            ui.notify(f"Trial completed: {metadata['trial_id']}", type="positive")
         except Exception as exc:
-            ui.notify(str(exc), type="negative")
+            ui.notify(str(exc), type="negative", timeout=6000)
+        refresh()
+
+    async def abort_trial() -> None:
+        try:
+            metadata = await asyncio.to_thread(core.stop_trial, "operator abort", aborted=True)
+            ui.notify(f"Trial aborted and saved as ABORTED: {metadata['trial_id']}", type="warning")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", timeout=6000)
         refresh()
 
     async def add_event() -> None:
@@ -244,10 +290,16 @@ def experiments_page(core) -> None:
         refresh()
 
     async def export_csv() -> None:
-        if core.trial is None:
+        trial_id = None
+        if core.trial is not None:
+            trial_id = core.trial.metadata.trial_id
+        elif core.last_trial is not None:
+            trial_id = core.last_trial.get("trial_id")
+        if not trial_id:
+            ui.notify("No trial to export", type="warning")
             return
         try:
-            path = await asyncio.to_thread(core.trial_store.export_csv, core.trial.metadata.trial_id)
+            path = await asyncio.to_thread(core.trial_store.export_csv, trial_id)
             ui.notify(f"CSV exported: {path}", type="positive")
         except Exception as exc:
             ui.notify(str(exc), type="negative")
@@ -256,6 +308,7 @@ def experiments_page(core) -> None:
     create_button.on_click(create_trial)
     start_button.on_click(start_trial)
     stop_button.on_click(stop_trial)
+    abort_button.on_click(abort_trial)
     add_event_button.on_click(add_event)
     export_button.on_click(export_csv)
 

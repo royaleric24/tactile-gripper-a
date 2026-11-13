@@ -107,6 +107,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI"
 .q-btn { border-radius: 10px; font-weight: 600; letter-spacing: .01em; }
 .q-btn.disabled, .q-btn--disabled { opacity: .45 !important; filter: saturate(.25); }
 .q-btn.disabled.bg-primary { background: #94a3b8 !important; }
+.q-btn.disabled.bg-negative { background: #cbd5e1 !important; color: #64748b !important; }
+.q-btn.disabled.q-btn--outline { color: #94a3b8 !important; border-color: #cbd5e1 !important; }
 .q-btn.disabled.text-negative { color: #94a3b8 !important; }
 .q-btn--unelevated { box-shadow: none; }
 .value-mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: -.03em; }

@@ -146,6 +146,22 @@ class FakeLineTransport:
         raise AssertionError("sensor transport must never write")
 
 
+class FailingWriter:
+    """File-like object that simulates a disk write failure."""
+
+    def __init__(self):
+        self.closed = False
+
+    def write(self, data):
+        raise OSError("simulated disk full")
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
 class FakeBenchTransport:
     """Offline stand-in for the S3 serial transport (no device, no pyserial)."""
 
@@ -162,6 +178,8 @@ class FakeBenchTransport:
         self.timeout_on: str | None = None
         self.reject_on: str | None = None
         self.hold_mode = False
+        self.fault_reason = None
+        self.stop_off_ok = True
 
     def connect(self, port=None) -> None:
         self.connected = True
@@ -202,12 +220,21 @@ class FakeBenchTransport:
             self.output_state = "PWM_ACTIVE_UNMEASURED"
             return self._response(request, "ACK")
         if command == "STOP":
-            self.state = "DISARMED"
+            # Mirrors SafetyCore::command: STOP retries output.off() and does
+            # NOT clear an existing FAULT; only DISARM clears it.
+            if not self.stop_off_ok:
+                self.state = "FAULT"
+                self.fault_reason = "OUTPUT_UNKNOWN"
+                self.output_state = "UNKNOWN"
+                return self._response(request, "ERROR", error="OUTPUT_UNKNOWN")
             self.bench_active = False
             self.output_state = "DISABLED_UNMEASURED"
+            if self.state != "FAULT":
+                self.state = "DISARMED"
             return self._response(request, "ACK")
         if command == "DISARM":
             self.state = "DISARMED"
+            self.fault_reason = None
             self.bench_active = False
             self.output_state = "DISABLED_UNMEASURED"
             return self._response(request, "ACK")
@@ -231,7 +258,7 @@ class FakeBenchTransport:
             "motion_enabled": False,
             "bench_capable": True,
             "bench_active": self.bench_active,
-            "fault_reason": None,
+            "fault_reason": self.fault_reason,
             "commanded_pulse_us": request.get("pulse_us"),
             "actual_angle_deg": None,
             "actual_opening": None,

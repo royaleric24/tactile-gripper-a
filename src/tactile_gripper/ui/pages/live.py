@@ -8,6 +8,7 @@ from datetime import datetime
 from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
+from ...control import Mode
 from ...sources import DataSource
 from ..charts import bar_options, heatmap_options
 from ..theme import (
@@ -35,7 +36,8 @@ def _format_event(event: dict) -> dict:
         "stage": event.get("stage", "—"),
         "pwm": event.get("commanded_pwm_us") if event.get("commanded_pwm_us") is not None else "—",
         "ack": "ACK" if event.get("device_ack") else "—",
-        "detail": event.get("detail", ""),
+        "device": event.get("firmware_state") or "—",
+        "detail": (event.get("detail") or "")[:70],
     }
 
 
@@ -67,6 +69,12 @@ def live_page(core) -> None:
                 mode_value, mode_caption = metric_card("CONTROL MODE", "tune", "STANDBY", "Manual control idle")
             with ui.element("div").classes("col-3"):
                 trial_value, trial_caption = metric_card("EXPERIMENT", "science", "NO TRIAL", "Create in Experiments")
+
+        with ui.row().classes("w-full card notice-red items-center gap-3") as fault_banner:
+            ui.icon("report_problem").style("color:#b91c1c;font-size:20px")
+            fault_text = ui.label("FAULT").classes("card-title").style("color:#991b1b")
+            fault_reset_button = ui.button("Reset fault", color="negative").props("outline no-caps").style("margin-left:auto")
+        fault_banner.set_visibility(False)
 
         with ui.element("div").classes("grid-12"):
             with ui.element("div").classes("col-7"):
@@ -117,12 +125,18 @@ def live_page(core) -> None:
                         ui.label(f"{limits['min_us']}–{limits['max_us']} μs from config").classes("card-sub")
                     with ui.row().classes("w-full gap-2"):
                         apply_button = ui.button("Apply PWM", color="primary").props("unelevated no-caps").classes("flex-1").style("height:42px")
-                        stop_button = ui.button("STOP", color="negative").props("outline no-caps").classes("flex-1").style("height:42px")
+                        stop_button = ui.button("STOP", color="negative").props("unelevated no-caps").classes("flex-1").style("height:42px")
                     apply_hint = ui.label("Connect a session to enable Apply").classes("card-sub")
                     ui.element("div").classes("hairline")
                     with ui.row().classes("w-full items-center justify-between"):
                         connection_label = ui.label("SESSION OFFLINE").classes("card-kicker")
                         connect_button = ui.button("Connect simulated S3", color="secondary").props("unelevated no-caps")
+                    with ui.row().classes("w-full items-center gap-2"):
+                        manual_mode_button = ui.button("MANUAL", color="primary").props("outline no-caps")
+                        standby_mode_button = ui.button("STANDBY", color="secondary").props("outline no-caps")
+                        auto_mode_button = ui.button("AUTO", color="secondary").props("outline no-caps")
+                        ui.label("AUTO 需真实传感器 + 标定").classes("card-sub")
+                    auto_hint = ui.label("AUTO unavailable").classes("card-sub")
                     ui.label(
                         f"Range: {limits['source'].split('/config/')[-1]}。Bench 配置范围，"
                         "不是已验证的机械安全边界。"
@@ -141,6 +155,7 @@ def live_page(core) -> None:
                             {"name": "stage", "label": "STAGE", "field": "stage", "align": "left"},
                             {"name": "pwm", "label": "PWM", "field": "pwm", "align": "right"},
                             {"name": "ack", "label": "ACK", "field": "ack", "align": "center"},
+                            {"name": "device", "label": "DEVICE", "field": "device", "align": "left"},
                             {"name": "detail", "label": "DETAIL", "field": "detail", "align": "left"},
                         ],
                         rows=[],
@@ -227,9 +242,15 @@ def live_page(core) -> None:
             trial_value.set_text(trial.get("status", "TRIAL"))
             trial_caption.set_text(trial.get("trial_id", "—"))
             counts = trial.get("counts") or {}
-            trial_counts.set_text(f"frames {counts.get('frames', 0)} · events {counts.get('events', 0)}")
+            trial_counts.set_text(
+                f"frames {counts.get('frames', 0)} · events {counts.get('events', 0)}"
+                + (f" · dropped {counts.get('dropped_frames', 0)}" if counts.get("dropped_frames") else "")
+            )
             trial_status.set_text(trial.get("status", "TRIAL"))
-            trial_meta.set_text(f"{trial.get('name', '')} · {trial.get('mode', '')} · {trial.get('source', '')}")
+            trial_meta.set_text(
+                (f"WRITE ERROR: {snapshot['trial_error']}" if snapshot.get("trial_error") else
+                 f"{trial.get('name', '')} · {trial.get('mode', '')} · {trial.get('source', '')}")
+            )
         else:
             trial_value.set_text("NO TRIAL")
             trial_caption.set_text("Create in Experiments")
@@ -237,6 +258,19 @@ def live_page(core) -> None:
             trial_status.set_text("NO TRIAL")
             trial_meta.set_text("Create a trial in Experiments")
 
+        fault_active = snapshot["mode"] == "FAULT"
+        fault_banner.set_visibility(fault_active)
+        if fault_active:
+            fault_text.set_text(f"FAULT · {snapshot.get('fault_reason') or 'reason UNKNOWN'}")
+            fault_reset_button.set_enabled(snapshot["gripper"].get("state") != "FAULT")
+        manual_mode_button.set_enabled(
+            bool(snapshot["manual_session_active"])
+            and snapshot["mode"] in ("STANDBY",)
+            and not fault_active
+        )
+        standby_mode_button.set_enabled(snapshot["mode"] == "MANUAL")
+        auto_mode_button.set_enabled(False)
+        auto_hint.set_text("AUTO 不可用：" + "；".join(snapshot.get("auto_reasons") or ["UNKNOWN"]))
         apply_button.set_enabled(bool(snapshot["apply_enabled"]))
         stop_button.set_enabled(bool(snapshot["stop_enabled"]))
         apply_hint.set_text(snapshot.get("apply_denial") or "Ready · Apply submits one target (ACK is not position)")
@@ -316,7 +350,35 @@ def live_page(core) -> None:
 
     async def stop_device() -> None:
         event = await asyncio.to_thread(core.stop)
-        ui.notify(f"STOP: {event.stage} — output state UNKNOWN unless ACK", type="warning")
+        ui.notify(
+            f"STOP: {event.stage} · firmware {event.firmware_state or 'UNKNOWN'} — "
+            "no hold/release guarantee, not a hardware E-stop",
+            type="warning",
+        )
+        refresh()
+
+    async def set_manual_mode() -> None:
+        try:
+            await asyncio.to_thread(core.set_mode, Mode.MANUAL)
+            ui.notify("MANUAL enabled", type="positive")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", timeout=6000)
+        refresh()
+
+    async def set_standby_mode() -> None:
+        try:
+            await asyncio.to_thread(core.set_mode, Mode.STANDBY)
+            ui.notify("STANDBY: host updates stopped; device output is not assumed stopped", type="warning")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative")
+        refresh()
+
+    async def reset_fault() -> None:
+        try:
+            await asyncio.to_thread(core.clear_fault)
+            ui.notify("Fault cleared; reconnect/re-authorize if the device was in FAULT", type="positive")
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", timeout=6000)
         refresh()
 
     async def toggle_connection() -> None:
@@ -330,8 +392,7 @@ def live_page(core) -> None:
                     ui.notify("Disconnected; output state may be UNKNOWN", type="warning")
             else:
                 await asyncio.to_thread(core.connect_gripper)
-                event = await asyncio.to_thread(core.begin_manual_session)
-                ui.notify(f"Connected ({event.stage}); no PWM sent", type="positive")
+                ui.notify("Connected and status queried; no manual session and no PWM yet", type="positive")
         except Exception as exc:
             ui.notify(str(exc), type="negative", timeout=6000)
         refresh()
@@ -350,6 +411,9 @@ def live_page(core) -> None:
     apply_button.on_click(apply_pwm)
     stop_button.on_click(stop_device)
     connect_button.on_click(toggle_connection)
+    manual_mode_button.on_click(set_manual_mode)
+    standby_mode_button.on_click(set_standby_mode)
+    fault_reset_button.on_click(reset_fault)
     demo_switch.on_value_change(on_demo_change)
 
     refresh()

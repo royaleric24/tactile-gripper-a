@@ -50,3 +50,7 @@ class OwnershipError(TactileError):
 
 class ModeUnavailable(ControlDenied):
     code = "MODE_UNAVAILABLE"
+
+
+class TrialWriteError(TactileError):
+    code = "TRIAL_WRITE_ERROR"

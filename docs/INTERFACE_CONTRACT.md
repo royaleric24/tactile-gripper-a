@@ -269,7 +269,9 @@
 ### 5.2 语义边界
 
 - **请求发送 PWM**、**成功写入串口**、**设备 ACK**、**机械爪实际位置** 是四个不同事实。`ControlEvent` 分别记录 `stage`、`serial_write_ok`、`device_ack`，而 `actual_pwm_us`/实际位置始终为 `null`（UNKNOWN），不得复制目标值。
-- `STOP` 的具体输出行为以现有固件为准：它尝试撤销许可并禁用 PWM，不承诺保持力，不承诺释放，且不是硬件急停。
+- `STOP` 的具体输出行为已按 `firmware/gripper_control/SafetyCore.h::command` 源码确认（FACT）：`STOP`/`DISARM` 先清除 trial/bench/hold/mech 许可，再调用 `output.off()`；`LedcOutput::off()` 写 `ledcWrite(GPIO, 0)` 并 `ledcDetach`。成功时 state=`DISARMED`，失败时 state=`FAULT`、`outputUnknown`，不承诺保持力、不承诺释放，且不是硬件急停。
+- **STOP 与 DISARM 的 FAULT 行为不同（FACT）**：若固件已经处于 `FAULT`，`STOP` 只重试 `output.off()`；成功后仍返回 ACK 但 **state 仍为 FAULT**，不会清除故障。`DISARM` 走通用撤销分支，`output.off()` 成功时把 state 置为 `DISARMED`。主机不得把 STOP 的 ACK 当作故障已清除。
+- 现有 S3 固件已按源码确认存在上述路径，但真实机械停止、保持、释放与掉落行为仍 **NOT_TESTED**；软件 STOP 仍不是硬件急停。
 - 停止更新目标（`STOP_UPDATES`）、停止 PWM 输出（`STOP`）、保持夹持（无已验证命令）、松开（无已验证命令）在软件接口与 UI 中必须分开显示。
 - 现有 PWM 范围来自 `config/gripper_s3.json` 的 `bench_min_us`/`bench_max_us`（500–2500 μs，Bench 配置），仅是配置值，**不是机械安全边界**；`safe_min_us`/`safe_max_us` 仍为 `null`。
 
@@ -311,6 +313,7 @@
 - `docs/FIRMWARE_PROTOCOL_DRAFT.md`：Stage 0.7 草案，保留追溯。
 - `docs/SENSOR_CONTRACT.md`：Stage 0 的 4×4/16 通道草案，保留追溯；不作为 6×6/36 单元或新协议的最终依据。
 - `docs/STAGE_S1_S2A_REPORT.md`：S1/S2-A 实现与测试报告，记录哪些是实现、哪些只是提议。
+- `docs/PROTOCOL_COLLABORATION.md`：面向硬件组的简洁协作摘要（最小 HELLO/SAMPLE 字段、感测单元与 ADC 输入区别、C-01..C-18 问题清单）。
 
 ## 10. 变更记录
 
@@ -318,3 +321,4 @@
 |---|---|---|
 | 2026-11-12 | PROPOSED v0.1 (S0) | 建立占位草案与 C-01..C-12 待确认项 |
 | 2026-11-12 | PROPOSED v0.1 (S1 software) | 增加 HELLO/SAMPLE/STATUS/ERROR 草案、通道配置、帧序号/重启/时间戳规则、版本兼容、数据来源隔离；C-13..C-18 新增；状态仍为 PROPOSED |
+| 2026-11-13 | PROPOSED v0.1 (S2-B software) | 按固件源码补充 STOP/DISARM 的 output.off、FAULT 不清除与 DISARM 清除行为；仍为 PROPOSED，等待硬件组评审 |

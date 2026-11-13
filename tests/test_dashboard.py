@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 
 from tactile_gripper.control import build_core
+from tactile_gripper.ui.charts import pwm_timeline_options
 from tactile_gripper.ui.server import create_ui
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +97,32 @@ class DashboardServerTests(unittest.TestCase):
             finally:
                 if proc.poll() is None:
                     proc.kill()
+
+
+class DashboardChartTests(unittest.TestCase):
+    def test_pwm_timeline_uses_command_not_position(self):
+        events = [
+            {
+                "record_type": "CONTROL_EVENT",
+                "action": "SET_PWM",
+                "commanded_pwm_us": 1500,
+                "timestamp_utc": "2026-11-13T06:00:00+00:00",
+                "stage": "DEVICE_ACK",
+                "device_ack": True,
+            },
+            {
+                "record_type": "CONTROL_EVENT",
+                "action": "SET_PWM",
+                "commanded_pwm_us": 1520,
+                "timestamp_utc": "2026-11-13T06:00:01+00:00",
+                "stage": "FAILED",
+                "device_ack": False,
+            },
+        ]
+        options = pwm_timeline_options(events)
+        self.assertEqual([item["value"] for item in options["series"][0]["data"]], [1500, 1520])
+        self.assertEqual(options["yAxis"]["name"], "μs")
+        self.assertNotIn("actual", str(options))
 
 
 class DashboardStructureTests(unittest.TestCase):

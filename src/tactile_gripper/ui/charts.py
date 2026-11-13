@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 TEXT = "#64748b"
@@ -180,4 +181,70 @@ def line_options(frames: list[dict[str, Any]], channel_ids: list[int]) -> dict[s
             "splitLine": {"lineStyle": {"color": GRID}},
         },
         "series": series,
+    }
+
+
+def pwm_timeline_options(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Commanded PWM targets by host receive time (ACK is not position)."""
+    points = []
+    for event in events:
+        if event.get("record_type") != "CONTROL_EVENT":
+            continue
+        if event.get("action") != "SET_PWM" or event.get("commanded_pwm_us") is None:
+            continue
+        stamp = event.get("timestamp_utc")
+        try:
+            moment = datetime.fromisoformat(stamp)
+        except (TypeError, ValueError):
+            continue
+        points.append((moment, int(event["commanded_pwm_us"]), event.get("stage", ""), bool(event.get("device_ack"))))
+    if not points:
+        return {}
+    base = points[0][0]
+    x = [f"{round((moment - base).total_seconds(), 3):.3f}s" for moment, _, _, _ in points]
+    values = []
+    colors = []
+    for _, value, stage, ack in points:
+        values.append(value)
+        if stage in ("FAILED", "REJECTED", "UNSUPPORTED"):
+            colors.append("#dc2626")
+        elif ack:
+            colors.append("#0f766e")
+        else:
+            colors.append("#94a3b8")
+    return {
+        "backgroundColor": "transparent",
+        "animationDuration": 250,
+        "tooltip": {"trigger": "axis"},
+        "grid": {"left": 48, "right": 16, "top": 18, "bottom": 32},
+        "xAxis": {
+            "type": "category",
+            "data": x,
+            "name": "s",
+            "nameTextStyle": {"color": TEXT, "fontSize": 9},
+            "axisLabel": {"color": TEXT, "fontSize": 9},
+            "axisLine": {"lineStyle": {"color": AXIS}},
+            "splitLine": {"lineStyle": {"color": GRID}},
+        },
+        "yAxis": {
+            "type": "value",
+            "name": "μs",
+            "nameTextStyle": {"color": TEXT, "fontSize": 9},
+            "axisLabel": {"color": TEXT, "fontSize": 9},
+            "splitLine": {"lineStyle": {"color": GRID}},
+        },
+        "series": [
+            {
+                "name": "commanded PWM",
+                "type": "line",
+                "step": "end",
+                "data": [
+                    {"value": value, "itemStyle": {"color": color}}
+                    for value, color in zip(values, colors)
+                ],
+                "showSymbol": True,
+                "symbolSize": 5,
+                "lineStyle": {"width": 1.8, "color": "#0ea5e9"},
+            }
+        ],
     }

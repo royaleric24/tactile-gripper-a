@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable, Mapping
 
-from .constants import FIRMWARE_COMMAND_MAP, PROTOCOL_VERSION, SOFTWARE_VERSION
+from .constants import FIRMWARE_COMMAND_MAP, PROTOCOL_VERSION, SOFTWARE_VERSION, TRIAL_SCHEMA_VERSION
 from .errors import FrameValidationError
 from .sources import DataSource, parse_source
 
@@ -501,11 +501,16 @@ class ControlEvent:
     actual_position_known: bool = False
     detail: str = ""
     response: dict[str, Any] | None = None
+    firmware_state: str | None = None
 
     def __post_init__(self) -> None:
         self.source = parse_source(self.source)
         if self.actual_pwm_us is not None:
             raise ValueError("actual_pwm_us must remain unknown without position feedback")
+        if self.firmware_state is None and isinstance(self.response, dict):
+            state = self.response.get("state")
+            if isinstance(state, str):
+                self.firmware_state = state
 
     @classmethod
     def from_command(
@@ -551,6 +556,7 @@ class ControlEvent:
             "actual_position_known": self.actual_position_known,
             "detail": self.detail,
             "response": self.response,
+            "firmware_state": self.firmware_state,
         }
 
 
@@ -589,6 +595,9 @@ class TrialMetadata:
     notes: str = ""
     software_version: str = SOFTWARE_VERSION
     protocol_version: int = PROTOCOL_VERSION
+    schema_version: int = TRIAL_SCHEMA_VERSION
+    git_commit: str | None = None
+    write_error: str | None = None
     files: dict[str, str] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
 
@@ -610,6 +619,9 @@ class TrialMetadata:
             "notes": self.notes,
             "software_version": self.software_version,
             "protocol_version": self.protocol_version,
+            "schema_version": self.schema_version,
+            "git_commit": self.git_commit,
+            "write_error": self.write_error,
             "files": self.files,
             "counts": self.counts,
         }
@@ -638,6 +650,9 @@ class TrialMetadata:
             notes=str(value.get("notes", "")),
             software_version=str(value.get("software_version", SOFTWARE_VERSION)),
             protocol_version=int(value.get("protocol_version", PROTOCOL_VERSION)),
+            schema_version=int(value.get("schema_version", 1)),
+            git_commit=value.get("git_commit"),
+            write_error=value.get("write_error"),
             files=dict(value.get("files") or {}),
             counts=dict(value.get("counts") or {}),
         )

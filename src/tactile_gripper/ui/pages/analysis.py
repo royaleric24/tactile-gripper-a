@@ -9,7 +9,7 @@ from datetime import datetime
 from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
-from ..charts import bar_options, heatmap_options, line_options
+from ..charts import bar_options, heatmap_options, line_options, pwm_timeline_options
 from ..theme import card_header, empty_state, notice, pill, set_pill, shell, tone_for_state
 
 
@@ -37,10 +37,9 @@ def _channel_ids(records: list[dict]) -> list[int]:
 def analysis_page(core) -> None:
     state: dict = {"record": None, "index": 0, "playing": False, "channels": []}
     initial_options: dict[str, str] = {}
-    for stored in core.trial_store.list_trials():
-        metadata = stored.metadata
-        initial_options[metadata.trial_id] = (
-            f"{metadata.trial_id} · {metadata.name} · {metadata.source.value} · {metadata.status}"
+    for metadata in core.list_trials():
+        initial_options[metadata["trial_id"]] = (
+            f"{metadata['trial_id']} · {metadata['name']} · {metadata['source']} · {metadata['status']}"
         )
 
     with shell(
@@ -76,10 +75,9 @@ def analysis_page(core) -> None:
 
     def trial_options() -> dict[str, str]:
         options = {}
-        for stored in core.trial_store.list_trials():
-            metadata = stored.metadata
-            options[metadata.trial_id] = (
-                f"{metadata.trial_id} · {metadata.name} · {metadata.source.value} · {metadata.status}"
+        for metadata in core.list_trials():
+            options[metadata["trial_id"]] = (
+                f"{metadata['trial_id']} · {metadata['name']} · {metadata['source']} · {metadata['status']}"
             )
         return options
 
@@ -124,24 +122,45 @@ def analysis_page(core) -> None:
         frames = record["frames"]
         events = record["events"]
         summary = record.get("summary") or {}
+        integrity = summary.get("integrity") or {}
+        status = metadata.get("status", "UNKNOWN")
+        if status == "INTERRUPTED":
+            notice(
+                "TRIAL INTERRUPTED：软件未正常结束录制。已有帧/事件保留，但本 Trial "
+                "不视为正常完成，不计入完成 Trial。",
+                "red",
+            )
+        if status == "ERROR" or metadata.get("write_error"):
+            notice(f"TRIAL WRITE ERROR：{metadata.get('write_error') or '写入失败，详见事件日志'}。", "red")
+        if integrity.get("dropped_frames") or integrity.get("frames_with_invalid_channels"):
+            notice(
+                f"数据完整性：丢帧 {integrity.get('dropped_frames', 0)}，"
+                f"含无效通道的帧 {integrity.get('frames_with_invalid_channels', 0)}。"
+                "无效通道不会被当作零接触。",
+                "amber",
+            )
         with ui.element("div").classes("grid-12"):
             with ui.element("div").classes("col-12"):
                 with ui.column().classes("card gap-2"):
                     with ui.row().classes("w-full items-start justify-between"):
                         with ui.column().classes("gap-0"):
                             ui.label(metadata.get("name", "Trial")).classes("metric-value")
+                            git = (metadata.get("git_commit") or "UNKNOWN")[:10]
                             ui.label(
                                 f"{metadata.get('trial_id')} · {metadata.get('mode')} · {metadata.get('source')} · "
-                                f"{metadata.get('status')}"
+                                f"{status} · schema v{metadata.get('schema_version', 1)} · git {git}"
                             ).classes("card-sub")
                         with ui.row().classes("items-center gap-2"):
                             source_pill = pill(metadata.get("source", "UNKNOWN"), "purple" if metadata.get("source") == "REPLAY" else "teal" if metadata.get("source") == "SIMULATION" else "blue")
-                            pill(metadata.get("status", "UNKNOWN"), tone_for_state(metadata.get("status", "")))
+                            pill(status, tone_for_state(status))
                     with ui.row().classes("w-full gap-6"):
                         for label, value in (
                             ("FRAMES", summary.get("frames", len(frames))),
                             ("CONTROL EVENTS", summary.get("control_events", 0)),
+                            ("ACK EVENTS", summary.get("ack_events", 0)),
                             ("ANOMALIES", summary.get("anomalies", 0)),
+                            ("DROPPED", integrity.get("dropped_frames", 0)),
+                            ("INVALID SAMPLES", integrity.get("invalid_channel_samples", 0)),
                             ("CREATED", _clock(metadata.get("created_at"))),
                         ):
                             with ui.column().classes("gap-0"):
@@ -199,7 +218,7 @@ def analysis_page(core) -> None:
                             language="json",
                         ).classes("w-full").style("max-height:160px;overflow:auto;font-size:11px")
 
-            with ui.element("div").classes("col-12"):
+            with ui.element("div").classes("col-7"):
                 with ui.column().classes("card gap-3"):
                     with card_header("Control Events", "命令阶段与设备 ACK；actual position 始终为 UNKNOWN"):
                         pass
@@ -215,21 +234,41 @@ def analysis_page(core) -> None:
                                 "stage": item.get("stage"),
                                 "pwm": item.get("commanded_pwm_us") if item.get("commanded_pwm_us") is not None else "—",
                                 "ack": "ACK" if item.get("device_ack") else "—",
-                                "detail": item.get("detail", ""),
+                                "device": item.get("firmware_state") or "—",
+                                "detail": (
+                                    (
+                                        ((item.get("command_id") or "")[:8] + " · ")
+                                        if item.get("command_id") else ""
+                                    ) + (item.get("detail") or "")
+                                )[:85],
                             }
                         )
                     ui.table(
                         columns=[
-                            {"name": "time", "label": "TIME", "field": "time", "align": "left"},
-                            {"name": "action", "label": "ACTION", "field": "action", "align": "left"},
-                            {"name": "stage", "label": "STAGE", "field": "stage", "align": "left"},
-                            {"name": "pwm", "label": "PWM", "field": "pwm", "align": "right"},
-                            {"name": "ack", "label": "ACK", "field": "ack", "align": "center"},
+                            {"name": "time", "label": "TIME", "field": "time", "align": "left", "style": "width:150px;white-space:nowrap"},
+                            {"name": "action", "label": "ACTION", "field": "action", "align": "left", "style": "width:105px"},
+                            {"name": "stage", "label": "STAGE", "field": "stage", "align": "left", "style": "width:105px"},
+                            {"name": "pwm", "label": "PWM", "field": "pwm", "align": "right", "style": "width:70px"},
+                            {"name": "ack", "label": "ACK", "field": "ack", "align": "center", "style": "width:60px"},
+                            {"name": "device", "label": "DEVICE", "field": "device", "align": "left", "style": "width:115px"},
                             {"name": "detail", "label": "DETAIL", "field": "detail", "align": "left"},
                         ],
                         rows=control_rows,
                         row_key="id",
                     ).props("flat dense").classes("w-full")
+
+            with ui.element("div").classes("col-5"):
+                with ui.column().classes("card gap-3"):
+                    with card_header("PWM Timeline", "SET_PWM 目标与时间；ACK 不是位置反馈"):
+                        pass
+                    pwm_options = pwm_timeline_options(events)
+                    if pwm_options:
+                        ui.echart(pwm_options).classes("w-full").style("height:250px")
+                        ui.label(
+                            "红点：失败/拒绝；深绿：有 ACK；灰点：无 ACK 或模拟。未绘制的点不代表机械位置。"
+                        ).classes("card-sub")
+                    else:
+                        empty_state("timeline", "NO PWM COMMANDS", "该 Trial 没有可用的 SET_PWM 目标记录。")
 
             with ui.element("div").classes("col-6"):
                 with ui.column().classes("card gap-3"):
@@ -239,8 +278,14 @@ def analysis_page(core) -> None:
                     for item in events:
                         is_anomaly = (
                             item.get("record_type") == "TRIAL_EVENT"
-                            and item.get("event_type") in ("ANOMALY", "SENSOR_ERROR", "FRAME_ANOMALY", "FAULT")
-                        ) or (item.get("record_type") == "CONTROL_EVENT" and item.get("stage") in ("REJECTED", "FAILED", "UNSUPPORTED", "INVALID_DATA", "OFFLINE", "DEVICE_ERROR"))
+                            and item.get("event_type") in (
+                                "ANOMALY", "SENSOR_ERROR", "FRAME_ANOMALY", "FAULT",
+                                "TRIAL_INTERRUPTED", "TRIAL_WRITE_ERROR",
+                            )
+                        ) or (item.get("record_type") == "CONTROL_EVENT" and item.get("stage") in (
+                            "REJECTED", "FAILED", "UNSUPPORTED", "TIMEOUT",
+                            "INVALID_DATA", "OFFLINE", "DEVICE_ERROR",
+                        ))
                         if not is_anomaly:
                             continue
                         anomaly_rows.append(

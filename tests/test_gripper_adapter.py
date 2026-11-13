@@ -153,6 +153,64 @@ class GripperProtocolTests(unittest.TestCase):
         self.assertIn("source mismatch", event.detail)
         adapter.close()
 
+    def test_command_order_begin_before_pwm(self):
+        adapter = make_adapter(self.tmp.name, self.transport)
+        adapter.connect()
+        adapter.execute(ControlCommand(ControlAction.BEGIN_SESSION, DataSource.LIVE), mode="MANUAL")
+        adapter.execute(
+            ControlCommand(ControlAction.SET_PWM, DataSource.LIVE, target_pwm_us=1500),
+            mode="MANUAL",
+        )
+        names = [item["command"] for item in self.transport.commands]
+        self.assertIn("GET_STATUS", names)
+        self.assertLess(names.index("BEGIN_BENCH"), names.index("BENCH_HOLD_MODE"))
+        self.assertLess(names.index("BENCH_HOLD_MODE"), names.index("BENCH_HOLD"))
+        self.assertEqual(names.count("BENCH_HOLD"), 1)
+        adapter.close()
+
+    def test_stop_from_fault_is_ack_but_does_not_clear_fault(self):
+        adapter = make_adapter(self.tmp.name, self.transport)
+        adapter.connect()
+        adapter.execute(ControlCommand(ControlAction.BEGIN_SESSION, DataSource.LIVE), mode="MANUAL")
+        self.transport.state = "FAULT"
+        self.transport.fault_reason = "COMM_TIMEOUT"
+        event = adapter.execute(ControlCommand(ControlAction.STOP, DataSource.LIVE), mode="MANUAL")
+        self.assertEqual(event.stage, "DEVICE_ACK")
+        self.assertEqual(event.firmware_state, "FAULT")
+        self.assertEqual(adapter.state, "FAULT")
+        self.assertFalse(adapter.session_active)
+        adapter.close()
+
+    def test_disarm_clears_fault(self):
+        adapter = make_adapter(self.tmp.name, self.transport)
+        adapter.connect()
+        adapter.execute(ControlCommand(ControlAction.BEGIN_SESSION, DataSource.LIVE), mode="MANUAL")
+        self.transport.state = "FAULT"
+        self.transport.fault_reason = "COMM_TIMEOUT"
+        event = adapter.execute(ControlCommand(ControlAction.DISARM, DataSource.LIVE), mode="MANUAL")
+        self.assertEqual(event.stage, "DEVICE_ACK")
+        self.assertEqual(event.firmware_state, "DISARMED")
+        self.assertEqual(adapter.state, "CONNECTED")
+        adapter.close()
+
+    def test_stop_output_failure_is_fault(self):
+        adapter = make_adapter(self.tmp.name, self.transport)
+        adapter.connect()
+        adapter.execute(ControlCommand(ControlAction.BEGIN_SESSION, DataSource.LIVE), mode="MANUAL")
+        self.transport.stop_off_ok = False
+        event = adapter.execute(ControlCommand(ControlAction.STOP, DataSource.LIVE), mode="MANUAL")
+        self.assertEqual(event.stage, "FAILED")
+        self.assertEqual(adapter.state, "FAULT")
+        adapter.close()
+
+    def test_default_construction_opens_nothing(self):
+        adapter = make_adapter(self.tmp.name, self.transport)
+        self.assertIsNone(adapter.controller)
+        self.assertFalse(adapter.connected)
+        self.assertEqual(self.transport.commands, [])
+        self.assertEqual(self.transport.raw_writes, [])
+        adapter.close()
+
     def test_single_writer_authority(self):
         authority = WriteAuthority()
         first = make_adapter(self.tmp.name, self.transport, authority=authority)
