@@ -20,6 +20,7 @@ STEPS = [
     ("matrix_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/tactile_matrix/tests", "-t", "."]),
     ("experiment_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/tactile_experiment/tests", "-t", "."]),
     ("cup_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/cup_grasp/tests", "-t", "."]),
+    ("contact_python_unittest", [PY, "-m", "unittest", "discover", "-s", "tools/contact_detection/tests", "-t", "."]),
     ("firmware_build", [PY, "scripts/build_sensor_firmware.py"]),
     ("matrix_firmware_build", [PY, "scripts/build_sensor_matrix_firmware.py"]),
     ("sensor_diag_build", [PY, "scripts/build_sensor_diag_firmware.py"]),
