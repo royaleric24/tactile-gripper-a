@@ -4,6 +4,7 @@
 - 工作目录：`/home/example/Developer/research/tactile-gripper-a-sw`
 - 分支：`feat/software-v1`
 - V1.0 代码提交：**`631f1ca feat(v1): complete offline dashboard, sensor and analysis features`**
+- V1.0 文档/截图提交：**`8bcf670 docs(v1): publish runbook, data format, hardware checklist and V1 report`**
 - 前置提交：`24a4254`（S2-B）、`acd38f6`（S2-A）
 - 软件状态：**OFFLINE_FEATURE_COMPLETE**
 - 真实硬件边界：未打开真实串口、未发送 PWM、未连接真实传感器、未烧录固件。截图与演示数据均为 `SIMULATION`。
@@ -14,7 +15,7 @@
 |---|---|
 | 软件 Worktree | `feat/software-v1`，V1 代码提交 `631f1ca` |
 | `main` | `dec50b1`，未修改 |
-| 硬件 Worktree | `feat/hardware-acquisition`，仍为 `dec50b1`；检测到硬件组并发创建的未跟踪 `firmware/sensor/`、`docs/hardware/` 等文件，本轮**未读取/修改/提交** |
+| 硬件 Worktree | `feat/hardware-acquisition`，当前 `ddde08b`（硬件组自己的提交）；软件未修改/提交其文件，未替其修改固件 |
 | 远程 | 未 push |
 | 合并 | 未合并 main |
 
