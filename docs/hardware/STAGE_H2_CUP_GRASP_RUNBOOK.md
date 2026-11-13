@@ -36,7 +36,7 @@ After wiring and visual/electrical checks:
   --port /dev/cu.usbserial-EXAMPLE_ESP32 --channel 0 --cycles 5
 ```
 
-The script first reports `SCAN_MODE_PASS` only with channel-map + ch0-frame evidence, then prompts 5 contact/release cycles, records `samples.jsonl`, and writes
+The script first reports `SCAN_MODE_PASS` only with real HELLO channel-map + ch0-frame evidence, then prompts 5 contact/release cycles, records `samples.jsonl`, and writes
 `metrics.json`/`REPORT.md` under `data/real/single_point/<trial_id>/`.
 It reports per-cycle baseline, delta, SNR, saturation, latency and recovery.
 ADC counts are not pressure/force. If it does not pass, do not proceed to cup

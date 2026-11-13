@@ -105,6 +105,7 @@ class DeviceIdentity:
     port_info: Dict[str, Any]
     hello_seen: bool = False
     hello: Optional[Dict[str, Any]] = None
+    channel_config: Optional[Dict[str, Any]] = None
 
 
 class SerialSession:
@@ -280,6 +281,8 @@ class SerialSession:
                 }
                 for item in status.adc_status
             ]
+        hello_raw = None if hello is None else hello.raw
+        channel_config = hello_raw.get("channel_config") if isinstance(hello_raw, dict) else None
         return DeviceIdentity(
             device_id=(status.device_id if status is not None else hello.device_id),
             boot_id=(status.boot_id if status is not None else hello.boot_id),
@@ -291,7 +294,8 @@ class SerialSession:
             port=self.port,
             port_info=port_info(self.port),
             hello_seen=hello is not None,
-            hello=None if hello is None else hello.raw,
+            hello=hello_raw,
+            channel_config=channel_config if isinstance(channel_config, dict) else None,
         )
 
     def request_status(self, timeout_s: float = 3.0) -> StatusMessage:

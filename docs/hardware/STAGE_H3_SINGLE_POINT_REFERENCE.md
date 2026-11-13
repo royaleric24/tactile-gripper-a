@@ -130,6 +130,15 @@ A source test checks that `setMux()` occurs before `startConversion()` and that
 `channel = adc_index*4 + step`. This is a code/protocol check; the saved raw
 register and frame evidence remain the actual hardware record.
 
+## 7.2 Identity/channel-config propagation
+
+`DeviceIdentity` now carries `channel_config` from the real HELLO payload, and
+`HelloMessage.channel_config` exposes the same raw object. The host verifier
+uses `identity.channel_config` (falling back to `identity.hello["channel_config"]`
+for compatibility), never a nonexistent `identity.raw`. Missing HELLO/channel
+config, missing/failed SAMPLE, malformed JSON and timeout each produce an
+explicit error and never `SCAN_MODE_PASS`.
+
 ## 8. Answers
 
 - **Current flashed 0.1.0 direct test?** No: writes Reg2=0x40 (REF0).

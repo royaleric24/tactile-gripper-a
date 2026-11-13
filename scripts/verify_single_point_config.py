@@ -28,6 +28,16 @@ class ConfigResponseError(RuntimeError):
         self.parse_errors = list(parse_errors or [])
 
 
+def channel_config_from_identity(identity):
+    value = getattr(identity, "channel_config", None)
+    if isinstance(value, dict):
+        return value
+    hello = getattr(identity, "hello", None)
+    if isinstance(hello, dict):
+        value = hello.get("channel_config")
+    return value if isinstance(value, dict) else None
+
+
 def wait_sample(session, timeout_s=3.0):
     """Return one fresh SAMPLE frame; interleaved STATUS/ERROR lines are skipped."""
     deadline = time.monotonic() + timeout_s
@@ -138,10 +148,14 @@ def main(argv=None) -> int:
         if frame is None:
             print("NO SAMPLE FRAME: cannot verify ch0 conversion mapping", file=sys.stderr)
             return 2
-        channel_config = identity.raw.get("channel_config")
+        channel_config = channel_config_from_identity(identity)
+        if channel_config is None:
+            print("CHANNEL_CONFIG_MISSING: HELLO/channel_config absent; refusing SCAN_MODE_PASS", file=sys.stderr)
+            return 2
+        channels = channel_config.get("channels") or []
+        first = channels[0] if channels else {}
         print("ch0 map {} frame_seq={} raw0={} valid0={}".format(
-            (channel_config or {}).get("channels", [{}])[0].get("mux_channel"),
-            frame.frame_seq, frame.raw_adc[0], frame.valid[0]))
+            first.get("mux_channel"), frame.frame_seq, frame.raw_adc[0], frame.valid[0]))
         setref = None
         if not args.skip_set_ref:
             try:

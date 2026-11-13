@@ -24,8 +24,8 @@ from tools.cup_grasp.single_point import summarize_single_point, validate_config
 from tools.cup_grasp.tactile import TactileProcessor  # noqa: E402
 from tools.tactile_acq.protocol import SampleFrame, parse_message  # noqa: E402
 from tools.tactile_acq.transport import SerialSession  # noqa: E402
-from scripts.verify_single_point_config import (ConfigResponseError, frame_evidence, print_diagnostics,
-    wait_config_report, wait_sample, wait_set_ref)  # noqa: E402
+from scripts.verify_single_point_config import (ConfigResponseError, channel_config_from_identity,
+    frame_evidence, print_diagnostics, wait_config_report, wait_sample, wait_set_ref)  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -62,7 +62,11 @@ def main(argv=None) -> int:
         print("NO SAMPLE FRAME: cannot verify ch0 conversion mapping", file=sys.stderr)
         session.close()
         return 2
-    channel_config = identity.raw.get("channel_config")
+    channel_config = channel_config_from_identity(identity)
+    if channel_config is None:
+        print("CHANNEL_CONFIG_MISSING: HELLO/channel_config absent; refusing SCAN_MODE_PASS", file=sys.stderr)
+        session.close()
+        return 2
     try:
         setref_status, setref_diagnostics = wait_set_ref(session)
         print("SET_REF -> reference_mode={}".format(setref_status.reference_mode))

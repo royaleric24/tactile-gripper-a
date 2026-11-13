@@ -374,6 +374,11 @@ class HelloMessage:
     reference_mode: Optional[str]
     raw: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
+    @property
+    def channel_config(self):
+        value = self.raw.get("channel_config")
+        return value if isinstance(value, dict) else None
+
 
 @dataclass(frozen=True)
 class StatusMessage:
