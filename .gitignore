@@ -12,6 +12,7 @@ __pycache__/
 
 # Local toolchain and downloads (large, reproducible)
 .tools/
+.cache/
 
 # Firmware build outputs and binaries. Stable artifacts are backed up outside Git;
 # see docs/ASSET_MANIFEST.md for paths, versions and SHA-256.
