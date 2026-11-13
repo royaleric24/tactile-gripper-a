@@ -6,11 +6,12 @@
   "pins": {
     "sclk": 18,
     "mosi": 23,
-    "miso": [34, 35, 26],
+    "miso": [35, 26, 34],
     "cs": [21, 22, 5]
   },
   "ads1220": {
     "spi_half_period_us": 1,
+    "diag_half_period_us": 25,
     "data_rate_sps": 330,
     "conversion_wait_us": 4500,
     "operating_mode": "NORMAL",
@@ -24,7 +25,7 @@
     "channel_order": "ADC1_AIN0..3,ADC2_AIN0..3,ADC3_AIN0..3"
   },
   "stream": {
-    "max_line_bytes": 2048,
+    "max_line_bytes": 8192,
     "max_command_bytes": 512,
     "command_partial_timeout_ms": 1000,
     "frame_rate_window": 32,

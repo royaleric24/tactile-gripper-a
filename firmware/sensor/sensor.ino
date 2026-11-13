@@ -82,6 +82,38 @@ struct DiagDevice {
   bool channel_ok[4];
 };
 
+// Raw, low-speed SPI probe result for one ADC and one MISO sampling edge.
+struct SpiEdgeResult {
+  bool reset_ok;
+  uint8_t reset_bytes[4];
+  bool write_a_return;
+  bool read_a_return;
+  uint8_t read_a[4];
+  bool read_a_ok;
+  bool write_b_return;
+  bool read_b_return;
+  uint8_t read_b[4];
+  bool read_b_ok;
+  bool pass;
+};
+
+struct SpiProbeResult {
+  uint8_t adc;
+  uint8_t cs;
+  uint8_t miso;
+  uint8_t idle_miso;
+  uint8_t after_miso;
+  SpiEdgeResult after_rising;
+  SpiEdgeResult after_falling;
+};
+
+struct MisoMapResult {
+  uint8_t adc;
+  uint8_t cs;
+  uint8_t miso;
+  SpiEdgeResult result;
+};
+
 constexpr int32_t ADC_FULL_SCALE = 8388607;   // 2^23 - 1
 constexpr int32_t ADC_MIN_SCALE = -8388608;   // -2^23
 constexpr uint32_t FRAME_RATE_SCALE = 100000000UL;  // hundredths of a hertz
@@ -393,6 +425,153 @@ void sendStatus(const char* request_id, const DiagDevice* diag, bool sample_ok) 
   sendWriter(writer);
 }
 
+void appendByteArray(JsonLineWriter& writer, const uint8_t* values, uint8_t count) {
+  writer.ch('[');
+  for (uint8_t i = 0; i < count; ++i) {
+    if (i > 0) writer.ch(',');
+    writer.u32(values[i]);
+  }
+  writer.ch(']');
+}
+
+void appendSpiEdge(JsonLineWriter& writer, const SpiEdgeResult& edge) {
+  writer.lit("{\"reset_ok\":");
+  writer.boolean(edge.reset_ok);
+  writer.lit(",\"reset\":");
+  appendByteArray(writer, edge.reset_bytes, 4);
+  writer.lit(",\"write_a_return\":");
+  writer.boolean(edge.write_a_return);
+  writer.lit(",\"read_a_return\":");
+  writer.boolean(edge.read_a_return);
+  writer.lit(",\"read_a\":");
+  appendByteArray(writer, edge.read_a, 4);
+  writer.lit(",\"read_a_ok\":");
+  writer.boolean(edge.read_a_ok);
+  writer.lit(",\"write_b_return\":");
+  writer.boolean(edge.write_b_return);
+  writer.lit(",\"read_b_return\":");
+  writer.boolean(edge.read_b_return);
+  writer.lit(",\"read_b\":");
+  appendByteArray(writer, edge.read_b, 4);
+  writer.lit(",\"read_b_ok\":");
+  writer.boolean(edge.read_b_ok);
+  writer.lit(",\"pass\":");
+  writer.boolean(edge.pass);
+  writer.ch('}');
+}
+
+void sendSpiDiag(const char* request_id, uint16_t slow_half_us, const SpiProbeResult* results) {
+  JsonLineWriter writer(out_buffer, sizeof(out_buffer));
+  writer.lit("{\"protocol_version\":1,\"type\":\"STATUS\",\"device_id\":");
+  writer.str(SENSOR_DEVICE_ID);
+  writer.lit(",\"boot_id\":");
+  writer.str(boot_id);
+  writer.lit(",\"firmware_version\":");
+  writer.str(SENSOR_FIRMWARE_VERSION);
+  writer.lit(",\"sensor_state\":\"STOPPED\",\"streaming\":false,\"channel_count\":12");
+  writer.lit(",\"spi_diag\":{\"slow_half_period_us\":");
+  writer.u32(slow_half_us);
+  writer.lit(",\"pins\":{\"sclk\":");
+  writer.u32(SENSOR_SCLK_PIN);
+  writer.lit(",\"mosi\":");
+  writer.u32(SENSOR_MOSI_PIN);
+  writer.lit("},\"commands\":{\"reset\":6,\"wreg\":67,\"rreg\":35,\"start\":8,\"rdata\":16}");
+  writer.lit(",\"devices\":[");
+  for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+    if (i > 0) writer.ch(',');
+    const SpiProbeResult& item = results[i];
+    writer.lit("{\"adc\":");
+    writer.u32(item.adc);
+    writer.lit(",\"cs\":");
+    writer.u32(item.cs);
+    writer.lit(",\"miso\":");
+    writer.u32(item.miso);
+    writer.lit(",\"idle_miso\":");
+    writer.u32(item.idle_miso);
+    writer.lit(",\"after_miso\":");
+    writer.u32(item.after_miso);
+    writer.lit(",\"edges\":{\"after_rising\":");
+    appendSpiEdge(writer, item.after_rising);
+    writer.lit(",\"after_falling\":");
+    appendSpiEdge(writer, item.after_falling);
+    writer.lit("}}");
+  }
+  writer.lit("]}");
+  if (request_id != nullptr) {
+    writer.lit(",\"request_id\":");
+    writer.str(request_id);
+  }
+  writer.ch('}');
+  sendWriter(writer);
+}
+
+void sendAdc1Min(const char* request_id, uint8_t cycles, const SpiEdgeResult& result) {
+  JsonLineWriter writer(out_buffer, sizeof(out_buffer));
+  writer.lit("{\"protocol_version\":1,\"type\":\"STATUS\",\"device_id\":");
+  writer.str(SENSOR_DEVICE_ID);
+  writer.lit(",\"boot_id\":");
+  writer.str(boot_id);
+  writer.lit(",\"firmware_version\":");
+  writer.str(SENSOR_FIRMWARE_VERSION);
+  writer.lit(",\"sensor_state\":\"STOPPED\",\"streaming\":false,\"channel_count\":12");
+  writer.lit(",\"adc1_min\":{\"cycles\":");
+  writer.u32(cycles);
+  writer.lit(",\"pins\":{\"cs\":");
+  writer.u32(SENSOR_CS_PINS[0]);
+  writer.lit(",\"sclk\":");
+  writer.u32(SENSOR_SCLK_PIN);
+  writer.lit(",\"mosi\":");
+  writer.u32(SENSOR_MOSI_PIN);
+  writer.lit(",\"miso\":");
+  writer.u32(SENSOR_MISO_PINS[0]);
+  writer.lit("},\"slow_half_period_us\":");
+  writer.u32(SENSOR_DIAG_SPI_HALF_PERIOD_US);
+  writer.lit(",\"result\":");
+  appendSpiEdge(writer, result);
+  writer.lit("}");
+  if (request_id != nullptr) {
+    writer.lit(",\"request_id\":");
+    writer.str(request_id);
+  }
+  writer.ch('}');
+  sendWriter(writer);
+}
+
+void sendMisoMap(const char* request_id, uint16_t slow_half_us, const MisoMapResult* results,
+                 uint8_t result_count) {
+  JsonLineWriter writer(out_buffer, sizeof(out_buffer));
+  writer.lit("{\"protocol_version\":1,\"type\":\"STATUS\",\"device_id\":");
+  writer.str(SENSOR_DEVICE_ID);
+  writer.lit(",\"boot_id\":");
+  writer.str(boot_id);
+  writer.lit(",\"firmware_version\":");
+  writer.str(SENSOR_FIRMWARE_VERSION);
+  writer.lit(",\"sensor_state\":\"STOPPED\",\"streaming\":false,\"channel_count\":12");
+  writer.lit(",\"miso_map\":{\"slow_half_period_us\":");
+  writer.u32(slow_half_us);
+  writer.lit(",\"results\":[");
+  for (uint8_t i = 0; i < result_count; ++i) {
+    if (i > 0) writer.ch(',');
+    const MisoMapResult& item = results[i];
+    writer.lit("{\"adc\":");
+    writer.u32(item.adc);
+    writer.lit(",\"cs\":");
+    writer.u32(item.cs);
+    writer.lit(",\"miso\":");
+    writer.u32(item.miso);
+    writer.lit(",\"result\":");
+    appendSpiEdge(writer, item.result);
+    writer.ch('}');
+  }
+  writer.lit("]}");
+  if (request_id != nullptr) {
+    writer.lit(",\"request_id\":");
+    writer.str(request_id);
+  }
+  writer.ch('}');
+  sendWriter(writer);
+}
+
 void sendError(const char* code, const char* message, const char* request_id) {
   last_global_error = code;
   JsonLineWriter writer(out_buffer, sizeof(out_buffer));
@@ -659,10 +838,10 @@ void runDiagnostics(const char* request_id) {
     if (item.pattern_b_ok) {
       memcpy(item.pattern_b_readback, readback, 4);
     }
-    item.patterns_differ = true;
+    item.patterns_differ = false;
     for (uint8_t r = 0; r < 4; ++r) {
-      if (item.pattern_a_readback[r] == item.pattern_b_readback[r]) {
-        item.patterns_differ = false;
+      if (item.pattern_a_readback[r] != item.pattern_b_readback[r]) {
+        item.patterns_differ = true;
         break;
       }
     }
@@ -777,8 +956,214 @@ void runDiagnostics(const char* request_id) {
   sendStatus(request_id, diag, sample_ok);
 }
 
+void runSpiDiagnostics(const char* request_id) {
+  const uint16_t slow_half_us = SENSOR_DIAG_SPI_HALF_PERIOD_US;
+  static const uint8_t pattern_a[4] = {0x81, 0x80, 0x00, 0x00};
+  static const uint8_t pattern_b[4] = {0x91, 0x80, 0x80, 0x00};
+  SpiProbeResult results[SENSOR_ADC_COUNT];
+  memset(results, 0, sizeof(results));
+
+  // Stop the acquisition loop for the whole probe; commands are serviced by
+  // this call, so no SAMPLE frame can interleave with the SPI transactions.
+  streaming = false;
+
+  for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+    SpiProbeResult& item = results[i];
+    const Ads1220Pins pins = devices[i].pins();
+    item.adc = static_cast<uint8_t>(i + 1);
+    item.cs = pins.cs;
+    item.miso = pins.miso;
+    digitalWrite(pins.cs, HIGH);
+    delayMicroseconds(10);
+    item.idle_miso = digitalRead(pins.miso) == HIGH ? 1 : 0;
+
+    for (uint8_t edge = 0; edge < 2; ++edge) {
+      const bool after_fall = (edge == 1);
+      SpiEdgeResult& result = after_fall ? item.after_falling : item.after_rising;
+      devices[i].setClockHalfPeriodUs(slow_half_us);
+      devices[i].setSampleAfterFallingEdge(after_fall);
+
+      devices[i].reset();
+      result.reset_ok = devices[i].readRegisters(0, result.reset_bytes, 4);
+
+      result.write_a_return = devices[i].writeRegisters(0, pattern_a, 4);
+      result.read_a_return = devices[i].readRegisters(0, result.read_a, 4);
+      result.read_a_ok = result.read_a_return && memcmp(result.read_a, pattern_a, 4) == 0;
+
+      result.write_b_return = devices[i].writeRegisters(0, pattern_b, 4);
+      result.read_b_return = devices[i].readRegisters(0, result.read_b, 4);
+      result.read_b_ok = result.read_b_return && memcmp(result.read_b, pattern_b, 4) == 0;
+
+      result.pass = result.reset_ok && result.write_a_return && result.read_a_ok &&
+                    result.write_b_return && result.read_b_ok;
+      digitalWrite(pins.cs, HIGH);
+    }
+    item.after_miso = digitalRead(pins.miso) == HIGH ? 1 : 0;
+  }
+
+  // Restore production timing and try the normal init once, then report.  The
+  // stream stays stopped so the host can inspect the result without SAMPLE
+  // traffic; the operator can send STREAM with id=1 to resume.
+  for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+    devices[i].setClockHalfPeriodUs(SENSOR_SPI_HALF_PERIOD_US);
+    devices[i].setSampleAfterFallingEdge(false);
+    initDevice(i, true);
+  }
+  sendSpiDiag(request_id, slow_half_us, results);
+}
+
+void applyGpioState(bool cs1_high, bool sclk_high, bool mosi_high) {
+  // Never select ADC2/ADC3 while probing ADC1.
+  digitalWrite(SENSOR_CS_PINS[1], HIGH);
+  digitalWrite(SENSOR_CS_PINS[2], HIGH);
+  digitalWrite(SENSOR_CS_PINS[0], cs1_high ? HIGH : LOW);
+  digitalWrite(SENSOR_SCLK_PIN, sclk_high ? HIGH : LOW);
+  digitalWrite(SENSOR_MOSI_PIN, mosi_high ? HIGH : LOW);
+}
+
+void printGpioState(const char* name, bool cs1_high, bool sclk_high, bool mosi_high) {
+  Serial.print("GPIO_DIAG state=");
+  Serial.print(name);
+  Serial.print(" t_ms=");
+  Serial.print(millis());
+  Serial.print(" cs1=");
+  Serial.print(cs1_high ? "HIGH" : "LOW");
+  Serial.print(" sclk=");
+  Serial.print(sclk_high ? "HIGH" : "LOW");
+  Serial.print(" mosi=");
+  Serial.print(mosi_high ? "HIGH" : "LOW");
+  Serial.print(" hold_ms=5000 esp_read cs1=");
+  Serial.print(digitalRead(SENSOR_CS_PINS[0]) == HIGH ? "HIGH" : "LOW");
+  Serial.print(" sclk=");
+  Serial.print(digitalRead(SENSOR_SCLK_PIN) == HIGH ? "HIGH" : "LOW");
+  Serial.print(" mosi=");
+  Serial.print(digitalRead(SENSOR_MOSI_PIN) == HIGH ? "HIGH" : "LOW");
+  Serial.print(" cs2=");
+  Serial.print(digitalRead(SENSOR_CS_PINS[1]) == HIGH ? "HIGH" : "LOW");
+  Serial.print(" cs3=");
+  Serial.print(digitalRead(SENSOR_CS_PINS[2]) == HIGH ? "HIGH" : "LOW");
+  Serial.println();
+  Serial.flush();
+}
+
+void holdGpioState(uint32_t hold_ms) {
+  const uint32_t start = millis();
+  while (millis() - start < hold_ms) {
+    delay(10);
+  }
+}
+
+void runGpioDiagnostics(uint8_t cycles, const char* request_id) {
+  static const uint8_t pattern_a[4] = {0x81, 0x80, 0x00, 0x00};
+  static const uint8_t pattern_b[4] = {0x91, 0x80, 0x80, 0x00};
+  streaming = false;
+
+  // Safe idle before the first measurement.
+  applyGpioState(true, false, false);
+  delay(20);
+
+  for (uint8_t cycle = 0; cycle < cycles; ++cycle) {
+    applyGpioState(true, false, false);  // A: CS1 high, SCLK low, MOSI low
+    printGpioState("A", true, false, false);
+    holdGpioState(5000);
+
+    applyGpioState(false, false, false);  // B: CS1 low, SCLK low, MOSI low
+    printGpioState("B", false, false, false);
+    holdGpioState(5000);
+
+    applyGpioState(false, true, true);  // C: CS1 low, SCLK high, MOSI high
+    printGpioState("C", false, true, true);
+    holdGpioState(5000);
+  }
+
+  // Restore safe levels before any SPI transaction.
+  applyGpioState(true, false, false);
+  delay(20);
+
+  // Minimal ADC1-only register sequence, at the slow diagnostic clock.
+  SpiEdgeResult result;
+  memset(&result, 0, sizeof(result));
+  devices[0].setClockHalfPeriodUs(SENSOR_DIAG_SPI_HALF_PERIOD_US);
+  devices[0].setSampleAfterFallingEdge(false);
+  devices[0].reset();
+  result.reset_ok = devices[0].readRegisters(0, result.reset_bytes, 4);
+  result.write_a_return = devices[0].writeRegisters(0, pattern_a, 4);
+  result.read_a_return = devices[0].readRegisters(0, result.read_a, 4);
+  result.read_a_ok = result.read_a_return && memcmp(result.read_a, pattern_a, 4) == 0;
+  result.write_b_return = devices[0].writeRegisters(0, pattern_b, 4);
+  result.read_b_return = devices[0].readRegisters(0, result.read_b, 4);
+  result.read_b_ok = result.read_b_return && memcmp(result.read_b, pattern_b, 4) == 0;
+  result.pass = result.reset_ok && result.read_a_ok && result.read_b_ok;
+
+  devices[0].setClockHalfPeriodUs(SENSOR_SPI_HALF_PERIOD_US);
+  devices[0].setSampleAfterFallingEdge(false);
+  initDevice(0, true);
+  sendAdc1Min(request_id, cycles, result);
+}
+
+void runMisoMap(const char* request_id) {
+  static const uint8_t pattern_a[4] = {0x81, 0x80, 0x00, 0x00};
+  static const uint8_t pattern_b[4] = {0x91, 0x80, 0x80, 0x00};
+  // ADC1 is already confirmed on GPIO35.  Only the ADC2/ADC3 pair is ambiguous:
+  // test GPIO34 and GPIO26 once for each, not all nine CS/MISO combinations.
+  static const uint8_t candidates[3][2] = {{35, 35}, {34, 26}, {34, 26}};
+  static const uint8_t candidate_count[3] = {1, 2, 2};
+  MisoMapResult results[5];
+  uint8_t result_count = 0;
+  streaming = false;
+
+  for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+    digitalWrite(SENSOR_CS_PINS[i], HIGH);
+  }
+  digitalWrite(SENSOR_SCLK_PIN, LOW);
+  digitalWrite(SENSOR_MOSI_PIN, LOW);
+  delay(10);
+
+  for (uint8_t adc = 0; adc < SENSOR_ADC_COUNT; ++adc) {
+    for (uint8_t c = 0; c < candidate_count[adc]; ++c) {
+      const uint8_t miso = candidates[adc][c];
+      for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+        digitalWrite(SENSOR_CS_PINS[i], HIGH);
+      }
+      devices[adc].setMisoPin(miso);
+      devices[adc].setClockHalfPeriodUs(SENSOR_DIAG_SPI_HALF_PERIOD_US);
+      devices[adc].setSampleAfterFallingEdge(false);
+
+      MisoMapResult& item = results[result_count++];
+      memset(&item, 0, sizeof(item));
+      item.adc = static_cast<uint8_t>(adc + 1);
+      item.cs = SENSOR_CS_PINS[adc];
+      item.miso = miso;
+
+      devices[adc].reset();
+      item.result.reset_ok = devices[adc].readRegisters(0, item.result.reset_bytes, 4);
+      item.result.write_a_return = devices[adc].writeRegisters(0, pattern_a, 4);
+      item.result.read_a_return = devices[adc].readRegisters(0, item.result.read_a, 4);
+      item.result.read_a_ok =
+          item.result.read_a_return && memcmp(item.result.read_a, pattern_a, 4) == 0;
+      item.result.write_b_return = devices[adc].writeRegisters(0, pattern_b, 4);
+      item.result.read_b_return = devices[adc].readRegisters(0, item.result.read_b, 4);
+      item.result.read_b_ok =
+          item.result.read_b_return && memcmp(item.result.read_b, pattern_b, 4) == 0;
+      item.result.pass =
+          item.result.reset_ok && item.result.read_a_ok && item.result.read_b_ok;
+      digitalWrite(SENSOR_CS_PINS[adc], HIGH);
+    }
+  }
+
+  for (uint8_t i = 0; i < SENSOR_ADC_COUNT; ++i) {
+    devices[i].setMisoPin(SENSOR_MISO_PINS[i]);
+    devices[i].setClockHalfPeriodUs(SENSOR_SPI_HALF_PERIOD_US);
+    devices[i].setSampleAfterFallingEdge(false);
+    initDevice(i, true);
+  }
+  sendMisoMap(request_id, SENSOR_DIAG_SPI_HALF_PERIOD_US, results, result_count);
+}
+
 void handleCommand(const PendingCommand& command) {
-  const char* request_id = command.has_id ? command.request_id : nullptr;
+  // request_id is independent of the numeric "id" field: PING/STATUS/DIAG carry
+  // no id but still need their response correlated by the host.
+  const char* request_id = command.request_id[0] != '\0' ? command.request_id : nullptr;
   if (strcmp(command.cmd, "PING") == 0) {
     sendPong(request_id);
     return;
@@ -789,6 +1174,22 @@ void handleCommand(const PendingCommand& command) {
   }
   if (strcmp(command.cmd, "DIAG") == 0) {
     runDiagnostics(request_id);
+    return;
+  }
+  if (strcmp(command.cmd, "DIAG_SPI") == 0) {
+    runSpiDiagnostics(request_id);
+    return;
+  }
+  if (strcmp(command.cmd, "GPIO_DIAG") == 0) {
+    uint8_t cycles = 1;
+    if (command.has_id && command.id >= 1 && command.id <= 100) {
+      cycles = static_cast<uint8_t>(command.id);
+    }
+    runGpioDiagnostics(cycles, request_id);
+    return;
+  }
+  if (strcmp(command.cmd, "MISO_MAP") == 0) {
+    runMisoMap(request_id);
     return;
   }
   if (strcmp(command.cmd, "SET_REF") == 0) {
@@ -851,7 +1252,7 @@ void handleCommand(const PendingCommand& command) {
     sendStatus(request_id, nullptr, false);
     return;
   }
-  sendError("UNKNOWN_COMMAND", "supported: PING, STATUS, DIAG, SET_REF, STREAM, RESET_ADC", request_id);
+  sendError("UNKNOWN_COMMAND", "supported: PING, STATUS, DIAG, DIAG_SPI, GPIO_DIAG, MISO_MAP, SET_REF, STREAM, RESET_ADC", request_id);
 }
 
 void processCommands() {

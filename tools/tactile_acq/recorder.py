@@ -123,6 +123,24 @@ class RunRecorder:
             self._flush(True)
             self._last_fsync = now
 
+    def record_event(self, kind: str, **fields: Any) -> Dict[str, Any]:
+        """Append a host-side experiment event (press/release/ready).
+
+        Callers that also read the serial port from another thread should hold
+        their own lock around record_event/record_line so the two writers do not
+        interleave at the Python level.  The file handles are separate.
+        """
+        event: Dict[str, Any] = {
+            "host_received_unix_ns": time.time_ns(),
+            "host_received_iso": utc_now_iso(),
+            "host_monotonic_ns": time.monotonic_ns(),
+            "kind": kind,
+        }
+        event.update(fields)
+        self._events_handle.write(json.dumps(event, ensure_ascii=False, allow_nan=False) + "\n")
+        self._events_handle.flush()
+        return event
+
     def _flush(self, do_fsync: bool) -> None:
         self._csv_handle.flush()
         self._events_handle.flush()

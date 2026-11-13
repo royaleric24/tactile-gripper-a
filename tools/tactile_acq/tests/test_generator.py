@@ -20,7 +20,7 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn("SENSOR_DATA_RATE_CODE = 4", header)
         self.assertIn("SENSOR_CONVERSION_WAIT_US = 4500", header)
         self.assertIn("SENSOR_CS_PINS[SENSOR_ADC_COUNT] = {21, 22, 5}", header)
-        self.assertIn("SENSOR_MISO_PINS[SENSOR_ADC_COUNT] = {34, 35, 26}", header)
+        self.assertIn("SENSOR_MISO_PINS[SENSOR_ADC_COUNT] = {35, 26, 34}", header)
         self.assertIn("SENSOR_REFERENCE_MODE_INITIAL = 0", header)
         self.assertIn("strapping GPIO(s) used: [5]", header)
 

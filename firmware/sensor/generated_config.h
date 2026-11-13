@@ -12,17 +12,18 @@ static const uint8_t SENSOR_CHANNEL_COUNT = 12;
 
 static const uint8_t SENSOR_SCLK_PIN = 18;
 static const uint8_t SENSOR_MOSI_PIN = 23;
-static const uint8_t SENSOR_MISO_PINS[SENSOR_ADC_COUNT] = {34, 35, 26};
+static const uint8_t SENSOR_MISO_PINS[SENSOR_ADC_COUNT] = {35, 26, 34};
 static const uint8_t SENSOR_CS_PINS[SENSOR_ADC_COUNT] = {21, 22, 5};
 
 static const uint8_t SENSOR_SPI_HALF_PERIOD_US = 1;
+static const uint16_t SENSOR_DIAG_SPI_HALF_PERIOD_US = 25;
 static const uint8_t SENSOR_DATA_RATE_CODE = 4;
 static const uint16_t SENSOR_CONVERSION_WAIT_US = 4500;
 static const uint8_t SENSOR_REFERENCE_MODE_INITIAL = 0;
 static const uint8_t SENSOR_MUX_CODES[4] = {8, 9, 10, 11};
 static const uint8_t SENSOR_ADC_INPUTS[4] = {0, 1, 2, 3};
 
-static const uint16_t SENSOR_MAX_LINE_BYTES = 2048;
+static const uint16_t SENSOR_MAX_LINE_BYTES = 8192;
 static const uint16_t SENSOR_MAX_COMMAND_BYTES = 512;
 static const uint16_t SENSOR_COMMAND_PARTIAL_TIMEOUT_MS = 1000;
 static const uint8_t SENSOR_FRAME_RATE_WINDOW = 32;

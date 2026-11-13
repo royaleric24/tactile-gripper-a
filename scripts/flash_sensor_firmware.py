@@ -22,6 +22,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 BOARD = ROOT / "config/board_esp32_tactile.json"
@@ -29,6 +30,40 @@ BUILD = ROOT / "evidence/sensor/build_sensor"
 APP_BIN = BUILD / "sensor.ino.bin"
 APP_OFFSET = 0x10000
 FLASH_SIZE = 0x400000
+
+
+class IdentityError(ValueError):
+    """The esptool output could not be parsed or does not match the old ESP32."""
+
+
+# esptool v5.x colourises some output and uses CSI cursor moves ("\x1b[1A\x1b[2K")
+# between progress lines.  Strip these before any text matching; otherwise a
+# token can be split or prefixed and the identity line is missed.
+ANSI_ESCAPE_RE = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-Z\\-_])"
+)
+# esptool v5.1.0:  "Chip type:          ESP32-D0WDQ6 (revision v1.1)"
+# esptool v2/v3:   "Chip is ESP32-D0WDQ6 (revision 1)"
+# The model group stops before the parenthesised revision/package suffix, so
+# "ESP32-S3 (QFN56) (revision v0.2)" parses as ESP32-S3 and is then refused.
+CHIP_RE = re.compile(
+    r"^[ \t]*(?:Chip[ \t]+is|Chip[ \t]+type[ \t]*:)[ \t]*"
+    r"(?P<model>ESP32(?:-[A-Za-z0-9]+)*)"
+    r"(?:[ \t]*\([ \t]*revision[ \t]+(?P<revision>[^)]*)\))?",
+    re.IGNORECASE | re.MULTILINE,
+)
+MAC_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:Chip[ \t]+)?MAC(?:[ \t]+address)?[ \t]*[:=][ \t]*"
+    r"(?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})(?![0-9A-Fa-f:])",
+    re.IGNORECASE,
+)
+
+
+class ChipIdentity(NamedTuple):
+    model: str
+    family: str
+    revision: Optional[str]
+    mac: str
 
 
 def sha256(path: Path) -> str:
@@ -67,12 +102,65 @@ def run(cmd: list[str], log_path: Path | None = None) -> tuple[int, str]:
     return proc.returncode, output
 
 
-def parse_identity(output: str) -> tuple[str, str]:
-    chip_match = re.search(r"Chip is (ESP32[^\s(]*)", output)
-    mac_match = re.search(r"MAC:\s*([0-9A-Fa-f:]{17})", output)
-    if not chip_match or not mac_match:
-        raise SystemExit("could not parse chip/MAC from esptool output")
-    return chip_match.group(1), mac_match.group(1).lower()
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences and stray control bytes from esptool output."""
+    text = ANSI_ESCAPE_RE.sub("", text)
+    text = text.replace("\r", "\n")
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+
+
+def parse_identity(output: str) -> ChipIdentity:
+    """Parse the chip model and MAC from esptool v2-v5 `chip-id` output.
+
+    Both the pre-stub and post-stub MAC lines are collected; if they disagree
+    the output is ambiguous and refused instead of silently trusting one.
+    """
+    text = strip_ansi(output)
+    chips = list(CHIP_RE.finditer(text))
+    if not chips:
+        raise IdentityError("no chip model line ('Chip is ...' / 'Chip type: ...') found")
+    models = {match.group("model").upper() for match in chips}
+    if len(models) > 1:
+        raise IdentityError("conflicting chip models in esptool output: {}".format(", ".join(sorted(models))))
+    first = chips[0]
+    model = first.group("model").upper()
+    revision = first.group("revision")
+    revision = revision.strip() if revision and revision.strip() else None
+
+    macs = [match.group("mac").lower() for match in MAC_RE.finditer(text)]
+    if not macs:
+        raise IdentityError("no MAC line found")
+    unique_macs = sorted(set(macs))
+    if len(unique_macs) > 1:
+        raise IdentityError("conflicting MAC addresses in esptool output: {}".format(", ".join(unique_macs)))
+    return ChipIdentity(model=model, family=model.split("-", 1)[0], revision=revision, mac=unique_macs[0])
+
+
+def verify_identity(identity: ChipIdentity, board: dict) -> None:
+    """Strictly require the configured old ESP32 chip model and MAC."""
+    expected_family = str(board.get("expected_chip_family") or "").strip().upper()
+    expected_model = str(board.get("expected_chip_model") or "").strip().upper()
+    expected_mac = str(board.get("expected_mac") or "").strip().lower()
+    if not expected_family or not expected_model or not expected_mac:
+        raise IdentityError(
+            "board config lacks expected_chip_family/expected_chip_model/expected_mac; refusing to guess"
+        )
+    if identity.family != expected_family:
+        raise IdentityError(
+            "chip family {} is not the expected {} (chip {})".format(
+                identity.family, expected_family, identity.model
+            )
+        )
+    if identity.model != expected_model:
+        raise IdentityError(
+            "chip model {} is not the expected old ESP32 {} (ESP32-S2/S3/C-series are refused)".format(
+                identity.model, expected_model
+            )
+        )
+    if identity.mac != expected_mac:
+        raise IdentityError(
+            "MAC {} does not match expected old ESP32 {}".format(identity.mac, expected_mac)
+        )
 
 
 def main() -> int:
@@ -88,7 +176,6 @@ def main() -> int:
         raise SystemExit("refusing to write flash without --authorize-write")
 
     board = json.loads(BOARD.read_text())
-    expected_mac = board["expected_mac"].lower()
     app = Path(args.app_bin)
     if not app.is_file():
         raise SystemExit("application binary not found: {} (run scripts/build_sensor_firmware.py)".format(app))
@@ -109,14 +196,16 @@ def main() -> int:
     code, output = run([esptool, "--port", args.port, "--baud", str(args.baud), "chip-id"], log_path)
     if code != 0:
         raise SystemExit("chip-id failed; nothing was written")
-    chip, mac = parse_identity(output)
-    if "S3" in chip.upper() or not chip.upper().startswith("ESP32"):
-        raise SystemExit("refusing device: chip is {}, not the old ESP32".format(chip))
-    if mac != expected_mac:
-        raise SystemExit(
-            "refusing device: MAC {} does not match expected old ESP32 {}".format(mac, expected_mac)
-        )
-    print("identity OK: chip={} mac={}".format(chip, mac))
+    try:
+        identity = parse_identity(output)
+    except IdentityError as exc:
+        raise SystemExit("could not parse chip/MAC from esptool output: {}".format(exc))
+    try:
+        verify_identity(identity, board)
+    except IdentityError as exc:
+        raise SystemExit("refusing device: {}".format(exc))
+    chip, mac = identity.model, identity.mac
+    print("identity OK: chip={} revision={} mac={}".format(chip, identity.revision or "UNKNOWN", mac))
 
     # 2. Full-flash backup before any write.
     backup_dir = Path(args.backup_dir)
@@ -135,6 +224,8 @@ def main() -> int:
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "port": args.port,
         "chip": chip,
+        "chip_family": identity.family,
+        "chip_revision": identity.revision,
         "mac": mac,
         "size": backup_path.stat().st_size,
         "sha256": backup_sha,
@@ -166,6 +257,8 @@ def main() -> int:
         "result": "PASS",
         "port": args.port,
         "chip": chip,
+        "chip_family": identity.family,
+        "chip_revision": identity.revision,
         "mac": mac,
         "app_offset": hex(APP_OFFSET),
         "app_bin": str(app),

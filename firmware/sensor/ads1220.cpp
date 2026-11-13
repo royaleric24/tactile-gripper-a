@@ -8,14 +8,30 @@ constexpr uint8_t CMD_START = 0x08;
 constexpr uint8_t CMD_RDATA = 0x10;
 constexpr uint8_t CMD_RREG = 0x20;
 constexpr uint8_t CMD_WREG = 0x40;
-
-inline void halfPeriod() {
-  delayMicroseconds(SENSOR_SPI_HALF_PERIOD_US);
-}
 }  // namespace
 
 Ads1220::Ads1220(uint8_t index, Ads1220Pins pins)
-    : index_(index), pins_(pins), config_{0, 0, 0, 0}, transactions_(0) {}
+    : index_(index),
+      pins_(pins),
+      config_{0, 0, 0, 0},
+      transactions_(0),
+      half_period_us_(SENSOR_SPI_HALF_PERIOD_US),
+      sample_after_fall_(false) {}
+
+void Ads1220::setClockHalfPeriodUs(uint16_t us) {
+  half_period_us_ = us < 1 ? 1 : (us > 1000 ? 1000 : us);
+}
+
+void Ads1220::setSampleAfterFallingEdge(bool enabled) {
+  sample_after_fall_ = enabled;
+}
+
+void Ads1220::setMisoPin(uint8_t pin) {
+  // Diagnostic-only remap: keep the old pin as an input (it is not driven by
+  // this firmware) and make the candidate MISO an input before clocking.
+  pinMode(pin, INPUT);
+  pins_.miso = pin;
+}
 
 void Ads1220::begin() {
   // Drive CS high before touching SCLK/MOSI.  GPIO5 is a strapping pin on the
@@ -42,15 +58,22 @@ void Ads1220::deselect() {
 uint8_t Ads1220::transferByte(uint8_t value) {
   uint8_t in = 0;
   for (int bit = 7; bit >= 0; --bit) {
-    // CPHA=1: set DIN while SCLK is low; the ADS1220 latches DIN on the falling
-    // edge.  DOUT changes on the rising edge and is sampled here after it.
+    // CPOL=0: SCLK idles low.  DIN is changed while SCLK is low.  In SPI mode 1
+    // (CPHA=1) the ADS1220 latches DIN on the falling edge and shifts DOUT on
+    // the rising edge, so the production build samples just after the rising
+    // edge.  The diagnostic can instead sample after the falling edge.
     digitalWrite(pins_.mosi, (value & (1u << bit)) ? HIGH : LOW);
-    halfPeriod();
+    delayMicroseconds(half_period_us_);
     digitalWrite(pins_.sclk, HIGH);
-    halfPeriod();
-    in = static_cast<uint8_t>((in << 1) | (digitalRead(pins_.miso) == HIGH ? 1 : 0));
+    delayMicroseconds(half_period_us_);
+    if (!sample_after_fall_) {
+      in = static_cast<uint8_t>((in << 1) | (digitalRead(pins_.miso) == HIGH ? 1 : 0));
+    }
     digitalWrite(pins_.sclk, LOW);
-    halfPeriod();
+    delayMicroseconds(half_period_us_);
+    if (sample_after_fall_) {
+      in = static_cast<uint8_t>((in << 1) | (digitalRead(pins_.miso) == HIGH ? 1 : 0));
+    }
   }
   transactions_++;
   return in;

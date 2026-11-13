@@ -83,6 +83,7 @@ def validate_reference(mode: str, allowed: list) -> int:
 
 def validate_ads(ads: dict) -> dict:
     half = require_int(ads.get("spi_half_period_us"), "ads1220.spi_half_period_us", 1, 25)
+    diag_half = require_int(ads.get("diag_half_period_us"), "ads1220.diag_half_period_us", 5, 200)
     sps = ads.get("data_rate_sps")
     if sps not in DR_CODES:
         raise SystemExit(f"ads1220.data_rate_sps must be one of {sorted(DR_CODES)}")
@@ -112,6 +113,7 @@ def validate_ads(ads: dict) -> dict:
     reference_code = validate_reference(mode, allowed)
     return {
         "half": half,
+        "diag_half": diag_half,
         "sps": sps,
         "dr_code": DR_CODES[sps],
         "wait": wait,
@@ -167,6 +169,7 @@ def generate(config: dict) -> str:
         + "};",
         "",
         f"static const uint8_t SENSOR_SPI_HALF_PERIOD_US = {ads['half']};",
+        f"static const uint16_t SENSOR_DIAG_SPI_HALF_PERIOD_US = {ads['diag_half']};",
         f"static const uint8_t SENSOR_DATA_RATE_CODE = {ads['dr_code']};",
         f"static const uint16_t SENSOR_CONVERSION_WAIT_US = {ads['wait']};",
         f"static const uint8_t SENSOR_REFERENCE_MODE_INITIAL = {ads['reference_code']};",

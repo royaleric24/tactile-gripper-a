@@ -42,6 +42,18 @@ class Ads1220 {
 
   void setMux(uint8_t mux_code);
   void setReference(uint8_t reference_code);
+
+  // Diagnostic controls.  The production timing stays at the configured
+  // SENSOR_SPI_HALF_PERIOD_US and samples DOUT after the rising edge; the
+  // slow-clock diagnostic can override both to separate a wiring fault from a
+  // clock-edge/CPHA mismatch.
+  void setClockHalfPeriodUs(uint16_t us);
+  void setSampleAfterFallingEdge(bool enabled);
+  void setMisoPin(uint8_t pin);
+  uint16_t clockHalfPeriodUs() const { return half_period_us_; }
+  bool sampleAfterFallingEdge() const { return sample_after_fall_; }
+  Ads1220Pins pins() const { return pins_; }
+
   uint8_t mux() const { return (config_[0] >> 4) & 0x0F; }
   uint8_t reference() const { return (config_[2] >> 6) & 0x03; }
   const uint8_t* config() const { return config_; }
@@ -60,4 +72,6 @@ class Ads1220 {
   Ads1220Pins pins_;
   uint8_t config_[4];
   uint32_t transactions_;
+  uint16_t half_period_us_;
+  bool sample_after_fall_;
 };
