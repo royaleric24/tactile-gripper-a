@@ -1,0 +1,81 @@
+{
+  "schema_version": 2,
+  "status": "IMPLEMENTED_UNVERIFIED_OFFLINE_ONLY",
+  "notes": "V2 four-ADC board, HYBRID_6X6_FSR2 profile. Six matrix columns are driven one at a time on GPIO 4/13/14/25/27/19; the six rows are read single-ended on ADC1-3 AIN0/AIN1 with one 10k pulldown per row. ADC4 AIN0/AIN1 are FSR_A/FSR_B. Channel order is row-major R1C1..R6C6 then FSR_A, FSR_B. Matrix ghosting, frame rate and positioning are NOT measured; no wiring, flashing or sampling has been performed.",
+  "device_id": "tactile-esp32-01",
+  "firmware_version": "tactile-fsr2hybrid-0.2.0",
+  "serial_baud": 921600,
+  "sensor_profile": "HYBRID_6X6_FSR2",
+  "pins": {
+    "sclk": 18,
+    "mosi": 23,
+    "miso": [34, 35, 26, 33],
+    "cs": [21, 22, 5, 32]
+  },
+  "ads1220": {
+    "spi_half_period_us": 1,
+    "diag_half_period_us": 25,
+    "data_rate_sps": 330,
+    "conversion_wait_us": 4500,
+    "operating_mode": "NORMAL",
+    "conversion_mode": "SINGLE_SHOT",
+    "gain": 1,
+    "pga_bypass": true,
+    "reference_mode": "AVDD_AVSS",
+    "reference_modes_allowed": ["AVDD_AVSS"],
+    "idac_enabled": false,
+    "mux_codes": [8, 9, 10, 11]
+  },
+  "matrix": {
+    "rows": 6,
+    "cols": 6,
+    "scan_mode": "COLUMN_SCAN_6X6",
+    "column_pins": [4, 13, 14, 25, 27, 19],
+    "column_series_resistor_ohm": 1000,
+    "inactive_column_mode": "HI_Z",
+    "row_inputs": [
+      {"adc_id": 1, "adc_input": 0, "pulldown_resistor_ohm": 10000},
+      {"adc_id": 1, "adc_input": 1, "pulldown_resistor_ohm": 10000},
+      {"adc_id": 2, "adc_input": 0, "pulldown_resistor_ohm": 10000},
+      {"adc_id": 2, "adc_input": 1, "pulldown_resistor_ohm": 10000},
+      {"adc_id": 3, "adc_input": 0, "pulldown_resistor_ohm": 10000},
+      {"adc_id": 3, "adc_input": 1, "pulldown_resistor_ohm": 10000}
+    ],
+    "pre_discharge_us": 200,
+    "settle_us": 1000,
+    "validated": false
+  },
+  "fsr": {
+    "adc_id": 4,
+    "adc4_cs_gpio": 32,
+    "adc4_miso_gpio": 33,
+    "channels": [
+      {
+        "channel_id": 36,
+        "name": "FSR_A",
+        "adc_input": 0,
+        "mux_code": 8
+      },
+      {
+        "channel_id": 37,
+        "name": "FSR_B",
+        "adc_input": 1,
+        "mux_code": 9
+      }
+    ],
+    "divider_resistor_ohm": 10000,
+    "excitation_mv": 3300,
+    "unit": "ADC_COUNTS",
+    "response_polarity": "VOLTAGE_RISES_WITH_FORCE",
+    "independent_pulldowns_required": true,
+    "validated": false
+  },
+  "stream": {
+    "max_line_bytes": 8192,
+    "max_command_bytes": 512,
+    "command_partial_timeout_ms": 1000,
+    "frame_rate_window": 32,
+    "reinit_after_consecutive_errors": 3,
+    "reinit_retry_interval_ms": 500
+  }
+}
