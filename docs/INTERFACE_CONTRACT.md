@@ -1,3 +1,5 @@
+> V2 增量入口（2026-11-14）：总体路线见 [DEMO_PLAN_V2.md](DEMO_PLAN_V2.md)，接线基准见 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md)，新增传感 profile 见 [PROTOCOL_V2_PROPOSAL.md](PROTOCOL_V2_PROPOSAL.md)。该提案仍为 PROPOSED；下文实现摘录及历史 S0 占位保持原样，不能解释为 V2 已冻结或联调通过。
+
 # 软硬件通信边界
 
 当前状态为 PROPOSED。下表摘自两个开发分支的发送器与接收器；联合验收、时钟回绕处理和控制用接触评分的标定尚未冻结。

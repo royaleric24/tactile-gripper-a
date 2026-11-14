@@ -1,5 +1,16 @@
 # Tactile Gripper · 触觉闭环自适应机械爪
 
+## V2 当前路线（2026-11-14）
+
+当前总体方案以 [DEMO_PLAN_V2](docs/DEMO_PLAN_V2.md) 为唯一入口：科展 Demo 优先真实抓杯与 FSR→PWM 反馈，矩阵作为辅助。
+
+- [V2 接线基准](docs/WIRING_FREEZE_V2.md)：ADC1 CS21/MISO34、ADC2 CS22/MISO35、ADC3 CS5/MISO26 已获用户确认；ADC4 CS32/MISO33 待施工。
+- [协议提案](docs/PROTOCOL_V2_PROPOSAL.md)（PROPOSED）、[硬件总览](docs/HARDWARE_DESIGN_V2.md)、[配置模板](config/hybrid_sensor_v2.template.json)（AUTO 关闭、端口和阈值留空）。
+- [进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md)、[当前交接](docs/HANDOFF_CURRENT.md)、[本地保护与文档检查](docs/LOCAL_INTEGRATION_V2.md)。
+- [并行任务模板](docs/AGENT_TASKS_V2.md)、[集成流程](docs/INTEGRATION_WORKFLOW_V2.md)、[轻量实验](docs/EXPERIMENTS_LITE_V2.md)、[演示流程](docs/DEMO_RUNBOOK_V2.md)、[文档整理](docs/DOC_CLEANUP_V2.md)。
+
+本次完成 P0 本地保护与 P1 文档落地；后续现场阶段另行安排。以下保留原有运行入口与历史能力记录。
+
 > 设备身份与个人路径已脱敏；连接硬件前请阅读 [公开副本说明](docs/PUBLICATION.md)。
 
 项目探索用压敏皮肤估计接触状态和滑移风险，最终让夹爪在杯中逐渐加水时调节夹持力度。现阶段可分别复现夹爪控制、触觉采集和软件模拟。
