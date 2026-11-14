@@ -2,10 +2,12 @@
 import json
 import os
 import select
+import sys
 import threading
 import time
 import tty
 import unittest
+from unittest.mock import patch
 
 from tools.tactile_acq.protocol import SampleFrame, parse_message
 from tools.tactile_acq.tests.fixtures import make_adc_status, make_sample
@@ -90,8 +92,14 @@ class PtyTransportTests(unittest.TestCase):
         self.slave_name = os.ttyname(self.slave)
         self.device = FakeTactileDevice(self.master)
         self.device.start()
-        self.session = SerialSession(self.slave_name, baud=921600)
+        # A PTY tests framing only. macOS rejects custom UART speeds on a PTY.
+        self.session = SerialSession(self.slave_name, baud=9600)
         self.session.open()
+        if sys.platform == "darwin":
+            # tcdrain can block on macOS PTYs. The fake peer verifies delivery.
+            drain = patch.object(self.session.ser, "flush")
+            drain.start()
+            self.addCleanup(drain.stop)
 
     def tearDown(self):
         self.session.close()
@@ -105,11 +113,17 @@ class PtyTransportTests(unittest.TestCase):
         self.assertEqual(identity.device_id, "tactile-esp32-01")
         self.assertEqual(identity.firmware_version, "tactile-sense-0.1.0")
         self.assertTrue(any(command.get("cmd") == "STATUS" for command in self.device.commands))
-        self.device.write(make_sample(seq=5))
+        # Drain concurrently: some PTYs buffer less than a full SAMPLE line.
+        with_sample = threading.Thread(
+            target=self.device.write, args=(make_sample(seq=5),), daemon=True,
+        )
+        with_sample.start()
         lines = []
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and not lines:
             lines = self.session.read_available()
+        with_sample.join(timeout=1.0)
+        self.assertFalse(with_sample.is_alive())
         self.assertEqual(len(lines), 1)
         frame = parse_message(lines[0])
         self.assertIsInstance(frame, SampleFrame)
