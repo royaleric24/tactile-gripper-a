@@ -36,3 +36,8 @@ evidence/
 *.key
 *.p12
 *.pfx
+
+# Local build caches and private machine configuration
+.pio/
+config/*.local.json
+!.env.example
