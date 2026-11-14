@@ -31,16 +31,49 @@ def _range(values: list[float]) -> tuple[float, float]:
     return low, high
 
 
-def heatmap_options(frame: dict[str, Any]) -> dict[str, Any]:
-    rows = int(frame.get("matrix_rows") or 0)
-    cols = int(frame.get("matrix_cols") or 0)
+def _config(value):
+    if value is None:
+        return None
+    if hasattr(value, "matrix_channels"):
+        return value
+    try:
+        from ..models import ChannelConfiguration
+
+        return ChannelConfiguration.from_dict(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def heatmap_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
+    """Matrix-only heatmap.
+
+    Positions come from channel metadata, never from ``divmod(channel_id)``.
+    FSR channels are excluded even when their id happens to fit the grid.
+    """
+    config = _config(channel_config)
+    rows = int(frame.get("matrix_rows") or (config.matrix_rows if config else 0) or 0)
+    cols = int(frame.get("matrix_cols") or (config.matrix_cols if config else 0) or 0)
     values = _values(frame)
+    positions = {}
+    if config is not None:
+        positions = {
+            channel.channel_id: (channel.matrix_row, channel.matrix_col)
+            for channel in config.matrix_channels
+        }
     points = []
     valid = []
     for channel_id, value, is_valid in values:
         if not is_valid or value is None:
             continue
-        row, col = divmod(channel_id, cols) if cols else (0, 0)
+        if config is not None:
+            if channel_id not in positions:
+                continue
+            row_value, col_value = positions[channel_id]
+            if row_value is None or col_value is None:
+                continue
+            row, col = int(row_value), int(col_value)
+        else:
+            row, col = divmod(channel_id, cols) if cols else (0, 0)
         if row >= rows or col >= cols:
             continue
         points.append([col, row, round(float(value), 1)])
@@ -90,6 +123,89 @@ def heatmap_options(frame: dict[str, Any]) -> dict[str, Any]:
                 "itemStyle": {"borderColor": "#ffffff", "borderWidth": 2, "borderRadius": 4},
             }
         ],
+    }
+
+
+def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
+    """Raw FSR counts (left axis) plus relative contact score (right axis)."""
+    if not history:
+        return {}
+    channel_names: dict[int, str] = {}
+    for item in history:
+        for reading in item.get("readings") or []:
+            channel_names.setdefault(int(reading["channel_id"]), str(reading.get("name") or f"FSR{reading['channel_id']}"))
+    seq = [item.get("frame_seq") for item in history]
+    palette = ["#0f766e", "#0ea5e9", "#f59e0b", "#8b5cf6"]
+    series = []
+    for order, channel_id in enumerate(sorted(channel_names)):
+        data = []
+        for item in history:
+            match = next(
+                (reading for reading in item.get("readings") or [] if int(reading["channel_id"]) == channel_id),
+                None,
+            )
+            data.append(
+                round(float(match["raw"]), 1)
+                if match and match.get("valid") and match.get("raw") is not None
+                else None
+            )
+        series.append(
+            {
+                "name": f"{channel_names[channel_id]} 原始 ADC",
+                "type": "line",
+                "yAxisIndex": 0,
+                "data": data,
+                "showSymbol": False,
+                "connectNulls": False,
+                "lineStyle": {"width": 1.6, "color": palette[order % len(palette)]},
+                "itemStyle": {"color": palette[order % len(palette)]},
+            }
+        )
+    series.append(
+        {
+            "name": "接触评分",
+            "type": "line",
+            "yAxisIndex": 1,
+            "data": [item.get("score") for item in history],
+            "showSymbol": False,
+            "connectNulls": False,
+            "lineStyle": {"width": 1.2, "type": "dashed", "color": "#b45309"},
+            "itemStyle": {"color": "#b45309"},
+        }
+    )
+    return {
+        "backgroundColor": "transparent",
+        "animationDuration": 250,
+        "tooltip": {"trigger": "axis"},
+        "legend": {"top": 0, "textStyle": {"color": TEXT, "fontSize": 10}, "icon": "roundRect"},
+        "grid": {"left": 52, "right": 44, "top": 36, "bottom": 32},
+        "xAxis": {
+            "type": "category",
+            "data": seq,
+            "name": "帧序",
+            "nameTextStyle": {"color": TEXT, "fontSize": 9},
+            "axisLabel": {"color": TEXT, "fontSize": 9},
+            "axisLine": {"lineStyle": {"color": AXIS}},
+        },
+        "yAxis": [
+            {
+                "type": "value",
+                "name": "ADC",
+                "nameTextStyle": {"color": TEXT, "fontSize": 9},
+                "axisLabel": {"color": TEXT, "fontSize": 9},
+                "splitLine": {"lineStyle": {"color": GRID}},
+            },
+            {
+                "type": "value",
+                "name": "评分",
+                "min": 0,
+                "max": 1,
+                "nameTextStyle": {"color": TEXT, "fontSize": 9},
+                "axisLabel": {"color": TEXT, "fontSize": 9},
+                "splitLine": {"show": False},
+            },
+        ],
+        "series": series,
     }
 
 

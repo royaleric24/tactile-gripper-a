@@ -130,6 +130,7 @@ class HelloMessage:
     scan_mode: str = "UNKNOWN"
     sample_rate_hz: float | None = None
     capabilities: tuple[str, ...] = ()
+    sensor_profile: str = "UNKNOWN"
     raw: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
 
@@ -149,8 +150,14 @@ def parse_hello(message: dict[str, Any]) -> HelloMessage:
     channel_config = message.get("channel_config")
     if not isinstance(channel_config, dict):
         raise FrameValidationError("missing channel_config", code="MISSING_FIELD")
+    # ``sensor_profile`` is proposed at HELLO top level; legacy devices may put
+    # it inside channel_config.  Accept either, with the channel_config value
+    # winning because that is the structure the host actually consumes.
+    config_payload = dict(channel_config)
+    if "sensor_profile" not in config_payload and message.get("sensor_profile") is not None:
+        config_payload["sensor_profile"] = message.get("sensor_profile")
     try:
-        config = ChannelConfiguration.from_dict(channel_config)
+        config = ChannelConfiguration.from_dict(config_payload)
     except ValueError as exc:
         raise FrameValidationError(f"invalid channel_config: {exc}", code="INVALID_CHANNEL") from exc
     sample_rate = message.get("sample_rate_hz")
@@ -169,6 +176,7 @@ def parse_hello(message: dict[str, Any]) -> HelloMessage:
         scan_mode=str(message.get("scan_mode", "UNKNOWN")),
         sample_rate_hz=float(sample_rate) if sample_rate is not None else None,
         capabilities=tuple(capabilities),
+        sensor_profile=config.sensor_profile,
         raw=message,
     )
 
@@ -297,6 +305,7 @@ def encode_hello(
             "firmware_version": firmware_version,
             "scan_mode": channel_config.scan_mode,
             "sample_rate_hz": sample_rate_hz,
+            "sensor_profile": channel_config.sensor_profile,
             "channel_config": channel_config.to_dict(),
         }
     )
@@ -349,6 +358,36 @@ def encode_status(
             "last_error": None,
         }
     )
+
+
+def _encode_query(query: str, *, request_id: str | None = None) -> bytes:
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "type": "QUERY",
+        "query": query,
+    }
+    if request_id is not None:
+        payload["request_id"] = request_id
+    return _json_line(payload)
+
+
+def encode_status_query(*, request_id: str | None = None) -> bytes:
+    """Host -> device query; not a sensor->host message.
+
+    The V2 proposal does not freeze a query response yet.  Sending this is
+    opt-in and only a request for a normal STATUS/HELLO reply; it never changes
+    PWM or starts a control session.
+    """
+    return _encode_query("STATUS", request_id=request_id)
+
+
+def encode_hello_query(*, request_id: str | None = None) -> bytes:
+    """Ask the device to repeat HELLO after a missed boot announcement.
+
+    Like STATUS, this is a proposed opt-in query, not a control command.  The
+    reply is parsed by the normal HELLO path and cannot by itself open AUTO.
+    """
+    return _encode_query("HELLO", request_id=request_id)
 
 
 def encode_error(

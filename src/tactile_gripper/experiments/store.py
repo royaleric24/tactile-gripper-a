@@ -358,7 +358,15 @@ class TrialRecorder:
             )
             self._touch_lock()
 
-    def record_frame(self, frame: TactileFrame) -> None:
+    def record_frame(
+        self,
+        frame: TactileFrame,
+        *,
+        sensor_identity: dict | None = None,
+        assessment: dict | None = None,
+        sensor_profile: str | None = None,
+        control_context: dict | None = None,
+    ) -> None:
         with self._lock:
             if not self.recording:
                 return
@@ -372,7 +380,13 @@ class TrialRecorder:
                 "record_type": "SENSOR_FRAME",
                 "trial_id": self.metadata.trial_id,
                 "schema_version": TRIAL_SCHEMA_VERSION,
-                **frame.to_dict(include_wire=False),
+                "sensor_identity": sensor_identity,
+                "sensor_profile": sensor_profile,
+                "contact_assessment": assessment,
+                "pwm_command_id": (control_context or {}).get("command_id"),
+                "pwm_target_us": (control_context or {}).get("target_pwm_us"),
+                "pwm_ack": (control_context or {}).get("acknowledged"),
+                **frame.to_dict(include_wire=True),
             }
             try:
                 self._frame_file.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
@@ -529,6 +543,13 @@ class TrialRecorder:
             "contact_score",
             "channel_count",
             "valid_count",
+            "device_id",
+            "sensor_profile",
+            "contact_state",
+            "contact_quality",
+            "pwm_command_id",
+            "pwm_target_us",
+            "pwm_ack",
         ]
         header = base + [item for channel_id in channel_ids for item in (f"ch_{channel_id}", f"valid_{channel_id}")]
         tmp = self.csv_path.with_suffix(".csv.tmp")
@@ -556,6 +577,13 @@ class TrialRecorder:
                     row.get("contact_score"),
                     row.get("channel_count"),
                     sum(1 for flag in mask if flag),
+                    row.get("device_id", ""),
+                    row.get("sensor_profile") or "",
+                    (row.get("contact_assessment") or {}).get("state", ""),
+                    (row.get("contact_assessment") or {}).get("quality", ""),
+                    row.get("pwm_command_id", ""),
+                    row.get("pwm_target_us", ""),
+                    row.get("pwm_ack", ""),
                 ]
                 for channel_id in channel_ids:
                     value, valid = by_id.get(channel_id, (None, False))
@@ -763,6 +791,66 @@ class TrialStore:
             raise FileNotFoundError(f"trial not found: {trial_id}")
         recorder = TrialRecorder(stored.metadata, stored.directory)
         return recorder.export_csv()
+
+    def export_replay_jsonl(self, trial_id: str) -> Path:
+        """Rebuild a HELLO + SAMPLE wire file from a recorded trial.
+
+        The raw SAMPLE payload is preferred.  Old trials that predate raw-wire
+        persistence are reconstructed from the validated frame fields, so the
+        read-only REPLAY path remains usable without touching hardware.
+        """
+        from ..models import ChannelConfiguration
+        from ..protocol import PROTOCOL_VERSION, encode_hello
+
+        stored = self.find(trial_id)
+        if stored is None:
+            raise FileNotFoundError(f"trial not found: {trial_id}")
+        frames, errors, _ = _read_jsonl_meta(stored.directory / "frames.jsonl")
+        if errors and not frames:
+            raise ValueError("trial frames are unreadable: " + "; ".join(errors))
+        params = stored.metadata.parameters or {}
+        config_payload = params.get("sensor_config")
+        config = ChannelConfiguration.from_dict(config_payload) if config_payload else None
+        identities = params.get("device_identities") or {}
+        sensor_identity = identities.get("sensor") or {}
+        first = frames[0] if frames else {}
+        device_id = first.get("device_id") or sensor_identity.get("device_id") or "sensor-replay"
+        boot_id = first.get("boot_id") or sensor_identity.get("boot_id") or "replay-boot"
+        path = stored.directory / "replay.jsonl"
+        with open(path, "w", encoding="utf-8") as handle:
+            if config is not None:
+                handle.write(
+                    encode_hello(
+                        device_id,
+                        boot_id,
+                        config,
+                        firmware_version=str(sensor_identity.get("firmware_version") or "trial-replay"),
+                    ).decode("utf-8")
+                )
+            for row in frames:
+                if row.get("record_type") != "SENSOR_FRAME":
+                    continue
+                raw = row.get("raw")
+                if isinstance(raw, dict) and raw.get("type") == "SAMPLE":
+                    payload = raw
+                else:
+                    payload = {
+                        "protocol_version": PROTOCOL_VERSION,
+                        "type": "SAMPLE",
+                        "device_id": row.get("device_id", device_id),
+                        "boot_id": row.get("boot_id", boot_id),
+                        "frame_seq": row.get("frame_seq"),
+                        "mcu_time_us": row.get("mcu_time_us"),
+                        "channel_ids": row.get("channel_ids"),
+                        "channels": row.get("channels"),
+                        "valid_mask": row.get("valid_mask"),
+                    }
+                    if row.get("contact_score") is not None:
+                        payload["contact_score"] = row["contact_score"]
+                handle.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
+        stored.metadata.files["replay"] = path.name
+        _atomic_json(stored.directory / "metadata.json", stored.metadata.to_dict())
+        return path
 
 
 def summarize_trial(record: TrialRecord) -> dict[str, Any]:

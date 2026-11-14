@@ -10,7 +10,7 @@ from datetime import datetime
 from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
-from ..charts import bar_options, heatmap_options, line_options, pwm_timeline_options
+from ..charts import bar_options, fsr_trend_options, heatmap_options, line_options, pwm_timeline_options
 from ..theme import card_header, empty_state, notice, pill, set_pill, shell, tone_for_state
 from ..text_zh import (
     action_label,
@@ -247,6 +247,14 @@ def analysis_page(core) -> None:
         frames = record["frames"]
         events = record["events"]
         summary = record.get("summary") or {}
+        parameters = metadata.get("parameters") or {}
+        sensor_config = parameters.get("sensor_config") or {}
+        matrix_count = sum(
+            1
+            for channel in sensor_config.get("channels", [])
+            if channel.get("sensor_kind") == "MATRIX_CELL"
+            or (channel.get("matrix_row") is not None and channel.get("matrix_col") is not None)
+        )
         integrity = summary.get("integrity") or {}
         status = metadata.get("status", "UNKNOWN")
         if status == "INTERRUPTED":
@@ -328,8 +336,8 @@ def analysis_page(core) -> None:
                         slider = ui.slider(min=0, max=max(0, len(frames) - 1), value=index, step=1).props("label").classes("w-full")
                         chart_holder = ui.column().classes("w-full")
                         with chart_holder:
-                            if frame.get("matrix_rows") and frame.get("matrix_cols") and frame.get("channel_count") == frame["matrix_rows"] * frame["matrix_cols"]:
-                                ui.echart(heatmap_options(frame)).classes("w-full").style("height:300px")
+                            if matrix_count and frame.get("matrix_rows") and frame.get("matrix_cols"):
+                                ui.echart(heatmap_options(frame, sensor_config)).classes("w-full").style("height:300px")
                             else:
                                 ui.echart(bar_options(frame)).classes("w-full").style("height:300px")
 
@@ -344,6 +352,35 @@ def analysis_page(core) -> None:
                         slider.on_value_change(on_frame_change)
                     else:
                         empty_state("grid_off", "无触觉帧", "该实验没有保存触觉帧；控制事件仍可查看。")
+
+            fsr_history = [
+                {
+                    "frame_seq": item.get("frame_seq"),
+                    "score": (item.get("contact_assessment") or {}).get("score"),
+                    "readings": (item.get("contact_assessment") or {}).get("readings") or [],
+                }
+                for item in frames
+                if (item.get("contact_assessment") or {}).get("readings")
+            ]
+            if fsr_history:
+                with ui.element("div").classes("col-5"):
+                    with ui.column().classes("card gap-3"):
+                        with card_header("FSR 相对接触", "原始 ADC 与相对评分；电压仅在 HELLO 基准完整时记录"):
+                            pass
+                        latest_fsr = fsr_history[-1]
+                        with ui.row().classes("w-full gap-3"):
+                            for reading in latest_fsr["readings"]:
+                                with ui.column().classes("gap-0"):
+                                    ui.label(str(reading.get("name") or f"FSR{reading.get('channel_id')}")).classes("card-kicker")
+                                    raw = reading.get("raw")
+                                    ui.label("无效/缺失" if not reading.get("valid") or raw is None else f"{int(raw)} counts").classes("mono")
+                                    if reading.get("voltage_basis_complete") and reading.get("voltage_uv") is not None:
+                                        ui.label(f"{reading['voltage_uv'] / 1e6:.3f} V").classes("card-sub")
+                                    else:
+                                        ui.label("电压基准未完整").classes("card-sub")
+                                    if reading.get("relative_change") is not None:
+                                        ui.label(f"{reading['relative_change'] * 100:+.1f}%").classes("card-sub")
+                        ui.echart(fsr_trend_options(fsr_history[:300])).classes("w-full").style("height:180px")
 
             with ui.element("div").classes("col-5"):
                 with ui.column().classes("card gap-3"):

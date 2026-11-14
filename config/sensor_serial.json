@@ -11,6 +11,7 @@
     "max_line_bytes": 16384,
     "reconnect_enabled": true,
     "reconnect_initial_s": 0.5,
-    "reconnect_max_s": 10.0
+    "reconnect_max_s": 10.0,
+    "queries_enabled": false
   }
 }

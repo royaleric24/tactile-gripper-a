@@ -34,6 +34,8 @@ class AutoGate:
         reasons: list[str] = []
         if self.source is DataSource.SIMULATION and self.allow_simulation:
             return True, []
+        if not AUTO_REAL_ENABLED:
+            reasons.append("AUTO_REAL_ENABLED=False：真实 AUTO 硬开关未开放")
         if self.source is not DataSource.LIVE:
             reasons.append("AUTO 真实闭环只允许 LIVE 来源")
         if not self.real_sensor:
@@ -108,6 +110,85 @@ class RuleBasedAutoPolicy:
 
     def reset(self) -> None:
         self.last_step_ns = None
+
+    def evaluate_contact(
+        self,
+        frame: TactileFrame | None,
+        assessment,
+        *,
+        now_ns: int,
+        target_us: int,
+        steps: int,
+        total_change_us: int,
+        sensor_state: str = "STREAMING",
+        pending_command: bool = False,
+        min_pwm_us: int | None = None,
+        max_pwm_us: int | None = None,
+    ) -> AutoDecision:
+        """Evaluate an explicit FSR contact assessment with hysteresis.
+
+        No command is sent here.  The caller must still enforce the real gate,
+        command ACK and PWM limits.  Invalid/stale data can never return STEP.
+        """
+        available, reasons = self.availability()
+        if not available:
+            return AutoDecision("UNAVAILABLE", "AUTO unavailable: " + "; ".join(reasons), details={"reasons": reasons})
+        if frame is None or assessment is None:
+            return AutoDecision("WAIT", "no sensor frame/assessment")
+        seq = frame.frame_seq
+        received = frame.host_received_ns
+        age_ms = max(0, now_ns - frame.host_received_ns) / 1_000_000
+        base_details = {
+            "contact_state": getattr(assessment, "state", None),
+            "contact_score": getattr(assessment, "score", None),
+            "contact_quality": getattr(assessment, "quality", None),
+            "contact_reason": getattr(assessment, "reason", None),
+            "baseline_ready": getattr(assessment, "baseline_ready", False),
+            "pending_command": pending_command,
+        }
+        if sensor_state != "STREAMING":
+            return AutoDecision("FAULT", f"sensor state {sensor_state}", seq, received, age_ms=age_ms, details=base_details)
+        if age_ms > self.limits.stale_after_ms:
+            return AutoDecision("FAULT", "frame older than stale limit", seq, received, age_ms=age_ms, details=base_details)
+        if pending_command:
+            return AutoDecision("WAIT", "previous PWM command has no ACK", seq, received, age_ms=age_ms, details=base_details)
+        state = getattr(assessment, "state", "INVALID")
+        if state in ("INVALID", "NOT_APPLICABLE"):
+            return AutoDecision("FAULT", f"contact assessment {state}", seq, received, age_ms=age_ms, details=base_details)
+        if state == "UNCALIBRATED":
+            return AutoDecision("WAIT", "FSR baseline not captured", seq, received, age_ms=age_ms, details=base_details)
+        if state == "NORMAL":
+            return AutoDecision("WAIT", "contact in normal band; hold", seq, received, age_ms=age_ms, details=base_details)
+        score = getattr(assessment, "score", None)
+        if score is None:
+            return AutoDecision("FAULT", "contact score missing", seq, received, age_ms=age_ms, details=base_details)
+        if state == "TIGHT":
+            delta = -self.limits.step_us
+            if target_us is None or (min_pwm_us is not None and target_us + delta < min_pwm_us):
+                return AutoDecision("STOP", "already at loosen limit", seq, received, age_ms=age_ms, details=base_details)
+            return self._step_decision(delta, seq, received, age_ms, base_details, "contact tight; bounded loosen", target_us, steps, total_change_us, now_ns)
+        if state in ("NO_CONTACT", "INSUFFICIENT"):
+            delta = self.limits.step_us
+            if max_pwm_us is not None and target_us is not None and target_us + delta > max_pwm_us:
+                return AutoDecision("STOP", "already at tighten limit", seq, received, age_ms=age_ms, details=base_details)
+            return self._step_decision(delta, seq, received, age_ms, base_details, "contact insufficient; one bounded tighten", target_us, steps, total_change_us, now_ns)
+        return AutoDecision("FAULT", f"unknown contact state {state}", seq, received, age_ms=age_ms, details=base_details)
+
+    def _step_decision(self, delta, seq, received, age_ms, details, reason, target_us, steps, total_change_us, now_ns):
+        if steps >= self.limits.max_steps or total_change_us + abs(delta) > self.limits.max_total_us:
+            return AutoDecision("STOP", "step/total limit reached", seq, received, age_ms=age_ms, details=details)
+        if self.last_step_ns is not None and (now_ns - self.last_step_ns) < self.limits.min_interval_ms * 1_000_000:
+            return AutoDecision("WAIT", "rate limit", seq, received, age_ms=age_ms, details=details)
+        self.last_step_ns = now_ns
+        return AutoDecision(
+            "STEP",
+            reason,
+            seq,
+            received,
+            target_delta_us=delta,
+            age_ms=age_ms,
+            details={**details, "target_us_before": target_us},
+        )
 
     def evaluate(
         self,
