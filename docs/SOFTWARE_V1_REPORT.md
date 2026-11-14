@@ -110,11 +110,11 @@ SIMULATION Live Monitor（合成数据，明确标注）：
 
 Experiments（条件、视频路径、Start/Stop/Abort、历史）：
 
-![Experiments](screenshots/experiments.png)
+[Screenshot omitted from public history: embedded personal path.](PUBLICATION.md)
 
 Analysis（过滤、完整性、PWM Timeline、中断提示、视频/操作员/schema）：
 
-![Analysis](screenshots/analysis.png)
+[Screenshot omitted from public history: embedded personal path.](PUBLICATION.md)
 
 ## 6. 测试与稳定性
 

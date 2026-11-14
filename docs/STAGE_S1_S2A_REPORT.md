@@ -215,8 +215,8 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui \
 截图（`docs/screenshots/`，由 headless Chrome 对本地 demo 实例截取）：
 
 ![Live Monitor](screenshots/live-monitor.png)
-![Experiments](screenshots/experiments.png)
-![Analysis & Diagnostics](screenshots/analysis.png)
+[Screenshot omitted from public history: embedded personal path.](PUBLICATION.md)
+[Screenshot omitted from public history: embedded personal path.](PUBLICATION.md)
 
 截图中的 “Demo grasp · SIMULATION” 是合成数据，不是真实实验。
 

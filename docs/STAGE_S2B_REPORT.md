@@ -163,8 +163,8 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui \
 
 ![离线启动](screenshots/live-offline.png)
 ![Live Monitor](screenshots/live-monitor.png)
-![Experiments](screenshots/experiments.png)
-![Analysis & Diagnostics](screenshots/analysis.png)
+[Screenshot omitted from public history: embedded personal path.](PUBLICATION.md)
+[Screenshot omitted from public history: embedded personal path.](PUBLICATION.md)
 
 ## 6. 测试
 
