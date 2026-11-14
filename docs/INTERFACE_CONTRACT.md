@@ -1,3 +1,18 @@
+# 软硬件通信边界
+
+当前状态为 PROPOSED。下表摘自两个开发分支的发送器与接收器；联合验收、时钟回绕处理和控制用接触评分的标定尚未冻结。
+
+| 链路 | 线上行为与接收约束 |
+|---|---|
+| 采集板启动 | firmware/sensor/sensor.ino 的 sendHello() 发送 JSONL：protocol_version=1、type=HELLO、device_id、boot_id、firmware_version、scan_mode、channel_count、channel_config、adc_status。330 SPS 为 ADC 配置，采样帧率另记。 |
+| 采集帧 | firmware/sensor/frame_builder.cpp 生成 SAMPLE，含 frame_seq、mcu_time_us、channel_ids、channels、valid_mask，另保留 raw_adc、valid、adc_status 等诊断字段。3×4 扫描每帧 12 项，无效项编码 null/false。 |
+| 主机校验 | src/tactile_gripper/protocol.py 校验版本、启动身份、数组长度与通道顺序。保留设备时间及主机接收时间；统计坏帧、断序和重启。过期数据不得授权新动作。固定 AIN1 的 DIAG_HELLO 属于独立诊断协议。 |
+| 夹爪命令 | src/gripper_a/gripper_controller.py 构造 protocol_version、request_id、command、sequence、boot_id；按请求核验响应，区分 PONG、STATUS、ACK 与拒绝。超时/断连按会话处理；ACK 只表示设备命令响应。 |
+
+兼容变更须提供旧/新真实脱敏样例及两个方向的离线测试。删除字段或改变单位、时基、有效位含义时，双方约定迁移与拒绝策略后方可集成。以下为 S0 提案，历史占位项不能覆盖上表的实现记录。
+
+---
+
 # 软硬件接口契约（触觉夹爪）
 
 - **状态：PROPOSED v0.1（未生效、未联调；本分支只包含软件侧提议）**
