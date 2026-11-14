@@ -1,9 +1,9 @@
 # 团队开发
 
-仓库发布后，将下面的 OWNER 替换为仓库所属账号。硬件任务从 feat/hardware-acquisition 起步，软件任务从 feat/dashboard-zh-v1 起步。已有 worktree 直接使用 git worktree list 定位。
+仓库所属账号为 royaleric24。硬件任务从 feat/hardware-acquisition 起步，软件任务从 feat/dashboard-zh-v1 起步。已有 worktree 直接使用 git worktree list 定位。
 
 ```sh
-gh repo clone OWNER/tactile-gripper-a
+gh repo clone royaleric24/tactile-gripper-a
 cd tactile-gripper-a
 git fetch origin
 git worktree add -b hw/sample-check ../gripper-sample origin/feat/hardware-acquisition
