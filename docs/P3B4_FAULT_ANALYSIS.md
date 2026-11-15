@@ -86,11 +86,14 @@
   需要 5V/地电位/电流/示波器或“舵机通电但无 PWM”的对照。
 - **真实设备失联/重启**：证据不支持。boot_id 稳定、无 FAULT、无 ESP-ROM 二次重启、ACK 含正确 request_id；
   设备是“回应了但字节损坏”。
+- **版本确认限制**：STATUS 不暴露 app SHA；按 P3-B1 记录当前运行应为 TX 修复 `bd039a8…`，但本会话日志无法独立
+  确认烧录镜像，故“固件已含 TX 背压修复”是沿用既有记录，不是本次新证据。
 
 ## 3. FSR_A 数据分析
 
 数据源：`fsr/fsr_stream.jsonl` 的 SAMPLE（channel 0）。ADC4 全程 `OK`；ADC1–3 为 `NO_RESPONSE`（FSR_ONLY 未接，属预期）。
 两会话均无 invalid 帧、无饱和 flag（无 0x01/0x02），flag `0x04` 只出现在近零/负值附近。
+`fsr_capture.log` 的 `nul_lines=1` / `unparsed_lines=1–2` 是启动噪声行，不是 SAMPLE 丢失；SAMPLE 有效率仍为 100%。
 
 | 指标 | 0fce | a804 |
 |---|---|---|
