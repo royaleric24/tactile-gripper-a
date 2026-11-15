@@ -20,10 +20,10 @@
 
 | 编号 | 状态 | 问题 / 证据 / 下一步 |
 |---|---|---|
-| I-207 | **OPEN（阻塞极性判断）** | 实测两个主要持续变化都是 counts **下降**（4.6 s −470k，48.8 s −1.72M），与配置 `VOLTAGE_RISES_WITH_FORCE` 相反。Dashboard 接触评分只认 `raw − baseline` 的正向增量，极性未确认时可能把真实夹持判为 `NO_CONTACT`。`AUTO_REAL_ENABLED=False` 必须保持。下一步：空杯“空载基线→夹持→释放”时序确认符号，未确认前不把评分当接触判据。 |
+| I-207 | **OPEN（阻塞极性判断）** | 本次 capture 没有经过验证的空载基线；采集起点很可能是第一处按压已在进行（0–4.2 s 的 4.16M），按此读法 4.6 s/48.8 s 的下降是释放/移动、70 s 后的上升是第二处按压，方向与 `VOLTAGE_RISES_WITH_FORCE` 一致。另一种读法（0–4.2 s 空载、两次下降是按压）不能排除。Dashboard 接触评分只认 `raw − baseline` 的正向增量；极性未确认前不把评分当接触判据。`AUTO_REAL_ENABLED=False`。下一步：用“已知空载→夹持→释放”确认符号。 |
 | I-208 | **RESOLVED（分析已纠正）** | 采集脚本预写的三段式 marker 与实际操作不符；旧 `capture_analysis.json` 的窗口统计无效。已保留为 `capture_analysis_schedule_assumed.json`，用数据驱动分段生成 `capture_analysis_v2.json`。后续采集不得再写计划 marker 冒充真实事件。 |
-| I-209 | **OPEN（低优先级）** | 68.734/68.750/68.766 s 连续 3 帧 flag `0x04` 负单端（−124161/−230142/−1592），无饱和、无 NO_DATA。原因未知（SPI/模拟瞬态或接触抖动）。空杯采集时监控是否复现；若复现再查屏蔽/共地/接线。 |
-| I-210 | **OPEN（阻塞空杯实验）** | 当前 Mac 只枚举到旧 ESP32 的 CP2102；S3 的 FT232R 串口未出现。无法核对 S3 `boot_id`、0.9b26.0 状态或发送 PWM。下一步：用户连接 S3 USB 数据线/舵机电源与共地后重新枚举；不得把 CP2102 当 S3。 |
+| I-209 | **OPEN（已复现）** | 原 capture 68.734/68.750/68.766 s 连续 3 帧 flag `0x04`；15:34Z 复测 485 帧中 19 帧负单端，15:37Z 复测 494 帧中 **230 帧**负单端（值约 −12k…+16k counts）。ADC4 仍 `OK`，但 AIN0 已呈近零/悬空样，说明 FSR_A 偏置/插头/地线在操作后失稳。先恢复接线，再判断是否仍有 SPI/模拟瞬态。 |
+| I-210 | **OPEN（阻塞空杯实验）** | 当前 Mac 只枚举到旧 ESP32 的 CP2102 `/dev/cu.usbserial-0001`；S3 的 FT232R 串口多次重枚举仍未出现（ioreg 无 FTDI/FT232R）。无法核对 S3 `boot_id`、0.9b26.0 状态或发送 PWM。下一步：确认 S3 板上的 USB **数据**口（FT232R 或 USB-C）已用数据线直连 Mac，换线/换口后重新枚举；不得把 CP2102 当 S3。 |
 | I-211 | **OPEN（环境限制）** | 本会话沙箱无 PTY（`openpty: Operation not permitted`），`pwm_console.py --real` 的交互终端无法由代理运行。下一步：用户在自己的真实 Terminal 运行 console，本进程独占 FSR 串口采集；或经用户明确同意改用 Dashboard LIVE 手动入口。不得修改 `isatty` 安全检查。 |
 | I-212 | **OPEN（影响重复性）** | 末段 S4 从约 1.1M 回升到 2.3M，85 s 内未回到初始 4.16M；S3 段还有 −61.6k counts/s 的慢漂移。释放恢复/蠕变时间常数未知。每个 trial 必须重新采空载基线，并保留足够长的释放后窗口。 |
 | I-213 | **ACCEPTED_LIMITATION** | `docs/ASSET_MANIFEST.md` 引用的 `evidence/stage09b26/build_s3/*` 不在本 worktree；S3 已验收固件不在本地可直接复核。本轮禁止重烧 S3，故不影响；若将来需要重烧，先从独立备份恢复并核对 SHA-256。 |

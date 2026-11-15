@@ -14,8 +14,9 @@
   `capture_analysis_schedule_assumed.json`，并用数据驱动分段生成 `capture_analysis_v2.json`。
   初始稳定段中位 4.163M counts、σ≈16k；约 4.6 s 首次持续下降 −470k、约 48.8 s 大幅下降 −1.72M、
   约 70 s 后方差下降并缓慢回升（+44.6k counts/s），但 85 s 内未回到初始基线。
-  两个主要持续变化都是**下降**，与配置的 `VOLTAGE_RISES_WITH_FORCE` 相反；极性记为
-  **UNVERIFIED**，留待空杯“空载→夹持→释放”时序确认。
+  采集起点很可能是**第一处按压已在进行**，0–4.2 s 的 4.16M 不是已验证空载；按此读法，
+  4.6 s 与 48.8 s 的下降是部分释放/释放移动，70 s 后的上升是第二处按压，方向与
+  `VOLTAGE_RISES_WITH_FORCE` 一致。但没有已验证空载基线，极性仍 **UNVERIFIED**，不能说“实测相反”。
 - **结论**：FSR_A 对真实接触/位置变化有清晰、远超噪声的响应，初步响应验证 **成功**；
   不需要重做手指三段式。counts→牛顿/摩擦/滑移/杯重均 **NOT_SUPPORTED**；按压位置/力度/时间
   **NOT_TESTED**。
@@ -23,11 +24,15 @@
   [真实曲线图](screenshots/p3b1/fsr_a_real_curve_v2.png)。原始 JSONL/CSV 留在本地 `evidence/`，未提交。
 - **离线检查**：`tests.test_dashboard`、`tests.test_p3a_firmware_dashboard`、`tests.test_pwm_console`
   共 20 项 OK；`tests.test_fsr2_protocol`、`tests.test_fsr2_config` 共 51 项 OK。
+- **追加接线复测（阻塞）**：15:34Z 的 8 s 采集中 485 帧有 19 帧 flag 0x04、值在 0–650k 间大幅摆动；
+  15:37Z 的 8 s 采集中 494 帧有 **230 帧 flag 0x04**、值约 −12k…+16k counts，呈近零/悬空样。
+  ADC4 仍 `OK`，但 AIN0 已不像正常无载分压。**当前 FSR_A 接线/偏置失稳，空杯抓取暂停。**
 - **未执行**：未打开舵机串口、未发 PWM、未做机械动作、未重新烧录、未做 AUTO。
   当前 Mac 只枚举到旧 ESP32 的 CP2102；S3 的 FT232R 串口未出现，空杯实验暂不能开始。
-- **下一步**：连接 S3 USB/舵机电源并核对共地、机械状态；一次确认空杯 MANUAL 范围
-  **1300–1500 μs、50 μs 步进、1300 为下限（不进 1270）**；用户在自己的真实终端运行
-  `pwm_console.py --target s3`，本进程独占 FSR 串口采集；随后运行 Dashboard LIVE 的 FSR_A 曲线。
+- **下一步**：先恢复 FSR_A 接线/偏置（重新插紧 AIN0/3.3V/10k 共地，不拆压敏布），再采 8 s 基线；
+  同时解决 S3 FT232R 端口未枚举。两项恢复后，按已授权范围 **1300–1500 μs、50 μs 步进、
+  1300 下限（不进 1270）** 执行空杯 MANUAL；用户在自己的真实终端运行 `pwm_console.py --target s3`，
+  本进程独占 FSR 串口采集；随后运行 Dashboard LIVE 的 FSR_A 曲线。
 
 ## 2026-11-15｜P3-A PR #5 复核增量｜integrate/hybrid-demo-v2
 
