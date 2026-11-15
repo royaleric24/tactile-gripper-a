@@ -1,3 +1,5 @@
+> 2026-11-15：压敏布实为 12 根被动电极（R×10 kΩ→GND，C×1 kΩ→3.3 V），无 GPIO 列驱动/6×6 扫描。见 docs/hardware/FSR_ONLY_INTERFACE_V2.md。
+
 # 板卡与采集入口
 
 S3 控爪与旧 ESP32 采集使用独立固件和配置。控制侧核对 config/board_s3.json、config/gripper_s3.json 和固件哈希。S3 端控制输出与可见开合分别记录；设备 ACK 无角度反馈。

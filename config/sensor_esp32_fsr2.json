@@ -1,0 +1,81 @@
+{
+  "schema_version": 3,
+  "status": "IMPLEMENTED_UNVERIFIED_OFFLINE_ONLY",
+  "notes": "V2 four-ADC board, FSR_ONLY profile. ADC1-ADC3 stay configured but are not read in this profile. ADC4 (CS GPIO32 / MISO GPIO33) measures FSR_A=AIN0 and FSR_B=AIN1, each with its own 10k divider to GND. The pressure cloth electrodes are not part of this profile; see config/sensor_esp32_electrodes12_fsr2.json for the 14-channel variant. No wiring, flashing or sampling has been performed with this configuration.",
+  "device_id": "tactile-esp32-01",
+  "firmware_version": "tactile-fsr2-0.2.0",
+  "serial_baud": 921600,
+  "sensor_profile": "FSR_ONLY",
+  "pins": {
+    "sclk": 18,
+    "mosi": 23,
+    "miso": [
+      34,
+      35,
+      26,
+      33
+    ],
+    "cs": [
+      21,
+      22,
+      5,
+      32
+    ]
+  },
+  "ads1220": {
+    "spi_half_period_us": 1,
+    "diag_half_period_us": 25,
+    "data_rate_sps": 330,
+    "conversion_wait_us": 4500,
+    "operating_mode": "NORMAL",
+    "conversion_mode": "SINGLE_SHOT",
+    "gain": 1,
+    "pga_bypass": true,
+    "reference_mode": "AVDD_AVSS",
+    "reference_modes_allowed": [
+      "AVDD_AVSS"
+    ],
+    "idac_enabled": false,
+    "mux_codes": [
+      8,
+      9,
+      10,
+      11
+    ]
+  },
+  "fsr": {
+    "adc_id": 4,
+    "adc4_cs_gpio": 32,
+    "adc4_miso_gpio": 33,
+    "channels": [
+      {
+        "channel_id": 0,
+        "name": "FSR_A",
+        "adc_input": 0,
+        "mux_code": 8
+      },
+      {
+        "channel_id": 1,
+        "name": "FSR_B",
+        "adc_input": 1,
+        "mux_code": 9
+      }
+    ],
+    "divider_resistor_ohm": 10000,
+    "excitation_mv": 3300,
+    "unit": "ADC_COUNTS",
+    "response_polarity": "VOLTAGE_RISES_WITH_FORCE",
+    "independent_pulldowns_required": true,
+    "validated": false
+  },
+  "matrix": null,
+  "stream": {
+    "max_line_bytes": 8192,
+    "max_command_bytes": 512,
+    "command_partial_timeout_ms": 1000,
+    "frame_rate_window": 32,
+    "reinit_after_consecutive_errors": 3,
+    "reinit_retry_interval_ms": 500
+  },
+  "electrodes": null
+}
