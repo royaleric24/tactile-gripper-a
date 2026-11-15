@@ -1,4 +1,6 @@
 > V2 增量入口（2026-11-14）：总体路线见 [DEMO_PLAN_V2.md](DEMO_PLAN_V2.md)，接线基准见 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md)，新增传感 profile 见 [PROTOCOL_V2_PROPOSAL.md](PROTOCOL_V2_PROPOSAL.md)。该提案仍为 PROPOSED；下文实现摘录及历史 S0 占位保持原样，不能解释为 V2 已冻结或联调通过。
+>
+> **2026-11-15 修正**：真实压敏布为 12 电极被动读取（R1–R6 各接 AIN + 各自 10 kΩ 下拉、C1–C6 各接 AIN + 各自 1 kΩ 上拉），**无 GPIO 列激励、无 HI_Z、无 36 点扫描**。下文“6×6/36 感测单元”目标已作废（HISTORICAL），当前接线与 profile 以 WIRING_FREEZE_V2 与 PROTOCOL_V2_PROPOSAL 为准。
 
 # 软硬件通信边界
 
@@ -31,9 +33,9 @@
 
 - 旧 ESP32（NodeMCU ESP-32S V1.1，GPIO23，50 Hz，16-bit）稳定固件 `gripper-control-bench-0.9b24.0` 保留为回退。
 - ESP32-S3（YD-ESP32-S3 N16R8，GPIO4，50 Hz，14-bit）固件 `gripper-control-s3-0.9b26.0` 已由用户报告真实机械开合 PASS；精确位置误差与长期稳定性 UNKNOWN。
-- 硬件组 Stage H1 目标为单侧 **6×6 触觉矩阵、36 个感测单元、三颗 ADS1220、旧 ESP32 采集**。
-- 三颗 ADS1220 **不能直接提供 36 路独立模拟输入**；实际扫描/复用方案仍待硬件组确认。
-- 现有 `docs/SENSOR_CONTRACT.md` 是 Stage 0 的 4×4/16 通道 row-major 草案，保留为历史资料；不能直接作为 6×6/36 单元的实现依据。
+- 硬件组 Stage H1 目标原为单侧 **6×6 触觉矩阵、36 个感测单元、三颗 ADS1220、旧 ESP32 采集**；该目标已随 2026-11-15 接线修正作废（HISTORICAL）。当前可交付目标为 **12 电极被动单端读取**（R1–R6 各接 ADS1220 AIN + 各自 10 kΩ 下拉到 GND，C1–C6 各接 AIN + 各自 1 kΩ 上拉到 3.3 V），4 颗 ADS1220 共 16 个单端输入，12 电极 + 2 FSR = 14 逻辑通道是未来合并变体，当前先 FSR_ONLY。电极 → ADC/AIN 映射 **PENDING_REAL_WIRING**。
+- 12 个电极电压是 12 个测量值，**不是 36 个独立压力点**；不得按行列交点或 36 点矩阵设计接口字段。
+- 现有 `docs/SENSOR_CONTRACT.md` 是 Stage 0 的 4×4/16 通道 row-major 草案，保留为历史资料；不能直接作为 12 电极或新协议的实现依据。
 
 ## 2. 双方职责
 
@@ -48,8 +50,8 @@
 
 | 编号 | 待确认项 | 当前状态 | 需要的事实/证据 | 主责 |
 |---|---|---|---|---|
-| C-01 | 通道数量及传感器物理映射 | UNKNOWN（6×6=36 为目标；与既有 4×4/16 通道关系未定） | 矩阵接线图、单元编号、行列方向、照片 | 硬件组 |
-| C-02 | 6×6 矩阵扫描方式 | UNKNOWN | 行列扫描、模拟多路复用或其它方案的原理图与固件说明 | 硬件组 |
+| C-01 | 通道数量及传感器物理映射 | UNKNOWN（12 电极逻辑通道为目标；6×6=36 已随 2026-11-15 修正撤回；映射 PENDING_REAL_WIRING） | 真实焊接记录/映射表、单元编号、电极方向、照片 | 硬件组 |
+| C-02 | 12 电极的通道分配与读取方式 | UNKNOWN（已确认无 GPIO 列扫描：全被动单端读取） | 每根电极 → ADC/AIN 的接线记录、ADS1220 配置说明 | 硬件组 |
 | C-03 | 三颗 ADS1220 的实际连接结构 | UNKNOWN | SPI/I²C/其它总线、片选/地址、通道分配、复用器、时钟 | 硬件组 |
 | C-04 | 采样率与时序 | UNKNOWN | 每通道采样率、整帧周期、建立/切换时间、抖动、丢帧定义 | 硬件组 |
 | C-05 | 通道有效性 | UNKNOWN | 无效/坏通道判定、valid_mask 语义、部分有效帧策略 | 双方 |
@@ -84,6 +86,6 @@
 
 ## 6. 与既有文档的关系
 
-- `docs/SENSOR_CONTRACT.md`：Stage 0 的 4×4/16 通道草案，保留追溯；不作为 6×6/36 单元或新协议的最终依据。
+- `docs/SENSOR_CONTRACT.md`：Stage 0 的 4×4/16 通道草案，保留追溯；不作为 12 电极或新协议的最终依据。
 - `docs/GRIPPER_PROTOCOL.md`、`docs/FIRMWARE_PROTOCOL_DRAFT.md`：现有控制/固件协议资料，保留；涉及软硬件共享接口的变更仍须回到本文件登记。
 - 本文件在 S0 不替代任何已验证固件协议，也不修改现有 PWM Console 行为。

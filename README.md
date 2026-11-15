@@ -1,11 +1,11 @@
 # Tactile Gripper · 触觉闭环自适应机械爪
 
-## V2 当前路线（2026-11-14）
+## V2 当前路线（2026-11-15 接线修正）
 
-当前总体方案以 [DEMO_PLAN_V2](docs/DEMO_PLAN_V2.md) 为唯一入口：科展 Demo 优先真实抓杯与 FSR→PWM 反馈，矩阵作为辅助。
+当前总体方案以 [DEMO_PLAN_V2](docs/DEMO_PLAN_V2.md) 为唯一入口：科展 Demo 优先真实抓杯与 FSR→PWM 反馈，12 电极被动读取作为辅助（**不是 6×6 矩阵；2026-11-15 项目所有者确认**，见接线基准）。
 
-- [V2 接线基准](docs/WIRING_FREEZE_V2.md)：ADC1 CS21/MISO34、ADC2 CS22/MISO35、ADC3 CS5/MISO26 已获用户确认；ADC4 CS32/MISO33 待施工。
-- [协议提案](docs/PROTOCOL_V2_PROPOSAL.md)（PROPOSED）、[硬件总览](docs/HARDWARE_DESIGN_V2.md)、[配置模板](config/hybrid_sensor_v2.template.json)（AUTO 关闭、端口和阈值留空）。
+- [V2 接线基准](docs/WIRING_FREEZE_V2.md)：ADC1 CS21/MISO34、ADC2 CS22/MISO35、ADC3 CS5/MISO26 已获用户确认；ADC4 CS32/MISO33 待施工。压敏布为 12 电极被动读取（R1–R6 各接 AIN + 10 kΩ 下拉、C1–C6 各接 AIN + 1 kΩ 上拉），**无 GPIO 列激励/HI_Z/36 点扫描**；电极 → ADC/AIN 映射 PENDING_REAL_WIRING（§4.1 空表待填）。
+- [协议提案](docs/PROTOCOL_V2_PROPOSAL.md)（PROPOSED：`FSR_ONLY` 可用，`MATRIX_ELECTRODES_12` 12 电极提案，`HYBRID_6X6_FSR2` HISTORICAL）、[硬件总览](docs/HARDWARE_DESIGN_V2.md)、[配置模板](config/hybrid_sensor_v2.template.json)（AUTO 关闭、端口和阈值留空、电极映射为空列表）。
 - [进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md)、[当前交接](docs/HANDOFF_CURRENT.md)、[本地保护与文档检查](docs/LOCAL_INTEGRATION_V2.md)。
 - [并行任务模板](docs/AGENT_TASKS_V2.md)、[集成流程](docs/INTEGRATION_WORKFLOW_V2.md)、[轻量实验](docs/EXPERIMENTS_LITE_V2.md)、[演示流程](docs/DEMO_RUNBOOK_V2.md)、[文档整理](docs/DOC_CLEANUP_V2.md)。
 
@@ -19,7 +19,7 @@
 |---|---|
 | ESP32-S3 夹爪控制 | PASS（历史通信记录及现场报告开合）。位置精度、长期稳定性 UNKNOWN。见 [S3 验收记录](docs/STAGE09B26_REPORT.md)。 |
 | 旧 ESP32 + 3 颗 ADS1220 | PASS（硬件分支 H1 报告及本地原始帧）。60 秒采集 1579 帧，每路有效 1573 个值，当次输入悬空。 |
-| 点接触检测、矩阵 | IN_PROGRESS。固定 AIN1 诊断与 12 路扫描各有独立流程；6×6 主动扫描原型的实机验收为 IMPLEMENTED_UNVERIFIED。 |
+| 点接触检测、12 电极 | IN_PROGRESS。固定 AIN1 诊断与 12 路单端采集各有独立流程；**12 电极 ≠ 36 压力点**，6×6 主动扫描方案已随 2026-11-15 接线修正作废（HISTORICAL），电极映射 PENDING_REAL_WIRING。 |
 | Python 服务与中文 Dashboard | 软件分支实现设备适配、模拟 AUTO、Trial、回放与对比，离线测试覆盖。真实采集端与软件端联合验收 UNKNOWN。 |
 | 加水自适应演示 | UNKNOWN。缺少贯穿触觉输入、动作、载荷变化和杯体观察的真实闭环证据。 |
 

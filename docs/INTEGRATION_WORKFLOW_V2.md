@@ -35,7 +35,7 @@ git remote -v
 ## 3. 推荐 Git 分支结构
 
 - `main`：稳定、可重现的集成 Demo；所有组员通过 PR 合入。
-- `feat/hardware-acquisition`：现有硬件成果的基线，继续在 `hw/*` 子分支开发新 ADC4/FSR/矩阵。
+- `feat/hardware-acquisition`：现有硬件成果的基线，继续在 `hw/*` 子分支开发新 ADC4/FSR/12 电极（被动读取，无矩阵；2026-11-15 修正）。
 - `feat/dashboard-zh-v1`：现有软件成果的基线，继续在 `sw/*` 子分支开发适配器与 AUTO。
 - `integrate/hybrid-demo-v2`：从 main 创建的**临时集成分支**，分阶段引入双方代码；联调跑通后经 PR 合入 main。不要直接用一个分支覆盖另一分支。
 - `docs/demo-v2`：可选独立文档 PR，避免与实时硬件修改互相阻断。
@@ -67,4 +67,4 @@ git remote -v
 
 ## 7. V2 接线变更的跨组交付
 
-硬件组只需一次提交包含 `docs/WIRING_FREEZE_V2.md` 核线结果、板级配置、真实 HELLO/SAMPLE（脱敏）、固件与少量测试；软件组根据 `HYBRID_6X6_FSR2` 或 `FSR_ONLY` 配置更新解析和 UI。**不要把旧 `ROW_SCAN_6X6` 的配置原样当作新列扫描固件**；同时不在未确认硬件前把 `AUTO_REAL_ENABLED` 直接设成 True。
+硬件组只需一次提交包含 `docs/WIRING_FREEZE_V2.md` 核线结果（含 §4.1 电极映射表）、板级配置、真实 HELLO/SAMPLE（脱敏）、固件与少量测试；软件组按 `FSR_ONLY`（当前可用）与 `MATRIX_ELECTRODES_12`（12 电极提案，映射 PENDING、validated=false）更新解析和 UI；`HYBRID_6X6_FSR2` 已撤回为 HISTORICAL，不作当前 profile。**不要把旧 `ROW_SCAN_6X6`/列激励配置或 HYBRID 当作当前固件**（真实布料无 GPIO 列驱动，见 `WIRING_FREEZE_V2.md` 2026-11-15 修正）；同时不在未确认硬件前把 `AUTO_REAL_ENABLED` 直接设成 True。

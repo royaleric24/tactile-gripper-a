@@ -2,6 +2,15 @@
 
 > 当前唯一总体路线：`docs/DEMO_PLAN_V2.md`；硬件接线：`docs/WIRING_FREEZE_V2.md`。只记实际完成内容，计划不冒充完成。每项进展结束同步此文件、根 `AGENTS.md` 和问题台账。
 
+## 2026-11-15｜压敏布接线修正 / 文档同步｜docs/demo-v2
+
+- **来源**：项目所有者在 2026-11-15 确认真实压敏布接线：12 根电极（R1–R6 各接 ADS1220 AIN + 各自 10 kΩ 下拉到 GND；C1–C6 各接 ADS1220 AIN + 各自 1 kΩ 上拉到 3.3 V），**无 GPIO 列激励、无 HI_Z、无 36 点扫描**。
+- **改动（文档层，OFFLINE）**：`docs/WIRING_FREEZE_V2.md` 增加修正横幅与焊接检查清单，§4 改为 12 电极被动读取、§4.1 留空映射表（PENDING_REAL_WIRING）、§4.2 记录已废止方案；`docs/HARDWARE_DESIGN_V2.md`、`docs/DEMO_PLAN_V2.md` 删除列驱动/36 点承诺；`docs/PROTOCOL_V2_PROPOSAL.md` 新增 `MATRIX_ELECTRODES_12` 提案、`HYBRID_6X6_FSR2` 标记 HISTORICAL；`config/hybrid_sensor_v2.template.json` 改为 12 电极模板（空映射、FSR_ONLY 选中、不写 ADC/AIN 编号）；同步根 `AGENTS.md`、`docs/PROGRESS.md`、`docs/ISSUES.md`、`docs/HANDOFF_CURRENT.md` 及残留引用页。
+- **测试命令与结果**：仅离线文档/JSON 检查（JSON 解析、全文 grep 检索“GPIO 列激励 / HI_Z / 36 点”）；**未运行**固件、串口、烧录、采样、PWM 或 AUTO。
+- **状态**：所有真实设备相关动作暂停，等待项目所有者明确授权与真实接线记录（映射填表）。`MATRIX_ELECTRODES_12` 为 PROPOSED（validated=false）；`FSR_ONLY` 仍是当前唯一可用 profile。
+- **关联问题**：I-004 改记“前提作废”；新增 I-012（映射缺失）、I-013（12 电极≠36 压力点）、I-014（HYBRID 禁用）、I-015（软件提交 8d4d7d8 未推送/评审）；I-009 状态不变，措辞更新。
+- **下一步**：等真实焊接/台架记录填 `WIRING_FREEZE_V2.md` §4.1；填全并复核后再讨论生成固件 `channel_config`；在此之前不做任何实机采集或烧录。
+
 ## 2026-11-14｜P0 工程保护 / P1 文档落地｜docs/demo-v2
 
 - **P0 OFFLINE_VERIFIED**：检查三目录 Git/HEAD/worktree、暂存/未暂存/未跟踪/忽略文件；实际共享旧 Git 仓库，main 与软件目录干净，硬件 7 修改 + 7 未跟踪。完整快照覆盖 47,302 个普通文件、8,556,395,224 字节；归档逐文件 SHA-256 与备份后原文件复核通过。数据目录候选 707 个文件、183,684,501 字节（含模拟/回放，未逐条判为实测）。原目录未写入。

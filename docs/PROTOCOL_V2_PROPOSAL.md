@@ -2,58 +2,71 @@
 
 **状态：PROPOSED。双方确认并通过真实 HELLO/SAMPLE 测试后再取代现有 `docs/INTERFACE_CONTRACT.md`。不要未经联调就假设已冻结。**
 
+> **修正（2026-11-15，项目所有者确认）**：真实压敏布是 **12 根电极被动读取**（R1–R6 / C1–C6 各占一个 ADS1220 单端输入，无 GPIO 列激励、无 HI_Z、无 36 点扫描）。本提案据此新增 `MATRIX_ELECTRODES_12` 提案 profile，并把 `HYBRID_6X6_FSR2` 撤回为 HISTORICAL；物理电极 → ADC/AIN 映射 **PENDING_REAL_WIRING**，协议字段填 `null`/给状态值，不写示例编号。见 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md)。
+
 > 包内对现有软件模型、热图和 AUTO 开关的描述指软件组分支，并非 main 已含这些模块；本轮未运行 V2 解析或控制测试。
 
 ## 1. 目标与向后兼容
 
 - 优先沿用当前传感器协议 `protocol_version=1`、每行 JSONL、`HELLO`/`SAMPLE`/`STATUS`/`ERROR`、`device_id`、`boot_id`、`frame_seq`、`mcu_time_us`、`channels`、`valid_mask`、`channel_config`，减少重写。
-- 新增**可选、向后兼容**的字段 `sensor_profile`、`sensor_kind`、`fsr_layout` 等；软件端根据真实 `channel_config` 渲染，不硬编码 12/36/38。
+- 新增**可选、向后兼容**的字段 `sensor_profile`、`sensor_kind`、`fsr_layout`、`electrode_layout` 等；软件端根据真实 `channel_config` 渲染，不硬编码 2/12/14（历史文档中的 36/38 属已撤回的 HYBRID 语义，不得按它渲染）。
 - 不能保证新旧版本兼容时，应显式升级协议号、加转换器与双向测试，而不是静默把旧数据当新数据。
 
-## 2. 两种可交付的硬件 profile
+## 2. 可交付的硬件 profile
 
-| profile | 内容 | 何时使用 |
+| profile | 内容 | 状态 / 何时使用 |
 |---|---|---|
-| `FSR_ONLY` | 2 个 FSR 通道；未装或暂不用矩阵 | **首个真实闭环的推荐最短路径** |
-| `HYBRID_6X6_FSR2` | 36 个真实扫描单元 + 2 FSR，理论上 38 个逻辑测量值 | 行列扫描完成实测、36 点映射有效之后 |
+| `FSR_ONLY` | 2 个 FSR 通道（ADC4 AIN0/AIN1）；不读电极 | **当前唯一可用的推荐最短路径** |
+| `MATRIX_ELECTRODES_12` | 12 个电极逻辑通道（R1..R6 后接 C1..C6）+ 可选 2 FSR 的 14 通道变体 | **PROPOSED**；面向真实布料的被动 12 电极读取，映射 PENDING，未验证 |
+| `HYBRID_6X6_FSR2` | 36 个“扫描单元” + 2 FSR | **HISTORICAL / 已撤回**；依赖不存在的 GPIO 列激励，真实布料不可用，不得烧录 |
 
-**物理 ADC 输入数、矩阵单元数、逻辑采样值个数不是同一个量。** 对于 HYBRID，ADC1-3 只用 6 路行 AIN，但随着 6 列轮流选通，输出 36 个逻辑位置测量；ADC4 输出 2 个 FSR 值。
+**物理 ADC 输入数、电极数、逻辑采样值个数不是同一个量。** 12 电极 = 12 个被动单端测量值（不是 36 个压力点）；4 颗 ADS1220 共 16 个单端输入，12 电极 + 2 FSR = 14 个逻辑通道，若真实映射不冲突则在容量内。**14 通道合并是未来变体，当前仍先走 FSR_ONLY（2 通道），不把 14 通道当已实现。**
+
+### 2.1 `MATRIX_ELECTRODES_12` 提案细则
+
+- `channel_config.matrix_rows = null`、`matrix_cols = null`（不存在行列交点语义）；`sensor_kind = ELECTRODE`。
+- 12 个逻辑通道按**协议固定顺序** `channel_id 0..11`：`0..5 = R1..R6`，`6..11 = C1..C6`。**这是协议顺序，不是物理映射**；每根电极实际进哪颗 ADC 的哪个 AIN 由真实焊接记录填写，当前 `mapping_status: "PENDING_REAL_WIRING"`、`validated: false`。填表前对应通道的 `ads1220_id`/`adc_input` 为 `null`，不得猜测或按行优先假设。
+- `electrode_layout` 对象：`{count: 12, rows: 6, columns: 6, row_bias: "PULLDOWN_10K_TO_GND", column_bias: "PULLUP_1K_TO_3V3", mapping_status: "PENDING_REAL_WIRING", gpio_excitation: false, validated: false, channels: [...]}`（字段名与取值已由硬件组固件实现固定：偏置字符串使用 `PULLDOWN_10K_TO_GND` / `PULLUP_1K_TO_3V3`；映射完整后 `mapping_status` 改为 `TABLE_PROVIDED`；`gpio_excitation` 恒为 false，明确不存在 GPIO 列驱动）。
+- 电极通道**不得**带 `matrix_row`/`matrix_col`（与 FSR 一样为 `null`）；也不得命名为 `RrCc` 交点。
+- `SAMPLE.channels` 与 `valid_mask` 长度为 12（或未来 14 通道变体时 14），顺序与 HELLO 一致；坏点 `null` 且 `valid=false`，**不得用 0 代替无效值**。
 
 ## 3. 建议编码与 UI 消费规则
 
-- `HELLO.channel_config.channels` 中每个逻辑值有唯一 `channel_id`、`sensor_kind`（`MATRIX_CELL` / `FSR`）、`ads1220_id`、`adc_input`、有效标志；矩阵通道额外有零起始 `matrix_row`、`matrix_col`；FSR 的这两个字段均为 `null`。
-- `FSR_ONLY`：推荐通道 `0=FSR_A`、`1=FSR_B`，`matrix_rows/cols=null`。
-- `HYBRID_6X6_FSR2`：推荐 `0..35` 按 R1C1 到 R6C6 行优先排序，`36=FSR_A`、`37=FSR_B`，`matrix_rows=6`、`matrix_cols=6`。这些编号是**提案**，最终以 HELLO 报告的实际映射为准。
+- `HELLO.channel_config.channels` 中每个逻辑值有唯一 `channel_id`、`sensor_kind`（`ELECTRODE` / `FSR`；`MATRIX_CELL` 仅属已撤回的 HYBRID）、`ads1220_id`、`adc_input`、有效标志；电极与 FSR 通道的 `matrix_row`、`matrix_col` 均为 `null`。
+- `FSR_ONLY`：推荐通道 `0=FSR_A`、`1=FSR_B`，`matrix_rows/cols=null`，`sensor_kind=FSR`。
+- `MATRIX_ELECTRODES_12`：见 §2.1；12 通道固定为 R1..R6 再接 C1..C6，`sensor_kind=ELECTRODE`，`matrix_rows/cols=null`，`electrode_layout.mapping_status="PENDING_REAL_WIRING"`，`validated=false`。这些编号是协议顺序，最终以 HELLO 报告的实际配置为准。
+- `HYBRID_6X6_FSR2`：**HISTORICAL / 已撤回**，仅保留字段形状供历史回放识别；不得在真实布料上产生帧，也不得把其 36 个逻辑值展示为 36 个实测压力点。
 - `SAMPLE.channels` 与 `valid_mask` 的长度必须与配置中通道数一致，坏点输出 `null` 且 `valid=false`；帧里不能把无效值替换成 0。
-- FSR 与矩阵扫描先后不同；保留 `mcu_time_us` 和可选每组/每点采样时间，不能默认为 38 项严格同一时刻采集。
-- 现有软件 `ChannelConfiguration.expected_channel_count` 是 `len(channels)`；38 项逻辑通道模型可表达。但现有热力图从 `channel_id` 推导行列，暂只适合 0..35 为矩阵的布局；**未来重排通道或采用非连续 ID 时须改热图使用 `matrix_row/col` 元数据**。
+- 电极与 FSR 是不同时刻/不同通道的读取；保留 `mcu_time_us` 和可选每组采样时间，不能默认为所有通道严格同一时刻采集。
+- 现有软件 `ChannelConfiguration.expected_channel_count` 是 `len(channels)`；12 或 14 项逻辑通道模型可表达。热力图从 `channel_id` 推导行列的旧逻辑**不适用于电极**（无行列交点），电极应渲染为电压列表/条；**未来若采用 14 通道合并，须走新布局而不是复用 36 点热图**。
 - 现有 AUTO 要求 `contact_score` 且 `AUTO_REAL_ENABLED=False`。软件组应新增基于 FSR 质量/归一化的 `contact_score` 派生逻辑和独立 real-auto 联调门控；**不能因解析成功就直接开启 AUTO**。
 
 ## 4. 示例：结构示意（非设备实测 JSON，不直接向设备发送）
+
+`MATRIX_ELECTRODES_12` 提案帧（12 逻辑通道；`ads1220_id`/`adc_input` 在映射表填全前保持 `null`，不得填示例编号）：
 
 ```yaml
 HELLO:
   protocol_version: 1
   type: HELLO
-  sensor_profile: HYBRID_6X6_FSR2
+  sensor_profile: MATRIX_ELECTRODES_12
   channel_config:
-    matrix_rows: 6
-    matrix_cols: 6
+    matrix_rows: null
+    matrix_cols: null
     adc_count: 4
-    scan_mode: COLUMN_SCAN_6X6_PLUS_FSR2
+    scan_mode: PASSIVE_12_ELECTRODE
+    electrode_layout: {count: 12, rows: 6, columns: 6, row_bias: "PULLDOWN_10K_TO_GND", column_bias: "PULLUP_1K_TO_3V3", mapping_status: "PENDING_REAL_WIRING", gpio_excitation: false, validated: false}
     channels:
-      - {channel_id: 0, sensor_kind: MATRIX_CELL, matrix_row: 0, matrix_col: 0, ads1220_id: 1, adc_input: 0}
-      # 其余矩阵点 1..35 必须按真实行列生成、逐一映射
-      - {channel_id: 36, sensor_kind: FSR, name: FSR_A, matrix_row: null, matrix_col: null, ads1220_id: 4, adc_input: 0}
-      - {channel_id: 37, sensor_kind: FSR, name: FSR_B, matrix_row: null, matrix_col: null, ads1220_id: 4, adc_input: 1}
+      - {channel_id: 0, sensor_kind: ELECTRODE, name: R1, matrix_row: null, matrix_col: null, ads1220_id: null, adc_input: null}
+      # channel_id 1..11 = R2..R6、C1..C6，按同一形状生成；映射来自真实接线记录
 SAMPLE:
   type: SAMPLE
   frame_seq: incrementing
-  channels: 38 values in exact HELLO order
-  valid_mask: 38 booleans
+  channels: 12 values in exact HELLO order
+  valid_mask: 12 booleans
 ```
 
-完整真实样例必须由硬件组从本次固件生成并脱敏保存到 `tests/fixtures/`，不能从这段伪数据宣称已经联通。
+`FSR_ONLY` 帧仍是 `channels: 2 values`、`valid_mask: 2 booleans`，`channel_id 0=FSR_A、1=FSR_B`，`sensor_kind=FSR`；两种 profile 不混帧。完整真实样例必须由硬件组从本次固件生成并脱敏保存到 `tests/fixtures/`，不能从这段伪数据宣称已经联通。
 
 ## 5. 串口与实时控制最小要求
 
@@ -66,14 +79,15 @@ SAMPLE:
 ## 6. 必要的集成测试
 
 1. FSR-only HELLO + 2通道 SAMPLE：解析、展示、录制、CSV、REPLAY。
-2. HYBRID HELLO + 38通道 SAMPLE：热图只绘 36 个矩阵点，FSR_A/B 独立显示。
-3. 错波特率、缺失 `HELLO`、错位/短帧、`null`、ADC4 故障、重启、旧帧与串口掉线。
-4. 真实控制从 `sensor_frame_seq → decision → PWM request_id → S3 ACK` 保留可追溯关系。
+2. `MATRIX_ELECTRODES_12` HELLO + 12 通道 SAMPLE：电极按电压列表展示（不画 36 点热图）、`mapping_status=PENDING_REAL_WIRING` 与 `validated=false` 原样透出、坏点 `null`。
+3. 历史 `HYBRID_6X6_FSR2` 帧：仅用于历史回放识别，软件必须拒绝把它当当前可用 profile（不发起真实采集、不渲染成 36 个实测点）。
+4. 错波特率、缺失 `HELLO`、错位/短帧、`null`、ADC4 故障、重启、旧帧与串口掉线。
+5. 真实控制从 `sensor_frame_seq → decision → PWM request_id → S3 ACK` 保留可追溯关系。
 
 ## 7. 冻结决策（硬件组和软件组只需确认一次）
 
-`sensor_profile`、最终通道顺序、FSR 极性/单位、ADC4 实物接线、真实波特率、最大帧长度、最大采样间隔、设备身份、何时生成 HELLO。**前三颗 MISO 的设计映射已由用户确认：ADC1→34、ADC2→35、ADC3→26；仍需固件迁移后的真实通信测试。**确定后更新唯一正式 `INTERFACE_CONTRACT.md`，停止维护两个相互冲突的规范。
+`sensor_profile`、最终通道顺序、**12 电极 → ADC/AIN 物理映射（当前 PENDING_REAL_WIRING，须由焊接记录填写）**、FSR 极性/单位、ADC4 实物接线、真实波特率、最大帧长度、最大采样间隔、设备身份、何时生成 HELLO。**前三颗 MISO 的设计映射已由用户确认：ADC1→34、ADC2→35、ADC3→26；仍需固件迁移后的真实通信测试。**确定后更新唯一正式 `INTERFACE_CONTRACT.md`，停止维护两个相互冲突的规范。
 
 ## 8. V2 电气设计基准（施工未验证）
 
-本版选定六列 GPIO 逐列激励、六行各自 10kΩ 下拉并由 ADC1–3 AIN0/1 测量。FSR1/FSR2 为 ADC4 AIN0/AIN1，各自 10kΩ 下拉，**两路分压节点不互连**。GPIO32=CS4、GPIO33=MISO4，原矩阵的 GPIO32 行驱动不再使用。物理映射详见 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md)；旧 ADC1–3 的 MISO **按用户确认的新图**：ADC1=GPIO34、ADC2=GPIO35、ADC3=GPIO26；旧硬件分支现存配置与此不同，必须迁移后再做真实 SPI 验证。
+2026-11-15 修正后：压敏布为**纯被动 12 电极**——每个 R 电极独立接一颗 ADS1220 的 AIN 并各有一颗 10 kΩ 下拉到 GND；每个 C 电极独立接一颗 ADS1220 的 AIN 并各有一颗 1 kΩ 上拉到 3.3 V；**无 GPIO 列激励、无 HI_Z、无 36 点扫描**。FSR1/FSR2 为 ADC4 AIN0/AIN1，各自 10 kΩ 下拉，**两路分压节点不互连**。GPIO32=CS4、GPIO33=MISO4；电极 → ADC/AIN 的物理映射 **PENDING_REAL_WIRING**，详见 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md) §4.1。旧 ADC1–3 的 MISO **按用户确认的新图**：ADC1=GPIO34、ADC2=GPIO35、ADC3=GPIO26；旧硬件分支现存配置与此不同，必须迁移后再做真实 SPI 验证。原“六列 GPIO 激励 + 36 点矩阵”电气基准已被 2026-11-15 修正取代（HISTORICAL）。

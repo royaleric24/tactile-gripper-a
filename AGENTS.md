@@ -33,7 +33,7 @@
 1. FSR-only 串口采集 + 真 LIVE Dashboard。
 2. 真实 S3 MANUAL PWM + 日志、断连行为。
 3. FSR 实际闭环规则 + 加水 Trial。
-4. 6×6 真实矩阵辅助热图；更高级功能靠后。
+4. 12 电极被动读取（辅助，12 个单端电压，不是 36 点矩阵；电极→ADC/AIN 映射 PENDING_REAL_WIRING）；更高级功能靠后。
 
 ## 实机已知观察
 
@@ -42,6 +42,15 @@
 ## 固定的 V2 硬件接口（用户确认，2026-11-14）
 
 ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO5 / MISO GPIO26。ADC4 计划 CS GPIO32 / MISO GPIO33；四 ADC 共用 SCLK GPIO18、MOSI GPIO23。**不得沿用旧硬件配置中的 MISO `[35,26,34]` 生成 V2 固件**。新方案的实机 SPI 验证尚未进行。接线唯一基准见 `docs/WIRING_FREEZE_V2.md`。
+
+## 压敏布接线修正（2026-11-15，项目所有者确认）
+
+- 真实压敏布是 **12 根电极**：R1–R6 各接自己的 ADS1220 AIN 并各有一颗 **10 kΩ 下拉到 GND**；C1–C6 各接自己的 ADS1220 AIN 并各有一颗 **1 kΩ 上拉到 3.3 V**。
+- **没有 ESP32 GPIO 列激励、没有 HI_Z、没有 36 点扫描**。原 GPIO4/13/14/25/27/19 “逐列驱动 + 未选中列 HI_Z + 拼 36 点”方案已被 2026-11-15 修正取代（HISTORICAL），不得再用于施工、固件或演示。
+- 12 个电极电压 = **12 个测量值，不是 36 个压力点**；不得绘制 36 点热图、不得命名为 RrCc 交点、不得宣称 6×6 扫描可用。
+- **电极 → ADC/AIN 映射 PENDING_REAL_WIRING**：必须由真实焊接/台架记录填写 `docs/WIRING_FREEZE_V2.md` §4.1 空白表；填表前不得写任何 ADC/AIN 编号或“示例映射”，不得假设行优先。
+- 协议侧以 `FSR_ONLY` 为当前可用 profile；`MATRIX_ELECTRODES_12` 是 PROPOSED（12 逻辑通道，`validated=false`）；`HYBRID_6X6_FSR2` 已撤回为 HISTORICAL。4 ADS1220 共 16 个单端输入，12 电极 + 2 FSR = 14 逻辑通道是未来合并变体，当前不实现。
+- 所有真实串口、烧录、采样、PWM 与 AUTO 工作**暂停**，等待项目所有者明确授权与真实接线记录。
 
 ## 每个开发进展的强制文档同步
 
@@ -60,6 +69,8 @@ ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO
 当 GPT / Codex / DSH 对话变长，开始出现重复信息、前后矛盾、遗漏分支状态或难以继续追踪当前进展时，主动提醒开启新对话。先更新/产出 `docs/HANDOFF_CURRENT.md`，提供可复制的新对话提示词，包括：目标、主要文档入口、已完成与待完成、文件位置、Git 状态、关键硬件映射、最近测试、未解决问题、下一项工作。不要自动假设新对话读取了老对话的上下文。
 
 ## 最近状态
+
+- 2026-11-15：**接线修正（项目所有者确认）**。真实压敏布为 12 电极、全被动单端读取，原 GPIO 列激励 / HI_Z / 36 点扫描方案作废（HISTORICAL）；`HYBRID_6X6_FSR2` 撤回，新增 `MATRIX_ELECTRODES_12` 提案（12 逻辑通道，映射 PENDING_REAL_WIRING，validated=false）。`WIRING_FREEZE_V2.md`、`HARDWARE_DESIGN_V2.md`、`DEMO_PLAN_V2.md`、`PROTOCOL_V2_PROPOSAL.md` 与 `config/hybrid_sensor_v2.template.json` 已同步修正（文档层，无实机动作）。真实串口/烧录/采样/PWM/AUTO 全部暂停，等待明确授权与真实接线记录。详见 [进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md) 与 [交接](docs/HANDOFF_CURRENT.md)。
 
 - 2026-11-14：P0 完整归档与逐文件 SHA-256 核验通过；旧三工作区保持原状，硬件组 7 修改 + 7 未跟踪受到保护。P1 在公开 main `5ee92cd` 的独立工作区 `docs/demo-v2` 增量引入文档。静态检查通过（12 JSON、无新增断链），6 处历史缺失证据链接记为 I-010。ADC1–3 设计已确认，ADC4 待施工，协议仍 PROPOSED，V2 实机未验证。详见 [进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md) 与 [交接](docs/HANDOFF_CURRENT.md)。本轮范围止于 P0/P1，无硬件动作、烧录或 AUTO。
 
