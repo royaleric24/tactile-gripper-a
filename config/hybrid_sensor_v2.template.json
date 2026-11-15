@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "USER_CONFIRMED_PINOUT_V2_WIRING_CORRECTED_2026-11-15_BUILD_NOT_STARTED",
-  "notes": "Documentation-only. 2026-11-15 correction (owner): the pressure-sensitive cloth has 12 electrodes, not a 6x6 scanned matrix. No GPIO column excitation, no HI_Z, no 36-point scan. Each R1-R6 electrode goes to its own ADS1220 AIN with its own 10k pulldown to GND; each C1-C6 electrode goes to its own ADS1220 AIN with its own 1k pullup to 3.3V. Electrode-to-ADC/AIN mapping is PENDING_REAL_WIRING; do not fill or guess any ADC/AIN numbers before the real wiring record. ADC1-3 CS/MISO pairings confirmed by user from new wiring diagram; ADC4 is planned, not built. Update legacy firmware pin map and verify SPI before reporting hardware PASS.",
+  "status": "USER_CONFIRMED_FSR_A_ADC4_AIN0_OFFLINE_VERIFIED",
+  "notes": "Documentation-only. Owner confirmed the working FSR_A on ADC4 AIN0. FSR_B failed and AIN1 isolation is unverified. The twelve passive electrodes use ADC1-ADC3. Their physical map is pending. No GPIO excitation or 36-point scan.",
   "sensor_profiles": [
     "FSR_ONLY",
     "MATRIX_ELECTRODES_12"
@@ -59,12 +59,7 @@
     "validated": false
   },
   "fsr": {
-    "count": 2,
-    "adc_id_proposal": 4,
-    "adc_inputs_proposal": [
-      "AIN0",
-      "AIN1"
-    ],
+    "count": 1,
     "divider_resistor_ohm_proposal": 10000,
     "independent_pulldowns_required": true,
     "excitation_voltage_v_proposal": 3.3,
@@ -72,7 +67,22 @@
     "adc4_miso_gpio_proposal": 33,
     "adc_reference_mode_proposal": "AVDD_AVSS",
     "sensor_model": null,
-    "validated": false
+    "validated": false,
+    "adc_id": 4,
+    "adc_inputs": [
+      "AIN0"
+    ],
+    "current_channel": {
+      "name": "FSR_A",
+      "adc_id": 4,
+      "adc_input": 0,
+      "mux_code": 8
+    },
+    "historical_channel": {
+      "name": "FSR_B",
+      "adc_input": 1,
+      "status": "FAILED_ISOLATION_NOT_VERIFIED"
+    }
   },
   "cup_reference": {
     "initial_pwm_us_observation": 1300,
@@ -121,7 +131,7 @@
       "cs": 32,
       "miso": 33
     },
-    "adc4_status": "PROPOSED_NOT_BUILT",
+    "adc4_status": "FSR_A_AIN0_OWNER_CONFIRMED_NOT_REAL_VERIFIED",
     "legacy_miso_gpio_historical_code": [
       35,
       26,

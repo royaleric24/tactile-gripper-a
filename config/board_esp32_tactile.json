@@ -1,0 +1,13 @@
+{
+  "target": "esp32",
+  "role": "TACTILE_ACQUISITION",
+  "board_marking": "NodeMCU ESP-32S V1.1",
+  "fqbn": "esp32:esp32:nodemcu-32s",
+  "fqbn_options": {},
+  "expected_chip_family": "ESP32",
+  "expected_chip_model": "ESP32-D0WDQ6",
+  "expected_mac": "02:00:00:00:00:01",
+  "expected_usb_vid_pid": "10C4:EA60",
+  "stable_firmware_to_preserve": "gripper-control-bench-0.9b24.0",
+  "note": "Old ESP32 only. Never flash this target to the ESP32-S3. Confirm chip family and MAC before writing."
+}

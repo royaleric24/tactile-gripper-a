@@ -1,8 +1,12 @@
 [project]
 name = "tactile-gripper-a"
 version = "0.0.0"
-requires-python = ">=3.9"
+# NiceGUI 4 requires Python >= 3.11.  The S1/S2-A UI is part of the project now,
+# so the shared Python baseline is raised explicitly instead of silently
+# resolving a different NiceGUI version per machine.
+requires-python = ">=3.11"
 dependencies = [
+    "nicegui==4.0.0",
     "pyserial==3.5",
 ]
 

@@ -1,0 +1,527 @@
+{
+  "label": "narrow",
+  "base": "http://127.0.0.1:8095",
+  "viewports": [
+    {
+      "page": "live",
+      "width": 1024,
+      "height": 768,
+      "metrics": {
+        "innerWidth": 1024,
+        "innerHeight": 768,
+        "bodyScrollWidth": 1024,
+        "mainScrollHeight": 2959,
+        "mainClientHeight": 768,
+        "cards": [
+          {
+            "i": 0,
+            "x": 240,
+            "y": 99,
+            "w": 754,
+            "h": 108,
+            "title": "控制器状态"
+          },
+          {
+            "i": 1,
+            "x": 240,
+            "y": 223,
+            "w": 754,
+            "h": 108,
+            "title": "传感器状态"
+          },
+          {
+            "i": 2,
+            "x": 240,
+            "y": 347,
+            "w": 754,
+            "h": 108,
+            "title": "控制模式"
+          },
+          {
+            "i": 3,
+            "x": 240,
+            "y": 471,
+            "w": 754,
+            "h": 108,
+            "title": "当前实验"
+          },
+          {
+            "i": 4,
+            "x": 240,
+            "y": 595,
+            "w": 754,
+            "h": 525,
+            "title": "触觉分布"
+          },
+          {
+            "i": 5,
+            "x": 240,
+            "y": 1135,
+            "w": 754,
+            "h": 526,
+            "title": "手动 PWM 控制"
+          },
+          {
+            "i": 6,
+            "x": 240,
+            "y": 1677,
+            "w": 754,
+            "h": 572,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 7,
+            "x": 240,
+            "y": 2265,
+            "w": 754,
+            "h": 405,
+            "title": "最近控制事件"
+          },
+          {
+            "i": 8,
+            "x": 240,
+            "y": 2686,
+            "w": 754,
+            "h": 231,
+            "title": "实验记录状态"
+          }
+        ],
+        "cols": [
+          {
+            "cls": "col-3",
+            "x": 240,
+            "y": 99,
+            "w": 754,
+            "h": 108
+          },
+          {
+            "cls": "col-3",
+            "x": 240,
+            "y": 223,
+            "w": 754,
+            "h": 108
+          },
+          {
+            "cls": "col-3",
+            "x": 240,
+            "y": 347,
+            "w": 754,
+            "h": 108
+          },
+          {
+            "cls": "col-3",
+            "x": 240,
+            "y": 471,
+            "w": 754,
+            "h": 108
+          },
+          {
+            "cls": "col-7",
+            "x": 240,
+            "y": 595,
+            "w": 754,
+            "h": 525
+          },
+          {
+            "cls": "col-5",
+            "x": 240,
+            "y": 1135,
+            "w": 754,
+            "h": 526
+          },
+          {
+            "cls": "col-6",
+            "x": 261,
+            "y": 1798,
+            "w": 712,
+            "h": 117
+          },
+          {
+            "cls": "col-6",
+            "x": 261,
+            "y": 1931,
+            "w": 712,
+            "h": 117
+          },
+          {
+            "cls": "col-8",
+            "x": 240,
+            "y": 2265,
+            "w": 754,
+            "h": 405
+          },
+          {
+            "cls": "col-4",
+            "x": 240,
+            "y": 2686,
+            "w": 754,
+            "h": 231
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "MAIN",
+            "cls": "main-area",
+            "x": 210,
+            "y": 0,
+            "w": 814,
+            "h": 768,
+            "clientWidth": 814,
+            "scrollWidth": 814,
+            "clientHeight": 768,
+            "scrollHeight": 2959
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non",
+            "x": 607,
+            "y": 1265,
+            "w": 20,
+            "h": 20,
+            "clientWidth": 20,
+            "scrollWidth": 32,
+            "clientHeight": 20,
+            "scrollHeight": 20
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit ",
+            "x": 607,
+            "y": 1245,
+            "w": 20,
+            "h": 20,
+            "clientWidth": 20,
+            "scrollWidth": 32,
+            "clientHeight": 20,
+            "scrollHeight": 20
+          }
+        ]
+      },
+      "consoleErrors": []
+    },
+    {
+      "page": "experiments",
+      "width": 1024,
+      "height": 768,
+      "metrics": {
+        "innerWidth": 1024,
+        "innerHeight": 768,
+        "bodyScrollWidth": 1024,
+        "mainScrollHeight": 1468,
+        "mainClientHeight": 768,
+        "cards": [
+          {
+            "i": 0,
+            "x": 240,
+            "y": 99,
+            "w": 754,
+            "h": 640,
+            "title": "创建实验"
+          },
+          {
+            "i": 1,
+            "x": 240,
+            "y": 754,
+            "w": 754,
+            "h": 511,
+            "title": "当前实验"
+          },
+          {
+            "i": 2,
+            "x": 240,
+            "y": 1281,
+            "w": 754,
+            "h": 146,
+            "title": "实验历史"
+          }
+        ],
+        "cols": [
+          {
+            "cls": "col-5",
+            "x": 240,
+            "y": 99,
+            "w": 754,
+            "h": 640
+          },
+          {
+            "cls": "col-7",
+            "x": 240,
+            "y": 754,
+            "w": 754,
+            "h": 511
+          },
+          {
+            "cls": "col-12",
+            "x": 240,
+            "y": 1281,
+            "w": 754,
+            "h": 146
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "MAIN",
+            "cls": "main-area",
+            "x": 210,
+            "y": 0,
+            "w": 814,
+            "h": 768,
+            "clientWidth": 814,
+            "scrollWidth": 814,
+            "clientHeight": 768,
+            "scrollHeight": 1468
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "x": 262,
+            "y": 1350,
+            "w": 710,
+            "h": 56,
+            "clientWidth": 710,
+            "scrollWidth": 1012,
+            "clientHeight": 56,
+            "scrollHeight": 56
+          }
+        ]
+      },
+      "consoleErrors": []
+    },
+    {
+      "page": "analysis",
+      "width": 1024,
+      "height": 768,
+      "metrics": {
+        "innerWidth": 1024,
+        "innerHeight": 768,
+        "bodyScrollWidth": 1024,
+        "mainScrollHeight": 3329,
+        "mainClientHeight": 768,
+        "cards": [
+          {
+            "i": 0,
+            "x": 240,
+            "y": 99,
+            "w": 754,
+            "h": 226,
+            "title": "实验筛选"
+          },
+          {
+            "i": 1,
+            "x": 240,
+            "y": 395,
+            "w": 754,
+            "h": 244,
+            "title": "演示抓取 · SIMULATION"
+          },
+          {
+            "i": 2,
+            "x": 240,
+            "y": 655,
+            "w": 754,
+            "h": 428,
+            "title": "触觉帧检查"
+          },
+          {
+            "i": 3,
+            "x": 240,
+            "y": 1099,
+            "w": 754,
+            "h": 346,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 4,
+            "x": 240,
+            "y": 1460,
+            "w": 754,
+            "h": 428,
+            "title": "实验参数"
+          },
+          {
+            "i": 5,
+            "x": 240,
+            "y": 1904,
+            "w": 754,
+            "h": 174,
+            "title": "控制事件"
+          },
+          {
+            "i": 6,
+            "x": 240,
+            "y": 2094,
+            "w": 754,
+            "h": 367,
+            "title": "PWM 变化曲线"
+          },
+          {
+            "i": 7,
+            "x": 240,
+            "y": 2477,
+            "w": 754,
+            "h": 105,
+            "title": "故障与异常"
+          },
+          {
+            "i": 8,
+            "x": 240,
+            "y": 2597,
+            "w": 754,
+            "h": 390,
+            "title": "触觉趋势"
+          },
+          {
+            "i": 9,
+            "x": 240,
+            "y": 3003,
+            "w": 754,
+            "h": 203,
+            "title": "实验事件日志"
+          }
+        ],
+        "cols": [
+          {
+            "cls": "col-12",
+            "x": 240,
+            "y": 395,
+            "w": 754,
+            "h": 244
+          },
+          {
+            "cls": "col-7",
+            "x": 240,
+            "y": 655,
+            "w": 754,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 240,
+            "y": 1099,
+            "w": 754,
+            "h": 346
+          },
+          {
+            "cls": "col-5",
+            "x": 240,
+            "y": 1460,
+            "w": 754,
+            "h": 428
+          },
+          {
+            "cls": "col-7",
+            "x": 240,
+            "y": 1904,
+            "w": 754,
+            "h": 174
+          },
+          {
+            "cls": "col-5",
+            "x": 240,
+            "y": 2094,
+            "w": 754,
+            "h": 367
+          },
+          {
+            "cls": "col-6",
+            "x": 240,
+            "y": 2477,
+            "w": 754,
+            "h": 105
+          },
+          {
+            "cls": "col-6",
+            "x": 240,
+            "y": 2597,
+            "w": 754,
+            "h": 390
+          },
+          {
+            "cls": "col-12",
+            "x": 240,
+            "y": 3003,
+            "w": 754,
+            "h": 203
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "MAIN",
+            "cls": "main-area",
+            "x": 210,
+            "y": 0,
+            "w": 814,
+            "h": 768,
+            "clientWidth": 814,
+            "scrollWidth": 814,
+            "clientHeight": 768,
+            "scrollHeight": 3329
+          },
+          {
+            "tag": "SPAN",
+            "cls": "q-select__selected-value ellipsis",
+            "x": 273,
+            "y": 219,
+            "w": 557,
+            "h": 18,
+            "clientWidth": 557,
+            "scrollWidth": 689,
+            "clientHeight": 18,
+            "scrollHeight": 18
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non",
+            "x": 251,
+            "y": 728,
+            "w": 20,
+            "h": 20,
+            "clientWidth": 20,
+            "scrollWidth": 24,
+            "clientHeight": 20,
+            "scrollHeight": 20
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit ",
+            "x": 251,
+            "y": 708,
+            "w": 20,
+            "h": 20,
+            "clientWidth": 20,
+            "scrollWidth": 24,
+            "clientHeight": 20,
+            "scrollHeight": 20
+          },
+          {
+            "tag": "DIV",
+            "cls": "nicegui-code w-full analysis-code",
+            "x": 261,
+            "y": 1709,
+            "w": 712,
+            "h": 160,
+            "clientWidth": 710,
+            "scrollWidth": 710,
+            "clientHeight": 158,
+            "scrollHeight": 10865
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "x": 262,
+            "y": 1973,
+            "w": 710,
+            "h": 85,
+            "clientWidth": 710,
+            "scrollWidth": 920,
+            "clientHeight": 85,
+            "scrollHeight": 85
+          }
+        ]
+      },
+      "consoleErrors": []
+    }
+  ],
+  "console": [],
+  "pageErrors": []
+}

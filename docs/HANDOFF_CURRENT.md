@@ -1,4 +1,25 @@
-# 新对话 / Agent 接续交接（2026-11-15 接线修正版）
+# 当前交接｜P3-A V2 离线集成（2026-11-15）
+
+集成分支 `integrate/hybrid-demo-v2`；独立目录同级 `tactile-gripper-v2-integration`。
+已核对 GitHub 基线：main `633e570623d90777aa204142c269ebe69eb59ac2`、
+硬件 `08275363736aace39ca893b4fb64660df95a7b8b`、
+软件 `2c5a996aacc86d9e100018ce3c4cb8fa77b16aee`。
+增量以首轮 P3-A 提交 `7e6c425` 为起点，在同一 [PR #5](https://github.com/royaleric24/tactile-gripper-a/pull/5) 待审。
+当前 FSR_A 接 ADC4 AIN0/MUX8，FSR_B 已损坏。现行固件 `fsr1`、`electrodes12_fsr1` 对应 1/13 通道，
+`electrodes12` 仍为 12 通道。旧双 FSR 构建只作离线兼容；「36 格仿真」入口为 `/demo-6x6`。[接线确认](https://github.com/royaleric24/tactile-gripper-a/pull/5#issuecomment-6895547216)
+
+旧工作区、WIP 与原始记录未改动。工作区采用锁定依赖，测试 Python 3.13，CI Python 3.11。
+
+接手先查 [验收报告](P3A_ACCEPTANCE.md)、[中文启动指南](DASHBOARD_QUICKSTART_ZH.md)、
+[现行接口](INTERFACE_CONTRACT.md)、[问题台账](ISSUES.md)。完整本地日志、浏览器审计、仿真 CSV/JSONL
+增量证据保留在集成工作区 `evidence/p3-a-followup/`，首轮证据仍在 `evidence/p3-a/`；公开分支只保留审查后的证据摘要和截图。
+
+**下一步：总负责人审阅集成 PR → main，P3-A 执行人不合并。**
+真实串口、烧录、真实采样、上电、PWM、真实 AUTO 全部未执行且保持暂停。
+P3-B 要求项目所有者单独授权。现场先核对 AIN1 上的损坏器件是否已电气隔离、3.3 V 与 10 kΩ 分压，再核对 R/C→ADC/AIN 接线表。
+`AUTO_REAL_ENABLED=False`；保留原工作区和物理记录。
+
+## P0/P1 文档组交接快照（历史）
 
 ## 项目与唯一入口
 
@@ -39,3 +60,176 @@
 
 - 2026-11-14 补充核验：硬件 14 个 WIP 文件已恢复到隔离目录并逐文件核对 SHA-256，符号链接目标与清单一致。接线文档的 Markdown 行尾空格在暂存检查中被发现，已去除；保留首个提交，使用追加提交修正。
 - 2026-11-15：压敏布接线修正为 12 电极被动读取（无 GPIO 列激励/HI_Z/36 点扫描）。文档层同步：`WIRING_FREEZE_V2.md`（修正横幅、§4.1 空映射表、§5 焊接清单、§4.2 记录废止方案）、`HARDWARE_DESIGN_V2.md`、`DEMO_PLAN_V2.md`、`PROTOCOL_V2_PROPOSAL.md`（新增 `MATRIX_ELECTRODES_12`，`HYBRID_6X6_FSR2` 标 HISTORICAL）、`config/hybrid_sensor_v2.template.json`（改为 12 电极空映射模板、选中 FSR_ONLY）、根 `AGENTS.md`、`PROGRESS.md`、`ISSUES.md`（I-012…I-015）。未执行任何实机动作，未提交。
+
+## 硬件组交接快照
+
+基线 `origin/feat/hardware-acquisition` @ b38e7bb。上一提交：V2 四 ADC + 双 FSR（2026-11-14）。
+本次为增量修正提交，不重写历史。
+
+## 一句话状态
+
+压敏布实为 **12 根独立电极**（R×10 kΩ 下拉 GND、C×1 kΩ 上拉 3.3 V，各自接 ADS1220 AIN），
+原 6×6 列扫描/36 点方案已撤回。固件改为 `FSR_ONLY` + `MATRIX_ELECTRODES_12`（12 或 14 逻辑
+通道），**三个 profile 离线编译 PASS、host 模拟与 fixtures PASS**；真实接线/烧录/采样**未开始**
+（用户明确暂停）。真实 R/C→ADC/AIN 映射仍缺失，固件对未映射通道输出 `null` + `NO_DATA`。
+
+## 目录
+
+| 路径 | 内容 |
+|---|---|
+| `firmware/sensor_fsr2/` | 自包含 sketch：`sensor_fsr2.ino`、`ads1220_multi.*`、`frame_builder_fsr2.*`、`sampler_fsr2.*`、`fsr2.*`、三个生成的 `fsr2_config*.h` |
+| `config/sensor_esp32_fsr2.json` | FSR_ONLY（2 通道，ADC4） |
+| `config/sensor_esp32_electrodes12.json` | 12 电极（ADC1–3，映射 MISSING） |
+| `config/sensor_esp32_electrodes12_fsr2.json` | 12 电极 + 2 FSR（14 通道，映射 MISSING） |
+| `scripts/generate_sensor_fsr2_config.py` | JSON → 头文件；拒绝 HYBRID；未映射 sentinel；映射唯一性校验 |
+| `scripts/build_sensor_fsr2_firmware.py` | `--profile fsr\|electrodes12\|electrodes12_fsr2` |
+| `scripts/run_fsr2_host_tests.py` | 4 个 host 用例（含未映射与合成映射） |
+| `scripts/check_fsr2_frames.py` | 帧往返 + 重建 9 个 fixtures |
+| `tools/fsr2_sim/` | 四器件 SPI/ADS1220 模拟 + `electrode_test_profile.h`（合成映射，仅测试） |
+| `tools/fsr2/protocol_v2.py` | 软件组参考严格解析器（`PROFILE_HISTORICAL`、mapping 校验） |
+| `tests/fixtures/fsr2/` | FSR + 电极（未映射/合成映射）样例，全部来自 host 模拟 |
+| `tests/test_fsr2_config.py`、`tests/test_fsr2_protocol.py` | 49 条离线单测 |
+| `docs/hardware/FSR_ONLY_INTERFACE_V2.md` | 串口接口、电极语义、行长、验收清单、**电极映射核对表** |
+
+`firmware/sensor/`（V1，3 ADC）与 `firmware/sensor_matrix/`（历史扫描原型）保持冻结，未改动。
+
+## 复现（离线，不接线）
+
+```bash
+python3 scripts/run_fsr2_host_tests.py
+python3 scripts/check_fsr2_frames.py
+PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -p "test_fsr2_*.py"
+ARDUINO_CLI="<arduino-cli>" python3 scripts/build_sensor_fsr2_firmware.py --profile fsr \
+  --build-dir "$PWD/evidence/fsr2/build_fsr"
+ARDUINO_CLI="<arduino-cli>" python3 scripts/build_sensor_fsr2_firmware.py --profile electrodes12 \
+  --build-dir "$PWD/evidence/fsr2/build_electrodes12"
+ARDUINO_CLI="<arduino-cli>" python3 scripts/build_sensor_fsr2_firmware.py --profile electrodes12_fsr2 \
+  --build-dir "$PWD/evidence/fsr2/build_electrodes12_fsr2"
+```
+
+## 下一步（等待用户明确通知）
+
+1. 现场按接口文档 §11 断电核对焊接（R×10 kΩ→GND、C×1 kΩ→3.3 V、无 GPIO 列线）。
+2. 填写 §12 电极映射表 → 改配置 `electrodes.map` 与 `mapping_status` → 重新生成头文件。
+3. 授权后烧录 14 通道 profile，先看 HELLO（`mapping_status = TABLE_PROVIDED`）再开流。
+4. 软件组：`tools/tactile_acq/protocol.py` profile 化（I-101）、波特率 921600（I-006）、
+   删除缓存的 hybrid fixtures（I-109）。
+
+## 不要做
+
+- 不要为 HYBRID_6X6_FSR2 生成固件或烧录旧 38 通道镜像（生成器会拒绝，别绕过）。
+- 不要把 12 电极渲染成 6×6 热图或写成 36 个压力点。
+- 不要用合成映射（`SIM_SYNTHETIC_MAPPING`）当真实接线。
+- 不要把 host 模拟写成硬件实测；真实采样前所有固件行为保持 IMPLEMENTED_UNVERIFIED。
+- 未授权时不要打开串口、烧录、上电或驱动机械。
+
+## 软件组记录（P2-S 历史快照）
+
+
+更新：2026-11-15
+分支：`sw/fsr-live-v2`
+基线：公开 `origin/feat/dashboard-zh-v1` `9997853`
+协议：PROPOSED，未冻结、未真实联调
+
+## 已完成
+
+- `models.py` / `protocol.py`：`sensor_profile`、`sensor_kind`、FSR 电压基础、
+  FSR_ONLY 2 通道与 HYBRID 6×6+2 的严格校验；HELLO 兼容顶层/内层 profile。
+- `MATRIX_ELECTRODES_12`：12 个 `MATRIX_ELECTRODE` 通道（R1–R6 = ROW 0..5，
+  C1–C6 = COLUMN 0..5）；禁止 `matrix_row/col`，`matrix_cells` 返回 None；
+  `electrode_axis/electrode_index` 只表达逻辑序号，不表达 ADC/AIN 物理映射。
+- `devices/sensor.py`：该 profile 的仿真只产生 12 路原始 ADC，不合成 contact_score，
+  不推算 36 点；`demo_config_for_profile()` 增加 12 电极配置。
+- `control/contact.py`：显式基线、相对评分、四态 + 无效/未标定滞回（FSR 方案保留）。
+- `control/auto.py`：离线 `evaluate_contact()`；无效/过期/未完成命令不产生夹紧；
+  真实 AUTO 硬关闭。
+- `control/core.py`：基线采集/清除、设备身份、决策记录、AUTO 故障锁存、Trial 扩展、
+  显式 denied commissioning 入口、profile 仿真。
+- `ui/`：FSR 卡片/趋势、只含矩阵的热图、profile 选择（含 12 电极）、基线按钮、
+  身份/波特率说明、查询按钮、真实 AUTO 拒绝入口；12 电极显示 R1–R6/C1–C6 条形图，
+  并明确提示 36 点热图不可用。
+- `ui/theme.py`：指标卡/主卡片等高、FSR 读数两列、表格换行/内部滚动、代码块换行；
+  仅做最小布局修正，未重设计页面。
+- `experiments/store.py`：原始 SAMPLE、身份、评估、PWM 命令/ACK、CSV 追加列；
+  `frames.jsonl` 可直接 REPLAY（自动补 HELLO）；电极配置随 metadata 保存。
+- `tests/test_v2_sensing.py` + `tests/fixtures/v2/`：34 个 P2-S 测试（含 7 个电极测试）；
+  最终验收后全套 290 个离线测试通过（1 项 PTY 测试在本地沙箱跳过）。
+- `config/`：FSR_ONLY / HYBRID / 12 电极仿真配置；`sensor_serial.json` 保持
+  `queries_enabled=false`。
+- `docs/screenshots/p2s-ui-audit/`：1440×900、1280×800、1920×1080 的
+  Live/Experiments/Analysis 修复前后截图、12 电极截图、布局度量与对比说明。
+- `scripts/ui_screenshot_audit.mjs`：可重复的无头 Chrome 截图/度量脚本（仅本地
+  SIMULATION 页面，不碰硬件）。沙箱内需 `CHROME_NO_SANDBOX=1`；脚本在 CDP WebSocket
+  打不开时会报错退出，不会静默产出零截图。
+
+## 运行
+
+```bash
+cd tactile-gripper-v2-sw
+PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -v
+
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
+  --demo-profile FSR_ONLY --data-root /tmp/gripper-fsr-demo --port 8080
+
+# 12 电极离线视图（只有 12 路原始 ADC，没有 36 点热图）
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
+  --demo-profile MATRIX_ELECTRODES_12 --data-root /tmp/gripper-electrode-demo --port 8080
+```
+
+截图验收见 [docs/screenshots/p2s-ui-audit/README.md](screenshots/p2s-ui-audit/README.md)
+（脚本用法与 `CHROME_NO_SANDBOX=1` 说明也在该文件）。
+协议与 UI 细节见 [SOFTWARE_V2_P2S_REPORT.md](SOFTWARE_V2_P2S_REPORT.md) 与
+[SOFTWARE_RUNBOOK.md](SOFTWARE_RUNBOOK.md)。
+
+## 2026-11-15 最终验收（发布前，离线）
+
+验收前 HEAD `884a8c41bc204d4e9c958c3b7c3821f8130103e7`，基线
+`origin/feat/dashboard-zh-v1` `9997853`（祖先关系成立）。本轮只做验收、显示层修复、
+文档与发布，未进入新开发阶段。
+
+- 测试：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` →
+  **290 tests, OK (skipped=1)**。新增 5 项显示层测试（条形图单位/读数、时间标签、
+  接触原因翻译、动态事件说明）。
+- Dashboard：重新实测 3 视口 × 3 页面 × 2 profile（HYBRID、12 电极）+ 1024×768 抽查，
+  18 个页面 console/page error 为 0，无页面级横向滚动；产物在
+  `docs/screenshots/p2s-ui-audit/{after,after-electrodes,narrow-1024}/`。
+- 显示层修复：帧接收时间改本机时钟；接触原因与仿真事件说明中文化；条形图轴名
+  “ADC 计数”+柱顶读数+刻度取整；分析页侧栏/顶栏同步只读快照；热图色条与轴标签分离；
+  FSR 趋势去掉与图例重复的轴名。
+- 未改：协议、单位换算、AUTO 门控、Trial/CSV/REPLAY 格式、硬件组固件。
+- 发布：推送 `origin/sw/fsr-live-v2`（`7a1bf07`），PR
+  [#4](https://github.com/royaleric24/tactile-gripper-a/pull/4) → `feat/dashboard-zh-v1`；
+  GitHub Actions `Offline tests` 两个 run 均 PASS；**未合并**，等待总控审核。
+- 未做：真实串口、真实 FSR/电极读数、PWM、机械动作、真实 AUTO；PTY 交互测试本地跳过。
+
+## 未做/未验证
+
+- 未打开任何真实串口、未烧录、未上电、未发 PWM、未做机械动作。
+- 未验证 921600 链路、真实 HELLO/STATUS 回复、两台设备身份、FSR 电压/极性、
+  矩阵物理方向/串扰、ACK 后实际夹持。
+- 未确认 R1–R6 / C1–C6 到 ADS1220 AIN 的物理映射、扫描顺序、基准与增益；
+  12 个电极测量值不能推出 36 个独立压力点。
+- 未实现真实 AUTO 闭环；`request_real_auto_commissioning()` 当前必拒绝。
+- Dashboard 视觉验收只覆盖仿真数据与本地浏览器；真实设备错误提示、长时间运行和
+  交互路径需现场走查。
+- 未合并 PR #1 的 V2 文档。
+- 未做真实设备视觉走查；本轮验收全部为 SIMULATION 离线数据。
+- PTY 交互测试在本地沙箱被 skip（无 pty 设备），本地未证明该路径。
+
+## 下一步建议
+
+1. 现场只读确认 R/C→ADS1220 AIN 映射、通道/增益/基准与扫描时序；确认前不启用
+   真实电极采样，也不把 12 路值解释为压力图。
+2. 集成组先按报告第 10 节确认协议/硬件接口，不直接开 AUTO。
+3. 现场只读识别双串口，确认 115200/921600 与 HELLO/STATUS，不接 PWM。
+4. 用不会夹到杯子的空载/软对象确认 FSR 极性、基线与饱和。
+5. 单步、限幅、有人值守地验证 PWM 方向与 1300/1270 μs 观察，仍保持 AUTO 关闭。
+6. 协议冻结、标定和急停/失联策略签核后，才评审真实 AUTO 入口。
+
+## 禁止事项
+
+- 不得把本分支的仿真/离线决策当作真实闭环证据。
+- 不得用仿真帧驱动真实 PWM。
+- 不得在未授权时打开串口、烧录、上电或运动。
+- 不得把 ACK 写成到位/夹持力；不得声称协议已冻结。
+- 不得把 12 路 R/C 电极 ADC 当作 36 点压力分布或已标定触觉图。

@@ -2,6 +2,36 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-A V2 集成，2026-11-15）
+
+在独立 `integrate/hybrid-demo-v2` 合入 main `633e570`、硬件 `0827536` 与软件 `2c5a996`。
+P3-A 已按 [Issue #3](https://github.com/royaleric24/tactile-gripper-a/issues/3) 完成离线实现与验证，
+集成 PR 由总负责人评审。PR #5 按总控复核更新当前目标：`FSR_ONLY`（1）与 `MATRIX_ELECTRODES_12`（12/13），唯一 FSR_A 为 ADC4 AIN0，MUX 8。
+旧 2/14 通道供仿真和历史回放；`HYBRID_6X6_FSR2` 只用于标为 HISTORICAL 的旧记录。
+Dashboard 的固件样例经过实际适配/记录链路。独立的「36 格仿真」只使用合成格值，无控制或记录入口。
+看 [验收](docs/P3A_ACCEPTANCE.md)、[交接](docs/HANDOFF_CURRENT.md) 和 [问题](docs/ISSUES.md)。
+真实操作仍暂停；`AUTO_REAL_ENABLED=False`。日志、真实原件和工具缓存只留本地。
+
+## 软件组状态（P2-S 历史，2026-11-15）
+
+`sw/fsr-live-v2` 已完成 FSR_ONLY / HYBRID_6X6_FSR2 离线适配、两路 FSR 相对接触评估、
+矩阵/FSR 分流、双设备身份与 Trial/CSV/REPLAY 扩展。2026-11-15 追加
+`MATRIX_ELECTRODES_12`（R1–R6 / C1–C6 各接 ADS1220 AIN）离线适配：只显示 12 路
+原始 ADC，不合成 36 点压力热图；FSR_ONLY 与既有 Trial/CSV/REPLAY 保持。
+
+2026-11-15 完成**发布前最终验收**：全套 **290 个离线测试通过**（1 项 PTY 交互测试因
+本机沙箱无 pty 跳过，CI 上应运行）。Dashboard 重新实测截图（1440×900 / 1280×800 /
+1920×1080，Live/Experiments/Analysis × HYBRID 与 12 电极），并补 1024×768 抽查，
+见 [docs/screenshots/p2s-ui-audit/](docs/screenshots/p2s-ui-audit/README.md)。本轮修复
+均为显示层：帧接收时间显示本机时钟（原先把主机单调时钟当秒数显示）、接触判断原因
+与仿真事件说明中文化、条形图加 ADC 单位与读数、分析页侧栏/顶栏同步只读快照（原先
+残留“离线/待机”占位）、热图色条与坐标标签分离。无协议、单位换算或控制权限变化。
+
+真实 AUTO 仍硬关闭（`AUTO_REAL_ENABLED=False`），显式 commissioning 入口当前必定
+拒绝。R/C→ADC/AIN 物理映射尚未现场确认；未打开真实串口、未烧录、未发 PWM、未做
+机械动作；协议仍为 PROPOSED。详见 [P2-S 报告](docs/SOFTWARE_V2_P2S_REPORT.md)、
+[进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
 ## 所有权与入口
 
 | 分支 | 维护范围 | 代码入口 |
@@ -47,9 +77,9 @@ ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO
 
 - 真实压敏布是 **12 根电极**：R1–R6 各接自己的 ADS1220 AIN 并各有一颗 **10 kΩ 下拉到 GND**；C1–C6 各接自己的 ADS1220 AIN 并各有一颗 **1 kΩ 上拉到 3.3 V**。
 - **没有 ESP32 GPIO 列激励、没有 HI_Z、没有 36 点扫描**。原 GPIO4/13/14/25/27/19 “逐列驱动 + 未选中列 HI_Z + 拼 36 点”方案已被 2026-11-15 修正取代（HISTORICAL），不得再用于施工、固件或演示。
-- 12 个电极电压 = **12 个测量值，不是 36 个压力点**；不得绘制 36 点热图、不得命名为 RrCc 交点、不得宣称 6×6 扫描可用。
+- 12 个电极电压 = **12 个测量值，不是 36 个压力点**；真实电极图只用 12 路 ADC 条形图。36 格热力图仅在独立 SIMULATION 演示或 HISTORICAL 回放中出现。
 - **电极 → ADC/AIN 映射 PENDING_REAL_WIRING**：必须由真实焊接/台架记录填写 `docs/WIRING_FREEZE_V2.md` §4.1 空白表；填表前不得写任何 ADC/AIN 编号或“示例映射”，不得假设行优先。
-- 协议侧以 `FSR_ONLY` 为当前可用 profile；`MATRIX_ELECTRODES_12` 是 PROPOSED（12 逻辑通道，`validated=false`）；`HYBRID_6X6_FSR2` 已撤回为 HISTORICAL。4 ADS1220 共 16 个单端输入，12 电极 + 2 FSR = 14 逻辑通道是未来合并变体，当前不实现。
+- 协议侧当前支持 `FSR_ONLY`（1 通道）及 `MATRIX_ELECTRODES_12`（12 电极，可选 FSR_A 合计 13 通道）；仅完成离线验证，现场映射保持 `validated=false`。
 - 所有真实串口、烧录、采样、PWM 与 AUTO 工作**暂停**，等待项目所有者明确授权与真实接线记录。
 
 ## 每个开发进展的强制文档同步
@@ -75,3 +105,27 @@ ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO
 - 2026-11-14：P0 完整归档与逐文件 SHA-256 核验通过；旧三工作区保持原状，硬件组 7 修改 + 7 未跟踪受到保护。P1 在公开 main `5ee92cd` 的独立工作区 `docs/demo-v2` 增量引入文档。静态检查通过（12 JSON、无新增断链），6 处历史缺失证据链接记为 I-010。ADC1–3 设计已确认，ADC4 待施工，协议仍 PROPOSED，V2 实机未验证。详见 [进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md) 与 [交接](docs/HANDOFF_CURRENT.md)。本轮范围止于 P0/P1，无硬件动作、烧录或 AUTO。
 
 - 2026-11-14 补充核验：硬件 14 个 WIP 文件已恢复到隔离目录并逐文件核对 SHA-256，符号链接目标与清单一致。接线文档的 Markdown 行尾空格在暂存检查中被发现，已去除；保留首个提交，使用追加提交修正。
+
+## 硬件组离线记录（2026-11-15；历史分支上下文）
+
+
+- 压敏布实为 **12 根独立电极**：R1–R6 各接 ADS1220 一个 AIN 并各用 10 kΩ 下拉 GND；C1–C6 各接
+  一个 AIN 并各用 1 kΩ 上拉 3.3 V。**无 GPIO 列驱动、无 HI_Z、无 36 点扫描**；12 路电压不是
+  36 个压力点。`COLUMN_SCAN_6X6` / `driveColumn()` / `parkColumns()` 与 HYBRID profile 已撤回，
+  生成器拒绝 HYBRID、解析器报 `PROFILE_HISTORICAL`。
+- 新 profile `MATRIX_ELECTRODES_12`（12 通道；+2 FSR = 14 通道）。真实 R/C→ADC/AIN 映射
+  **仍缺失**：配置 `electrodes.map = []`，固件对 12 个通道输出 `null` + `NO_DATA`，不伪造。
+- 证据：三 profile 离线编译 PASS（303819 / 312611 / 312659 B）、host 模拟 4 用例 PASS、
+  fixtures 9 个重建、`test_fsr2_*` 49 用例 OK。**未接线、未烧录、未真实采样**。
+- `docs/demo-v2`（PR #1）已在独立工作区同步修正（12 电极、无列驱动、映射 PENDING、HYBRID 历史）。
+- 硬件操作全部暂停，等用户明确通知与现场映射表；进度/问题/交接见 `docs/PROGRESS.md`、
+  `docs/ISSUES.md`（I-106 起）、`docs/HANDOFF_CURRENT.md`。
+
+## 历史状态（V2 硬件 / FSR_ONLY，2026-11-14）
+
+- 新分支 `hw/fsr-v2`（基线 `origin/feat/hardware-acquisition` @ b38e7bb），独立 worktree `~/Developer/research/tactile-gripper-v2-hw`；旧 `tactile-gripper-a-hw` 的 7 修改 + 7 未跟踪 WIP 已原样保护，未并入本分支。
+- V2 引脚冻结：ADC1 21/34、ADC2 22/35、ADC3 5/26、**ADC4 32/33**，四颗共用 SCLK18/MOSI23；FSR_A/B = ADC4 AIN0/AIN1，各自 10 kΩ 下拉，节点不互连。历史 `miso=[35,26,34]` 只属 V1，V2 生成器拒绝 3 ADC 配置。
+- 固件 `firmware/sensor_fsr2/` 自包含（driver/frame builder/sampler/生成头），不改动冻结的 `firmware/sensor/`。FSR 参考强制 `AVDD_AVSS`（内部 2.048 V 会削顶）。
+- 当前证据等级：两 profile **离线编译 PASS**（FSR_ONLY 303471 B / HYBRID 312695 B）、host 模拟与帧检查 **PASS**；**未接线、未烧录、未真实采样**，因此真实硬件行为一律 `IMPLEMENTED_UNVERIFIED`。
+- 接口以 `docs/hardware/FSR_ONLY_INTERFACE_V2.md` 为准（921600 8N1、null+valid 语义、实测行长度、验收清单）。软件组待办：`tools/tactile_acq/protocol.py` 需 profile 化（现硬编码 12 通道），波特率 115200 → 921600。
+- 进度、问题、交接：`docs/PROGRESS.md`、`docs/ISSUES.md`（新增 I-012 起）、`docs/HANDOFF_CURRENT.md`。`docs/demo-v2`（PR #1）未合入，本分支只引用不复写其文件。

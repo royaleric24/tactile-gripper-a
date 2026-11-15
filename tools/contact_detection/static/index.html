@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>H4 单点接触检测 V1</title>
+<style>
+  :root { --bg:#0f1720; --panel:#172230; --line:#2b3b4e; --text:#e8eef6; --muted:#8fa3b8; --ok:#38d39f; --warn:#f5b942; --bad:#ff6b6b; --accent:#5aa9ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:20px; letter-spacing:.5px; }
+  .sub { color:var(--muted); font-size:12px; }
+  main { padding:18px 24px 40px; max-width:1400px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .span3 { grid-column:span 3; } .span4 { grid-column:span 4; } .span6 { grid-column:span 6; } .span8 { grid-column:span 8; } .span12 { grid-column:span 12; }
+  .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.8px; }
+  .value { font-size:24px; font-weight:700; margin-top:4px; }
+  .state-CONTACT { color:var(--bad); } .state-RELEASE { color:var(--ok); } .state-UNKNOWN { color:var(--warn); } .state-CALIBRATING { color:var(--accent); }
+  .quality-VERIFIED { color:var(--ok); } .quality-UNVERIFIED { color:var(--warn); } .quality-INVALID { color:var(--bad); }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-bottom:1px dashed rgba(255,255,255,.06); }
+  .row:last-child { border-bottom:0; }
+  .muted { color:var(--muted); }
+  canvas { width:100%; height:300px; background:#0c131c; border:1px solid var(--line); border-radius:8px; }
+  button { background:var(--accent); color:#07111c; border:0; border-radius:8px; padding:9px 14px; font-weight:700; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
+  .banner { border-left:4px solid var(--warn); background:rgba(245,185,66,.08); padding:10px 12px; border-radius:8px; color:#ffd98a; }
+  .events { max-height:210px; overflow:auto; font-size:12px; }
+  .event { padding:4px 0; border-bottom:1px dashed rgba(255,255,255,.06); }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#233246; color:var(--muted); font-size:12px; }
+  @media (max-width:900px) { .span3,.span4,.span6,.span8 { grid-column:span 12; } }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>H4 单点接触检测 V1 · ADC2 AIN1 / R4C3</h1>
+  <div class="sub">counts 不是压力；UNVERIFIED 只显示，不触发自动夹紧。DRY-RUN only.</div></div>
+  <div><span class="pill" id="conn">连接：--</span> <span class="pill" id="firmware">固件：--</span></div>
+</header>
+<main>
+  <div class="grid">
+    <div class="card span3"><div class="label">接触状态</div><div class="value" id="state">--</div><div class="sub" id="reason">--</div></div>
+    <div class="card span3"><div class="label">信号可信度</div><div class="value" id="quality">--</div><div class="sub" id="quality-note">--</div></div>
+    <div class="card span3"><div class="label">基线 / 阈值</div><div class="value" id="baseline">--</div><div class="sub" id="threshold">--</div></div>
+    <div class="card span3"><div class="label">最近事件</div><div class="value" id="last-event">--</div><div class="sub" id="last-event-time">--</div></div>
+
+    <div class="card span8">
+      <div class="label">实时原始 counts（EMA）/ 基线 / 接触阈值</div>
+      <canvas id="chart" width="1000" height="300"></canvas>
+      <div class="sub" id="chart-note">等待样本...</div>
+    </div>
+    <div class="card span4">
+      <div class="label">样本质量与连接</div>
+      <div class="row"><span>串口</span><b id="serial">--</b></div>
+      <div class="row"><span>样本数</span><b id="samples">0</b></div>
+      <div class="row"><span>损坏行</span><b id="malformed">0</b></div>
+      <div class="row"><span>轮次</span><b id="round">--</b></div>
+      <div class="row"><span>最近 counts</span><b id="counts">--</b></div>
+      <div class="row"><span>drop</span><b id="drop">--</b></div>
+      <div class="row"><span>control eligible</span><b id="eligible">NO</b></div>
+      <div class="row"><span>Dry-run STOP</span><b id="stops">0</b></div>
+      <button id="cal" class="secondary" style="margin-top:12px" onclick="recalibrate()">重新校准基线</button>
+      <div class="banner" style="margin-top:12px">SPI restored_before_cs=false 时显示 UNVERIFIED；不得触发机械爪自动闭合。</div>
+    </div>
+
+    <div class="card span6"><div class="label">最近事件</div><div class="events" id="events"></div></div>
+    <div class="card span6"><div class="label">Baseline / Threshold</div>
+      <div class="row"><span>基线</span><b id="b-counts">--</b></div>
+      <div class="row"><span>接触阈值</span><b id="c-threshold">--</b></div>
+      <div class="row"><span>释放阈值</span><b id="r-threshold">--</b></div>
+      <div class="row"><span>确认帧</span><b id="confirm">--</b></div>
+      <div class="row"><span>最近接触</span><b id="last-contact">--</b></div>
+      <div class="row"><span>最近释放</span><b id="last-release">--</b></div>
+      <div class="row"><span>数据种类</span><b id="kind">--</b></div>
+      <div class="row"><span>Trial</span><b id="trial" style="font-size:11px">--</b></div>
+    </div>
+  </div>
+</main>
+<script>
+let last = null;
+function fmtTime(ns) { if (!ns) return '--'; const d = new Date(Number(ns)/1000000); return d.toLocaleTimeString(); }
+function fmt(n, d=0) { return (n === null || n === undefined) ? '--' : Number(n).toFixed(d); }
+async function poll() {
+  try {
+    const r = await fetch('/api/state', {cache:'no-store'}); const s = await r.json(); last = s;
+    const d = s.detection || {};
+    document.getElementById('conn').textContent = '连接：' + s.connection;
+    document.getElementById('firmware').textContent = '固件：' + (s.firmware || '--');
+    document.getElementById('state').textContent = d.state || '--';
+    document.getElementById('state').className = 'value state-' + (d.state || 'UNKNOWN');
+    document.getElementById('reason').textContent = d.reason || '';
+    document.getElementById('quality').textContent = d.quality || '--';
+    document.getElementById('quality').className = 'value quality-' + (d.quality || 'UNKNOWN');
+    document.getElementById('quality-note').textContent = d.control_eligible ? '可用于 dry-run STOP 请求' : '不可用于自动闭合';
+    document.getElementById('baseline').textContent = fmt(d.baseline_counts) + ' counts';
+    document.getElementById('threshold').textContent = 'drop ≥ ' + fmt(d.contact_threshold_counts) + ' / ' + fmt(d.contact_threshold_v, 3) + ' V';
+    document.getElementById('serial').textContent = s.connection_detail || s.connection;
+    document.getElementById('samples').textContent = s.sample_count;
+    document.getElementById('malformed').textContent = s.malformed_lines;
+    document.getElementById('round').textContent = s.round || '--';
+    document.getElementById('counts').textContent = fmt(s.latest_sample && s.latest_sample.counts);
+    document.getElementById('drop').textContent = fmt(d.drop_counts) + ' / ' + fmt(d.drop_volts, 3) + ' V';
+    document.getElementById('eligible').textContent = d.control_eligible ? 'YES' : 'NO';
+    document.getElementById('stops').textContent = (s.stop_requests || []).length;
+    document.getElementById('b-counts').textContent = fmt(d.baseline_counts);
+    document.getElementById('c-threshold').textContent = fmt(d.contact_threshold_counts);
+    document.getElementById('r-threshold').textContent = fmt(d.release_threshold_counts);
+    document.getElementById('confirm').textContent = (d.contact_confirm_frames || '--') + ' / ' + (d.release_confirm_frames || '--');
+    document.getElementById('last-contact').textContent = fmtTime(d.last_contact_ns);
+    document.getElementById('last-release').textContent = fmtTime(d.last_release_ns);
+    document.getElementById('kind').textContent = s.data_kind;
+    document.getElementById('trial').textContent = s.trial_id;
+    draw(s);
+    const ev = document.getElementById('events'); ev.innerHTML = '';
+    (s.events || []).slice().reverse().forEach(e => {
+      const div = document.createElement('div'); div.className='event';
+      div.textContent = (e.kind || '?') + ' ' + (e.state || '') + ' ' + (e.reason || '');
+      ev.appendChild(div);
+    });
+    const lastEv = (s.events || []).slice(-1)[0];
+    document.getElementById('last-event').textContent = lastEv ? lastEv.kind : '--';
+    document.getElementById('last-event-time').textContent = lastEv ? (lastEv.utc || '') : '';
+  } catch (err) {
+    document.getElementById('conn').textContent = '连接：ERROR';
+  }
+}
+function draw(s) {
+  const c = document.getElementById('chart'), ctx = c.getContext('2d');
+  const hist = (s.history || []).filter(x => x.counts !== null && x.counts !== undefined);
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle='#0c131c'; ctx.fillRect(0,0,c.width,c.height);
+  if (hist.length < 2) return;
+  const d = s.detection || {};
+  const values = hist.map(x => Number(x.filtered_counts || x.counts));
+  if (d.baseline_counts) values.push(Number(d.baseline_counts));
+  if (d.contact_threshold_counts) values.push(Number(d.baseline_counts) - Number(d.contact_threshold_counts));
+  const min = Math.min(...values), max = Math.max(...values), pad = Math.max(1000,(max-min)*0.15);
+  const lo = min-pad, hi = max+pad, left=58, right=14, top=10, bottom=24;
+  const x = i => left + (i/(hist.length-1))*(c.width-left-right);
+  const y = v => top + (hi-v)/(hi-lo)*(c.height-top-bottom);
+  ctx.strokeStyle='#233246'; ctx.lineWidth=1;
+  for (let i=0;i<5;i++){ const yy=top+i*(c.height-top-bottom)/4; ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(c.width-right,yy); ctx.stroke(); }
+  const line = (arr,color,width) => { ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath(); arr.forEach((v,i)=>{ if(i===0)ctx.moveTo(x(i),y(v)); else ctx.lineTo(x(i),y(v)); }); ctx.stroke(); };
+  line(hist.map((_,i)=>Number(d.baseline_counts || values[0])), '#5aa9ff', 1.2);
+  if (d.contact_threshold_counts) line(hist.map(()=>Number(d.baseline_counts)-Number(d.contact_threshold_counts)), '#ff6b6b', 1.2);
+  line(hist.map(v=>Number(v.filtered_counts || v.counts)), '#38d39f', 1.8);
+  ctx.fillStyle='#8fa3b8'; ctx.font='11px sans-serif';
+  ctx.fillText(String(Math.round(hi)),4,top+8); ctx.fillText(String(Math.round(lo)),4,c.height-bottom);
+  document.getElementById('chart-note').textContent = hist.length + ' samples; green=filtered, blue=baseline, red=contact threshold';
+}
+async function recalibrate() { await fetch('/api/recalibrate', {method:'POST'}); poll(); }
+poll(); setInterval(poll, 250);
+</script>
+</body>
+</html>

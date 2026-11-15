@@ -22,3 +22,8 @@ jobs:
               .venv/bin/python -m unittest discover -s "$suite"
             fi
           done
+      - name: Firmware V2 host simulation and deterministic fixtures
+        run: |
+          .venv/bin/python scripts/run_fsr2_host_tests.py
+          .venv/bin/python scripts/check_fsr2_frames.py
+          git diff --exit-code -- tests/fixtures/fsr2

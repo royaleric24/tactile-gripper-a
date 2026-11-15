@@ -1,0 +1,37 @@
+{
+  "schema_status": "TEMPLATE_NOT_EXECUTABLE",
+  "data_kind": "REAL_PENDING",
+  "trial": {
+    "mode": "FIXED",
+    "cup_model": null,
+    "empty_cup_g": null,
+    "video_path": null
+  },
+  "tactile": {
+    "channel": 0,
+    "channel_label": "ADC1_AIN0",
+    "reference_mode": "AVDD_AVSS",
+    "baseline_samples": 30,
+    "ema_alpha": 0.35,
+    "contact_delta_counts": null,
+    "release_delta_counts": null,
+    "confirmation_frames": 3,
+    "sensor_timeout_ms": 1000,
+    "max_saturation_fraction": 0.05,
+    "saturation_window": 30
+  },
+  "gripper": {
+    "open_pulse_us": null,
+    "fixed_pulse_us": null,
+    "release_pulse_us": null,
+    "step_us": null,
+    "close_direction": null,
+    "min_pulse_us": null,
+    "max_pulse_us": null,
+    "max_steps": null,
+    "hold_s": null,
+    "mode": "FIXED",
+    "step_interval_ms": null
+  },
+  "note": "Fill only from a verified single-point test and a user-verified S3 PWM range. Null means blocked; never guess."
+}
