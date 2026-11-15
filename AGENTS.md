@@ -17,17 +17,19 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 是零点噪声，不是通信故障。**S3 已于 2026-11-16 恢复**：真实端口 `/dev/cu.usbserial-A5069RR4`，
 构建并上传 `gripper-control-s3-0.9b26.0`（460800、无全片擦除、每段 hash verified），
 真实 STATUS 为 **DISARMED**、GPIO4、50 Hz、14-bit、`output_state=DISABLED_UNMEASURED`、
-0 ERROR/0 FAULT/0 timeout；app SHA `d20782…`（历史 `04c77eed…`，同源同配置，见 I-216）。
+0 ERROR/0 FAULT/0 timeout；初始恢复 app SHA `d20782…`（历史 `04c77eed…`，同源同配置，见 I-216），
+**当前运行是 TX 修复版 `bd039a8…`**。
 2026-11-16 两次空杯 MANUAL 控制台均 `response_timeout`：最后命令分别是 HEARTBEAT seq30
 （`e4fddfe2…`）与 BENCH_HOLD_MODE seq4（`4d0c5503…`）；两次都收到约 950 B 的正确 ACK，
 但中间有 12/13 个 NUL，JSON 解析失败后主机 3 s 超时。根因为 `respond()` 的 900 B TX 阈值
 小于实测 942–963 B 应答；已改为 `measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑
-`TX_BACKPRESSURE` ERROR。修复 app `bd039a8…`（317840 B）离线编译 PASS，380 tests OK，
-**未重烧**；真实 S3 复测待重烧授权。两次失败会话均**未发 PWM、无 BENCH_ACTION、无机械运动**；
+`TX_BACKPRESSURE` ERROR。修复 app `bd039a8…`（317840 B）离线编译 PASS，380 tests OK；已 **460800 重烧**并通过真实
+无 PWM 验证（64/64 应答匹配、64 条应答 0 NUL、5 次连续会话 + 20 次背靠背 HEARTBEAT 全 PASS，
+最终 DISARMED/DISABLED_UNMEASURED）。两次失败会话均**未发 PWM、无 BENCH_ACTION、无机械运动**；
 失败 FSR 原始数据已保存（17,392 SAMPLE，非空杯结果）。Dashboard LIVE 握手仍未修好，
 未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，未提交、未合并，
-不再作为空杯前置条件。下一步：重烧授权 → PM15S 动力断开下做无 PWM 的
-GET_STATUS/BEGIN_BENCH/模式/HEARTBEAT/STATUS/DISARM 验证 → 稳定后再重跑 console。
+不再作为空杯前置条件。**下一步：修复版已重烧并验证 PASS；按用户指示暂不自行开始运动，
+等待用户明确恢复后重跑 console。**
 
 ## 最近状态（P3-A V2 集成，2026-11-15）
 

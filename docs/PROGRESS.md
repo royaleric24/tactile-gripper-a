@@ -1,5 +1,24 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜S3 修复固件重烧与无 PWM 验证 PASS｜hw/p3b1-fsr-real
+
+- **重烧**：用户授权仅 `/dev/cu.usbserial-A5069RR4`，PM15S 独立动力电源断开；Arduino CLI 1.5.1 +
+  esptool 5.1.0，**460800**，`EraseFlash=none`，无全片擦除；app `bd039a8…`（317840 B），
+  bootloader/partitions 一致，每段 `Hash of data verified`。
+  日志 `evidence/stage09b26/upload_s3_txfix_20261116T004412.log`。
+- **真实无 PWM 序列**：`GET_STATUS` → `BEGIN_BENCH` → `BENCH_HOLD_MODE` → 3× `HEARTBEAT` →
+  `STATUS` → `DISARM`，全部 PASS；最终 `DISARMED` / `DISABLED_UNMEASURED`。
+- **连续命令复测**：5 次 `BEGIN_BENCH`→`BENCH_HOLD_MODE`→`HEARTBEAT`→`STATUS`→`DISARM` 全部 PASS；
+  20 次背靠背 `HEARTBEAT`（无 sleep）全部 PASS。
+- **统计**：64 COMMAND / 64 RESPONSE / 64 MATCHED；**64 条应答行 0 NUL、0 `corrupt_response`、
+  0 `COMMUNICATION_ERROR`、0 FAULT**。连接时 ESP-ROM 启动 banner 106 条被过滤（其中一条 993 B
+  含 264 NUL，属启动输出，不是控制应答）。
+- **未发送 PWM、未驱动 PM15S、未启用 AUTO**；`BENCH_ACTION=0`、`pwm_commands=[]`。
+- **证据**：`logs/real/bench/s3_txfix_verify_20261116T004448/transport.jsonl`
+  （SHA `acedc696…`）、`evidence/stage09b26/s3_txfix_verify_summary.json`。
+- **状态**：S3 TX 背压缺陷 **RESOLVED / VERIFIED_REAL（无 PWM）**；空杯 MANUAL 尚未重新开始，
+  等待用户明确恢复；Dashboard LIVE 握手仍未验证（I-215），未作为前置条件。
+
 ## 2026-11-16｜P3-B1 S3 控制台 response_timeout 诊断与 TX 背压修复｜hw/p3b1-fsr-real
 
 - **触发**：两次真实空杯 MANUAL 会话在 BEGIN_BENCH/模式选择后 `response_timeout`；均未发送 PWM、

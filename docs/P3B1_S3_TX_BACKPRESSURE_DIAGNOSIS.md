@@ -1,6 +1,6 @@
 # P3-B1｜S3 控制台 response_timeout 诊断与 TX 背压修复（2026-11-16）
 
-状态：**根因已定位、最小修复已离线编译通过；真实 S3 复测尚未执行（等待重烧授权）**。
+状态：**根因已定位；修复已重烧到 S3，并通过真实无 PWM 会话与连续命令复测（VERIFIED_REAL）**。
 两次失败会话均未发送 PWM、未产生 `BENCH_ACTION`、未做机械运动。
 
 ## 1. 两次失败会话的真实时间线（UTC）
@@ -94,13 +94,49 @@ IGNORED reason=corrupt_response length=<n> nul_count=<n>
 
 不再与 boot 文本混为 `boot_or_invalid_json`。解析失败后的重同步/3 s 超时行为不变，没有修改超时参数。
 
-## 5. 离线验证
+## 5. 离线构建与真实无 PWM 验证
 
 - `python3 scripts/build_firmware.py s3`：**PASS**。
 - 修复后 app：`bd039a8ae54bb908c3d8afefcf1eb60326ff7c80d9fd3cca9620faec05cb48ee`（317840 B）。
 - 新增 `tests/test_serial_client.py::test_corrupt_long_response_is_logged_and_can_resync`：构造 12 个 NUL 的长 ACK，验证主机记录 `corrupt_response` 并能在后续有效帧上重同步。
 - 全套离线测试：**380 OK，1 skipped（PTY）**。
-- 未重新烧录 S3；未发送 PWM。
+
+### 5.1 重烧（2026-11-16，用户授权）
+
+- 仅 `/dev/cu.usbserial-A5069RR4`，PM15S 独立动力电源断开（用户确认）。
+- Arduino CLI 1.5.1 + esptool 5.1.0，**460800**，`EraseFlash=none`，无全片擦除。
+- app `bd039a8…`（317840 B），bootloader/partitions 哈希与既有构建一致；每一段
+  `Hash of data verified`。
+- 上传日志：`evidence/stage09b26/upload_s3_txfix_20261116T004412.log`。
+
+### 5.2 真实无 PWM 会话验证
+
+日志：`logs/real/bench/s3_txfix_verify_20261116T004448/transport.jsonl`
+（SHA-256 `acedc6969fc56a90f9463f69a8fdfe23de79b793ccb52c0a61fc3a3a769d9120`）。
+
+| 步骤 | 真实应答 | 结果 |
+|---|---|---|
+| `GET_STATUS`（连接） | STATUS / DISARMED / BOOT | PASS |
+| `BEGIN_BENCH` | ACK / ARMED / GRIPPER_ASSEMBLED_AUTHORIZED | PASS |
+| `BENCH_HOLD_MODE` | ACK / ARMED / BENCH_HOLD_SELECTED | PASS |
+| 3× `HEARTBEAT` | ACK / ARMED / BENCH_HOLD_SELECTED | PASS |
+| `STATUS` | STATUS / ARMED / BENCH_HOLD_SELECTED | PASS |
+| `DISARM` | ACK / DISARMED / DISARM | PASS |
+| **5 次重复会话**（BEGIN_BENCH → BENCH_HOLD_MODE → HEARTBEAT → STATUS → DISARM） | 全部 PASS | PASS |
+| **20 次背靠背 HEARTBEAT**（无 sleep） | 全部 PASS | PASS |
+| 最终 `DISARM` | ACK / DISARMED / DISABLED_UNMEASURED | PASS |
+
+统计：
+
+- **64 COMMAND / 64 RESPONSE / 64 MATCHED**；所有 request_id 均匹配。
+- **64 条应答行：0 个 NUL、0 个 `corrupt_response`、0 个 `COMMUNICATION_ERROR`、0 个 FAULT。**
+- 连接时 ESP-ROM 启动 banner：106 条被 `boot_or_invalid_json` 过滤，其中一条 993 B、0x80 开头、
+  264 个 NUL；它是启动输出，不是控制应答，未影响 64 条匹配应答。
+- `pwm_commands=[]`、`BENCH_ACTION=0`；未发送 PWM、未驱动 PM15S、未启用 AUTO。
+- 最终状态：`DISARMED`、`output_state=DISABLED_UNMEASURED`、`commanded_pulse_us=null`。
+
+证据：`evidence/stage09b26/s3_txfix_verify_20261116T004448.json`、
+`evidence/stage09b26/s3_txfix_verify_summary.json`。
 
 ## 6. 失败实验的 FSR 原始数据
 
@@ -118,10 +154,11 @@ IGNORED reason=corrupt_response length=<n> nul_count=<n>
 
 ## 7. 下一步
 
-1. 需要一次 **重烧授权**：把 `bd039a8…` 烧到 `/dev/cu.usbserial-A5069RR4`，PM15S 独立动力电源断开。
-2. 烧录后只做无 PWM 验证：`GET_STATUS` → `BEGIN_BENCH(GRIPPER_ASSEMBLED)` → `BENCH_HOLD_MODE` → 多条 `HEARTBEAT` → `STATUS` → `DISARM`；确认所有应答 JSON 完整、request_id 匹配、无 NUL、无 `corrupt_response`。
-3. 真实会话稳定后才通知用户重新运行 `pwm_console.py --target s3`。
-4. 不启动 AUTO，不发送 PWM，不合并 PR。
+1. S3 已重烧为修复版 `bd039a8…` 并完成无 PWM 会话验证；**当前运行固件是修复版**。
+2. 空杯 MANUAL 尚未重新开始；按用户指示，**不自行开始运动实验**，等待用户明确恢复。
+3. 用户重新运行 `pwm_console.py --target s3` 后，先按已授权 1300–1500 μs 做无杯方向与空杯抓取；
+   FSR 用独立原始采集，不与 Dashboard 抢串口。
+4. 不启动 AUTO，不发送 PWM（在用户输入前），不合并 PR。
 
 ## 8. 证据与边界
 
@@ -129,7 +166,7 @@ IGNORED reason=corrupt_response length=<n> nul_count=<n>
 |---|---|
 | 两次超时根因 | **VERIFIED_REAL**（原始 RX + NUL 位置 + request_id/state 字段） |
 | 固件修复 | **OFFLINE_VERIFIED**（编译 PASS + 主机定向测试） |
-| 真实 S3 修复复测 | **NOT_TESTED（等待重烧授权）** |
+| 真实 S3 修复复测（无 PWM） | **VERIFIED_REAL（64/64 应答，0 NUL，5 次连续会话 + 20 次背靠背心跳）** |
 | 失败 FSR 原始数据 | **已保存**（无 PWM，非空杯结果） |
 | Dashboard LIVE 握手 | **仍未验证**；未提交的尝试性修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，不作为空杯前置条件 |
-| PWM / 机械运动 / AUTO | **NOT_TESTED**（本轮明确禁止） |
+| PWM / 机械运动 / AUTO | **NOT_TESTED**（本轮明确禁止；空杯实验未重新开始） |

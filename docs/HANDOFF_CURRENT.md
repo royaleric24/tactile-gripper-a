@@ -24,9 +24,12 @@
   最后命令分别为 HEARTBEAT seq 30（request_id `e4fddfe2…`）与 BENCH_HOLD_MODE seq 4
   （request_id `4d0c5503…`）；两次都收到约 950 B 的正确 ACK，但中间有 12/13 个 NUL，
   JSON 解析失败后主机 3 s 超时。根因是 `respond()` 的 900 B TX 阈值小于实测 942–963 B 应答。
-  已修复为 `measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR；
-  修复 app `bd039a8…`（317840 B）**仅离线编译 PASS，尚未烧录**。两份日志与失败 FSR 原始数据
-  已保存（17,392 SAMPLE，无 PWM，非空杯结果）；详见
+  已修复为 `measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR。
+  修复 app `bd039a8…`（317840 B）已 **460800 重烧**，真实无 PWM 验证 **PASS**：
+  64/64 应答匹配、64 条应答 0 NUL、0 `corrupt_response`、0 COMM_ERROR、0 FAULT；
+  5 次连续会话 + 20 次背靠背 HEARTBEAT 全部 PASS；最终 DISARMED / DISABLED_UNMEASURED。
+  日志 `logs/real/bench/s3_txfix_verify_20261116T004448/transport.jsonl`。
+  两份失败日志与失败 FSR 原始数据已保存（17,392 SAMPLE，无 PWM，非空杯结果）；详见
   [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)。
 - **仍存环境限制**：本会话沙箱无 PTY，`pwm_console.py --real` 不能由代理直接运行（I-211）；
   用户需在自己的 Terminal 运行 console，本进程独占 FSR 串口采集。
@@ -42,11 +45,10 @@
 - **数据分工**：用户 terminal 的 `pwm_console.py --target s3` 独占 S3 串口并写
   `logs/real/bench/<id>/transport.jsonl`；本进程用独立采集脚本独占 FSR 串口写
   `evidence/p3b1/private/cup_*`。两个进程不得打开同一设备。
-- **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。S3 修复固件尚未重烧；未触碰旧 ESP32 FSR 固件。
-- **下一步顺序**：申请重烧授权 → 烧 `bd039a8…`（PM15S 独立动力断开）→ 只做无 PWM 的
-  GET_STATUS/BEGIN_BENCH/模式/HEARTBEAT×N/STATUS/DISARM → 真实会话稳定 → 用户在自己的 Terminal
-  重跑 console → 无杯方向 → 空杯抓取 + FSR 同步采集（每 trial 前连续空载基线）→ 保存/分析/文档/
-  commit/push/更新 Draft PR（不合并）。
+- **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。S3 修复固件已重烧并通过无 PWM 验证；未触碰旧 ESP32 FSR 固件。
+- **下一步顺序**：S3 已重烧并通过无 PWM 验证 → **等待用户明确恢复空杯运动** → 用户在自己的
+  Terminal 重跑 console → 无杯方向 → 空杯抓取 + FSR 同步采集（每 trial 前连续空载基线）→
+  保存/分析/文档/commit/push/更新 Draft PR（不合并）。暂不自行开始运动。
 
 # 当前交接｜P3-A V2 离线集成（2026-11-15）
 
