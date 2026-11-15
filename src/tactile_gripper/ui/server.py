@@ -51,12 +51,12 @@ def create_ui(core) -> None:
         analysis_page(core)
 
 
-def _demo_setup(core) -> None:
+def _demo_setup(core, profile: str = "MATRIX_6X6") -> None:
     if core.source is not DataSource.SIMULATION:
         raise SystemExit("--demo 只适用于 --source SIMULATION")
     core.connect_gripper()
     core.begin_manual_session()
-    core.set_demo_stream(True)
+    core.set_demo_stream(True, profile=profile)
     core.create_trial(
         "演示抓取 · SIMULATION",
         conditions={
@@ -96,6 +96,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sensor-config", type=Path, default=PROJECT_ROOT / "config" / "sensor_serial.json")
     parser.add_argument("--connect-sensor", action="store_true", help="启动时打开传感器串口")
     parser.add_argument("--demo", action="store_true", help="仅 SIMULATION 的 Dashboard 演示数据")
+    parser.add_argument(
+        "--demo-profile",
+        choices=["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2", "MATRIX_ELECTRODES_12"],
+        default="MATRIX_6X6",
+        help="仿真配置档（默认 MATRIX_6X6；仅 --demo 使用）",
+    )
     args = parser.parse_args(argv)
 
     source = parse_source(args.source)
@@ -127,7 +133,7 @@ def main(argv: list[str] | None = None) -> None:
         connect_sensor=args.connect_sensor,
     )
     if args.demo:
-        _demo_setup(core)
+        _demo_setup(core, args.demo_profile)
     stop = start_ticker(core)
 
     def shutdown() -> None:

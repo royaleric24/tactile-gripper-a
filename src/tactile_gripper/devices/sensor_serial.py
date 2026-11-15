@@ -32,6 +32,7 @@ class SerialSensorConfig:
     reconnect_enabled: bool = True
     reconnect_initial_s: float = 0.5
     reconnect_max_s: float = 10.0
+    queries_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.port is not None and not isinstance(self.port, str):
@@ -50,6 +51,8 @@ class SerialSensorConfig:
                 raise ValueError(f"{name} must be finite and >= 0")
         if type(self.max_line_bytes) is not int or self.max_line_bytes <= 0:
             raise ValueError("max_line_bytes must be positive")
+        if type(self.queries_enabled) is not bool:
+            raise ValueError("queries_enabled must be boolean")
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "SerialSensorConfig":
@@ -80,6 +83,7 @@ class SerialSensorConfig:
             reconnect_enabled=self.reconnect_enabled,
             reconnect_initial_s=self.reconnect_initial_s,
             reconnect_max_s=self.reconnect_max_s,
+            queries_enabled=self.queries_enabled,
         )
 
 
@@ -105,6 +109,11 @@ class SerialSensorTransport:
         self.connected = False
         self.oversize_lines = 0
         self.opened_count = 0
+        self.last_query = None
+
+    @property
+    def baudrate(self) -> int:
+        return self.config.baudrate
 
     def connect(self) -> None:
         if self.connected:
@@ -139,6 +148,19 @@ class SerialSensorTransport:
         self.port = port
         self.connected = True
         self.opened_count += 1
+
+    def write_line(self, payload: bytes) -> None:
+        """Explicit, opt-in host query.  Never opens or arms the gripper."""
+        if not self.config.queries_enabled:
+            raise SensorOffline("sensor queries are disabled by configuration")
+        if not self.connected or self.port is None:
+            raise SensorOffline("sensor serial port is not connected")
+        try:
+            self.port.write(payload)
+            self.port.flush()
+            self.last_query = payload
+        except Exception as exc:
+            raise SensorOffline(f"sensor serial write failed: {exc}") from exc
 
     def close(self) -> None:
         if self.port is not None:

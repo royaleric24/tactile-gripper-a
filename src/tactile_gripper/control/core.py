@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from ..devices.sensor import (
     ReplaySensorAdapter,
     SimulatedSensorAdapter,
     default_demo_config,
+    demo_config_for_profile,
 )
 from ..devices.sensor_serial import SerialSensorConfig, serial_sensor_adapter
 from ..errors import (
@@ -36,6 +38,14 @@ from ..models import (
 )
 from ..paths import PROJECT_ROOT, environment_snapshot
 from ..sources import DataSource, parse_source
+from .auto import (
+    AUTO_REAL_ENABLED,
+    AutoDecision,
+    AutoGate,
+    AutoLimits,
+    RuleBasedAutoPolicy,
+)
+from .contact import ContactAssessment, FsrContactAssessor, FsrThresholds
 
 
 class Mode(str, Enum):
@@ -78,6 +88,9 @@ class ApplicationCore:
         clock=time.monotonic,
         clock_ns=time.monotonic_ns,
         demo_period_s: float = 0.2,
+        demo_profile: str = "MATRIX_6X6",
+        fsr_thresholds: FsrThresholds | None = None,
+        commission_real_auto: bool = False,
     ):
         self.root = Path(root)
         self.config_root = Path(config_root)
@@ -94,6 +107,18 @@ class ApplicationCore:
         self.clock = clock
         self.clock_ns = clock_ns
         self.demo_period_s = demo_period_s
+        self.demo_profile = demo_profile
+        self.contact_assessor = FsrContactAssessor(fsr_thresholds or FsrThresholds())
+        self.last_assessment: ContactAssessment | None = None
+        self.fsr_history: deque[dict[str, Any]] = deque(maxlen=180)
+        self.last_auto_decision: AutoDecision | None = None
+        self.last_pwm_command: dict[str, Any] | None = None
+        self.pending_command: dict[str, Any] | None = None
+        self.real_auto_commissioning_requested = bool(commission_real_auto)
+        self.auto_policy = RuleBasedAutoPolicy(
+            AutoLimits(),
+            AutoGate(source=self.source, allow_simulation=self.source is DataSource.SIMULATION),
+        )
         self.mode = Mode.STANDBY
         self.fault_reason: str | None = None
         self.events: deque[dict[str, Any]] = deque(maxlen=250)
@@ -281,11 +306,11 @@ class ApplicationCore:
     def auto_available(self) -> tuple[bool, list[str]]:
         from .auto import AUTO_REAL_ENABLED
 
-        reasons = ["V1.0 真实 AUTO 强制禁用（AUTO_REAL_ENABLED=False）"]
+        reasons = ["V2 真实 AUTO 仍硬关闭（AUTO_REAL_ENABLED=False）"]
         if not AUTO_REAL_ENABLED:
             reasons.append("等待传感器协议、PWM 方向/范围、触觉标定与实测验证")
         else:
-            reasons = ["AUTO 闭环算法未实现"]
+            reasons = ["真实 AUTO 需要显式现场调试入口和标定"]
         if self.source is not DataSource.LIVE:
             reasons.append("数据来源不是 LIVE")
         if self.sensor is None or getattr(self.sensor, "state", "OFFLINE") != "STREAMING":
@@ -296,6 +321,173 @@ class ApplicationCore:
         if calibration != "CONFIRMED":
             reasons.append(f"标定状态为 {calibration or 'UNKNOWN'}")
         return False, reasons
+
+    # -- FSR contact / explicit AUTO commissioning gate --------------------
+
+    def sensor_configuration(self):
+        return self.sensor.channel_config if self.sensor is not None else None
+
+    def sensor_identity(self) -> dict[str, Any] | None:
+        if self.sensor is None:
+            return None
+        if hasattr(self.sensor, "identity"):
+            return self.sensor.identity()
+        return {"role": "SENSOR", "device_id": getattr(self.sensor, "device_id", None)}
+
+    def gripper_identity(self) -> dict[str, Any] | None:
+        if self.gripper is None:
+            return None
+        detail = getattr(self.gripper, "status", lambda: None)()
+        detail = detail.to_dict() if detail is not None and hasattr(detail, "to_dict") else {}
+        serial_cfg = (self.gripper.config or {}).get("serial", {}) if isinstance(self.gripper.config, dict) else {}
+        return {
+            "role": "GRIPPER",
+            "device_id": detail.get("device_id"),
+            "boot_id": detail.get("boot_id"),
+            "firmware_version": detail.get("firmware_version"),
+            "port": serial_cfg.get("port"),
+            "baudrate": serial_cfg.get("baudrate"),
+            "source": self.gripper.source.value,
+        }
+
+    def device_identities(self) -> dict[str, Any]:
+        return {"sensor": self.sensor_identity(), "gripper": self.gripper_identity()}
+
+    def capture_fsr_baseline(self) -> ContactAssessment:
+        """Explicit operator action: record unloaded FSR counts.
+
+        No baseline is fabricated for a real device.  Simulation may capture
+        automatically from its first valid frame, but that is labelled
+        SIMULATION_AUTO and can only drive the in-memory demo policy.
+        """
+        with self._lock:
+            config = self.sensor_configuration()
+            frame = self.latest_frame
+            if config is None or frame is None:
+                raise ControlDenied("no FSR frame available for baseline")
+            if not config.fsr_channels:
+                raise ControlDenied("sensor profile has no FSR channels")
+            # A recorded REPLAY is not judged against wall-clock now; its own
+            # host_received_ns is the only timebase it has.
+            reference_ns = (
+                int(frame.host_received_ns)
+                if self.source is DataSource.REPLAY
+                else self.clock_ns()
+            )
+            age_ms = max(0, reference_ns - int(frame.host_received_ns)) / 1_000_000
+            if age_ms > 500:
+                raise ControlDenied(f"latest FSR frame is stale ({age_ms:.0f} ms); capture a fresh unloaded frame")
+            try:
+                assessment = self.contact_assessor.capture_baseline(frame, config)
+            except ValueError as exc:
+                raise ControlDenied(f"baseline rejected: {exc}") from exc
+            self.last_assessment = assessment
+            self._system(
+                "FSR_BASELINE_CAPTURED",
+                f"FSR baseline captured from frame {frame.frame_seq}; relative score only, not force",
+            )
+            return assessment
+
+    def clear_fsr_baseline(self) -> None:
+        with self._lock:
+            self.contact_assessor.clear_baseline()
+            self.last_assessment = None
+            self._system("FSR_BASELINE_CLEARED", "FSR baseline cleared; AUTO contact assessment is uncalibrated")
+
+    def request_real_auto_commissioning(self) -> None:
+        """Explicit future entry point.  It is intentionally denied today."""
+        with self._lock:
+            self.real_auto_commissioning_requested = True
+            detail = "AUTO_REAL_ENABLED=False; real AUTO commissioning requires protocol+hardware+calibration sign-off"
+            self._system("AUTO_COMMISSIONING_DENIED", detail)
+            raise ControlDenied(detail)
+
+    def evaluate_auto_contact(
+        self,
+        *,
+        pending_command: bool = False,
+        sensor_state: str | None = None,
+    ) -> AutoDecision:
+        """Offline-facing decision record; never sends PWM.
+
+        It exists so tests can prove invalid/stale/partial data cannot issue a
+        tightening step.  The real gate remains closed.
+        """
+        with self._lock:
+            frame = self.latest_frame
+            assessment = self.last_assessment
+            decision = self.auto_policy.evaluate_contact(
+                frame,
+                assessment,
+                now_ns=self.clock_ns(),
+                target_us=int(getattr(self.gripper, "last_pwm_us", 0) or 0),
+                steps=0,
+                total_change_us=0,
+                sensor_state=sensor_state or (getattr(self.sensor, "state", "OFFLINE") if self.sensor else "OFFLINE"),
+                pending_command=pending_command,
+                min_pwm_us=(self.gripper.pwm_limits or {}).get("min_us") if self.gripper else None,
+                max_pwm_us=(self.gripper.pwm_limits or {}).get("max_us") if self.gripper else None,
+            )
+            self.last_auto_decision = decision
+            self._append(
+                ControlEvent(
+                    action="AUTO_DECISION",
+                    stage="OFFLINE_NO_COMMAND",
+                    source=self.source,
+                    mode=self.mode.value,
+                    detail=str(decision.to_dict()),
+                )
+            )
+            return decision
+
+    def _assess_latest_frame(self, frame: TactileFrame) -> TactileFrame:
+        config = self.sensor_configuration()
+        if config is None or not config.fsr_channels:
+            return frame
+        # Simulation only: capture the first valid unloaded frame so the
+        # offline demo can show relative contact.  Real data requires the
+        # operator to press "capture baseline".
+        if (
+            self.source is DataSource.SIMULATION
+            and not self.contact_assessor.baseline_ready
+            and frame.frame_valid
+        ):
+            try:
+                self.contact_assessor.capture_baseline(frame, config, source="SIMULATION_AUTO")
+            except ValueError:
+                pass
+        # During REPLAY, freshness is relative to the recorded frame itself;
+        # otherwise every archived frame would look stale and the FSR state
+        # could not be reviewed.  LIVE still uses the host clock.
+        assessment_now_ns = (
+            int(frame.host_received_ns)
+            if self.source is DataSource.REPLAY
+            else self.clock_ns()
+        )
+        assessment = self.contact_assessor.assess(
+            frame,
+            config,
+            now_ns=assessment_now_ns,
+            stale_after_ms=200.0,
+        )
+        self.last_assessment = assessment
+        self.fsr_history.append(
+            {
+                "frame_seq": frame.frame_seq,
+                "host_received_ns": frame.host_received_ns,
+                "host_received_utc": frame.host_received_utc,
+                "state": assessment.state,
+                "score": assessment.score,
+                "readings": [reading.to_dict() for reading in assessment.readings],
+            }
+        )
+        if self.mode is Mode.AUTO and assessment.state in ("INVALID", "UNCALIBRATED", "NOT_APPLICABLE"):
+            self.mode = Mode.FAULT
+            self.fault_reason = f"AUTO contact assessment {assessment.state}: {assessment.reason}"
+            self._system("AUTO_SAFETY_FAULT", self.fault_reason)
+        if assessment.score is not None:
+            frame = replace(frame, contact_score=assessment.score)
+        return frame
 
     def set_mode(self, mode: Mode | str) -> Mode:
         with self._lock:
@@ -373,11 +565,21 @@ class ApplicationCore:
                     command=command,
                 )
             self._busy = True
+            self.pending_command = command.to_dict()
+            self.last_pwm_command = self.pending_command
             try:
                 event = self.gripper.execute(command, mode=self.mode.value)
             finally:
                 self._busy = False
+                self.pending_command = None
             self._append(event)
+            if self.last_pwm_command is not None:
+                self.last_pwm_command = {
+                    **self.last_pwm_command,
+                    "acknowledged": event.device_ack,
+                    "stage": event.stage,
+                    "command_id": event.command_id,
+                }
             if event.stage == "FAILED":
                 self.mode = Mode.FAULT
                 self.fault_reason = event.detail
@@ -473,26 +675,73 @@ class ApplicationCore:
             self._system("SENSOR_CONNECT", "sensor transport connected; no control write")
             return status.to_dict()
 
-    def set_demo_stream(self, enabled: bool) -> DeviceStatus | None:
+    def query_sensor_status(self) -> bool:
+        return self._query_sensor("STATUS")
+
+    def query_sensor_hello(self) -> bool:
+        return self._query_sensor("HELLO")
+
+    def _query_sensor(self, query: str) -> bool:
+        with self._lock:
+            if self.sensor is None:
+                raise ControlDenied("no sensor adapter")
+            method = getattr(self.sensor, f"query_{query.lower()}", None)
+            if method is None:
+                raise ControlDenied(f"sensor adapter does not support {query} query")
+            ok = bool(method())
+            self._system(
+                "SENSOR_QUERY",
+                f"{query} query sent" if ok else f"{query} query failed: {self.sensor.last_error}",
+            )
+            return ok
+
+    def select_demo_profile(self, profile: str) -> None:
+        with self._lock:
+            if self.source is not DataSource.SIMULATION:
+                raise ControlDenied("demo profile only applies to SIMULATION")
+            self.demo_profile = profile.upper()
+            self.contact_assessor.clear_baseline()
+            self.last_assessment = None
+            self.fsr_history.clear()
+            self._system("DEMO_PROFILE", f"demo profile set to {self.demo_profile}")
+
+    def set_demo_stream(self, enabled: bool, *, profile: str | None = None) -> DeviceStatus | None:
         with self._lock:
             if self.source is not DataSource.SIMULATION:
                 self._deny("DEMO_STREAM", "simulation demo only available for SIMULATION source")
                 raise ControlDenied("simulation demo only available for SIMULATION source")
+            selected = (profile or self.demo_profile).upper()
             if enabled:
-                if self.sensor is not None and getattr(self.sensor, "connected", False):
+                if (
+                    self.sensor is not None
+                    and getattr(self.sensor, "connected", False)
+                    and self.demo_profile == selected
+                ):
                     return self.sensor.status()
+                if self.sensor is not None:
+                    self.sensor.close()
+                self.demo_profile = selected
+                self.contact_assessor.clear_baseline()
+                self.last_assessment = None
+                self.fsr_history.clear()
                 self.sensor = SimulatedSensorAdapter(
-                    default_demo_config(self.config_root),
+                    demo_config_for_profile(selected, self.config_root),
                     period_s=self.demo_period_s,
                     clock_ns=self.clock_ns,
                 )
                 self.sensor.connect()
-                self._system("DEMO_STREAM", "SIMULATION sensor connected; not real hardware")
+                self._system(
+                    "DEMO_STREAM",
+                    f"SIMULATION sensor connected ({selected}); not real hardware",
+                )
                 return self.sensor.status()
             if self.sensor is not None:
                 self.sensor.close()
                 self.sensor = None
                 self.latest_frame = None
+                self.last_assessment = None
+                self.fsr_history.clear()
+                self.contact_assessor.clear_baseline()
                 self._system("DEMO_STREAM", "SIMULATION sensor disconnected")
             return None
 
@@ -522,6 +771,7 @@ class ApplicationCore:
                 frame = self.sensor.read_frame(0.0)
             except FrameValidationError as exc:
                 self.last_sensor_error = f"{exc.code}: {exc}"
+                self._latch_auto_sensor_fault(self.last_sensor_error)
                 self._append(
                     ControlEvent(
                         action="SENSOR",
@@ -534,6 +784,7 @@ class ApplicationCore:
                 break
             except SensorOffline as exc:
                 self.last_sensor_error = str(exc)
+                self._latch_auto_sensor_fault(self.last_sensor_error)
                 self._append(
                     ControlEvent(
                         action="SENSOR",
@@ -546,6 +797,7 @@ class ApplicationCore:
                 break
             except ProtocolError as exc:
                 self.last_sensor_error = str(exc)
+                self._latch_auto_sensor_fault(self.last_sensor_error)
                 self._append(
                     ControlEvent(
                         action="SENSOR",
@@ -558,13 +810,25 @@ class ApplicationCore:
                 break
             if frame is None:
                 break
+            frame = self._assess_latest_frame(frame)
             self.latest_frame = frame
             self.frames_received += 1
             self.last_sensor_error = None
             self._record_frame_anomalies()
             if self.trial is not None and self.trial.recording:
                 try:
-                    self.trial.record_frame(frame)
+                    config = self.sensor_configuration()
+                    self.trial.record_frame(
+                        frame,
+                        sensor_identity=self.sensor_identity(),
+                        assessment=(
+                            self.last_assessment.to_dict()
+                            if self.last_assessment is not None
+                            else None
+                        ),
+                        sensor_profile=config.sensor_profile if config is not None else None,
+                        control_context=self.last_pwm_command,
+                    )
                 except ValueError as exc:
                     self._append(
                         ControlEvent(
@@ -577,6 +841,14 @@ class ApplicationCore:
                     )
                 except TrialWriteError as exc:
                     self._note_trial_write_error(exc)
+
+    def _latch_auto_sensor_fault(self, reason: str) -> None:
+        """Invalid/offline sensor data must stop AUTO decisions, never tighten."""
+        if self.mode is not Mode.AUTO:
+            return
+        self.mode = Mode.FAULT
+        self.fault_reason = f"sensor data unavailable in AUTO: {reason}"
+        self._system("AUTO_SENSOR_FAULT", self.fault_reason)
 
     def _record_frame_anomalies(self) -> None:
         if self.sensor is None or not hasattr(self.sensor, "last_anomalies"):
@@ -595,6 +867,10 @@ class ApplicationCore:
                     detail=anomaly.detail,
                 )
             )
+            if getattr(anomaly, "kind", None) == "DEVICE_RESTART":
+                self.contact_assessor.clear_baseline()
+                self.last_assessment = None
+                self.fsr_history.clear()
 
     # -- trials ------------------------------------------------------------
 
@@ -615,6 +891,9 @@ class ApplicationCore:
                 raise ControlDenied("a trial is already recording")
             environment = environment_snapshot()
             environment["software_version"] = SOFTWARE_VERSION
+            # A new Trial must not inherit a PWM command from an earlier
+            # session/run; keep the per-frame trace unambiguous.
+            self.last_pwm_command = None
             parameters = {
                 "software_version": SOFTWARE_VERSION,
                 "source": self.source.value,
@@ -635,11 +914,21 @@ class ApplicationCore:
                         "channel_count": self.sensor.channel_config.expected_channel_count,
                         "matrix": [self.sensor.channel_config.matrix_rows, self.sensor.channel_config.matrix_cols],
                         "config_status": self.sensor.channel_config.status,
+                        "sensor_profile": self.sensor.channel_config.sensor_profile,
+                        "fsr_channel_ids": [c.channel_id for c in self.sensor.channel_config.fsr_channels],
                     }
                     if self.sensor is not None and self.sensor.channel_config is not None
                     else None
                 ),
                 "auto_available": self.auto_available()[0],
+                "auto_real_enabled": AUTO_REAL_ENABLED,
+                "device_identities": self.device_identities(),
+                "fsr_baseline": {
+                    "ready": self.contact_assessor.baseline_ready,
+                    "values": self.contact_assessor.baseline,
+                    "thresholds": self.contact_assessor.thresholds.to_dict(),
+                },
+                "fsr_thresholds": self.contact_assessor.thresholds.to_dict(),
             }
             self.trial = self.trial_store.create_trial(
                 name,
@@ -827,6 +1116,22 @@ class ApplicationCore:
                 "sensor": sensor_status,
                 "sensor_state_label": SENSOR_LABELS.get(sensor_status.get("state"), sensor_status.get("state", "UNKNOWN")),
                 "latest_frame": latest,
+                "sensor_config": (
+                    self.sensor.channel_config.to_dict()
+                    if self.sensor is not None and self.sensor.channel_config is not None
+                    else None
+                ),
+                "fsr_assessment": (
+                    self.last_assessment.to_dict() if self.last_assessment is not None else None
+                ),
+                "fsr_history": list(self.fsr_history),
+                "baseline_ready": self.contact_assessor.baseline_ready,
+                "device_identities": self.device_identities(),
+                "auto_real_enabled": AUTO_REAL_ENABLED,
+                "auto_commissioning_requested": self.real_auto_commissioning_requested,
+                "last_auto_decision": (
+                    self.last_auto_decision.to_dict() if self.last_auto_decision is not None else None
+                ),
                 "frames_received": self.frames_received,
                 "last_sensor_error": self.last_sensor_error,
                 "apply_enabled": denial is None,

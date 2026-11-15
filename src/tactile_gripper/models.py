@@ -78,6 +78,13 @@ class ChannelConfig:
     matrix_col: int | None = None
     enabled: bool = True
     unit: str = "ADC_COUNTS"
+    sensor_kind: str = "UNKNOWN"
+    name: str | None = None
+    electrode_axis: str | None = None
+    electrode_index: int | None = None
+    adc_reference_uv: int | None = None
+    adc_gain: float | None = None
+    adc_bits: int | None = None
     extra: dict[str, Any] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
@@ -93,10 +100,73 @@ class ChannelConfig:
             raise ValueError("enabled must be boolean")
         if self.unit not in ("ADC_COUNTS", "UNKNOWN"):
             raise ValueError("unit must be ADC_COUNTS or UNKNOWN (no unverified conversion)")
+        if self.sensor_kind not in ("UNKNOWN", "MATRIX_CELL", "FSR", "MATRIX_ELECTRODE"):
+            raise ValueError("sensor_kind must be UNKNOWN, MATRIX_CELL, FSR or MATRIX_ELECTRODE")
+        if self.name is not None and (not isinstance(self.name, str) or not self.name.strip()):
+            raise ValueError("name must be null or a non-empty string")
+        if self.electrode_axis is not None and self.electrode_axis not in ("ROW", "COLUMN"):
+            raise ValueError("electrode_axis must be null, ROW or COLUMN")
+        if (self.electrode_axis is None) != (self.electrode_index is None):
+            raise ValueError("electrode_axis and electrode_index must be provided together")
+        if self.electrode_index is not None and (
+            not _is_int(self.electrode_index) or self.electrode_index < 0
+        ):
+            raise ValueError("electrode_index must be an integer >= 0")
+        if self.sensor_kind == "FSR" and self.has_matrix_position:
+            raise ValueError("FSR channels must not have matrix_row/matrix_col")
+        if self.sensor_kind == "MATRIX_CELL" and not self.has_matrix_position:
+            raise ValueError("MATRIX_CELL channels require matrix_row/matrix_col")
+        if self.sensor_kind == "MATRIX_ELECTRODE":
+            if self.electrode_axis is None:
+                raise ValueError("MATRIX_ELECTRODE channels require electrode_axis/electrode_index")
+            if self.has_matrix_position:
+                raise ValueError("MATRIX_ELECTRODE channels must not have matrix_row/matrix_col")
+        elif self.electrode_axis is not None:
+            raise ValueError("electrode_axis/electrode_index are only valid for MATRIX_ELECTRODE")
+        if self.adc_reference_uv is not None and (
+            not _is_int(self.adc_reference_uv) or self.adc_reference_uv <= 0
+        ):
+            raise ValueError("adc_reference_uv must be null or a positive integer")
+        if self.adc_gain is not None and (
+            type(self.adc_gain) not in (int, float) or not math.isfinite(self.adc_gain) or self.adc_gain <= 0
+        ):
+            raise ValueError("adc_gain must be null or a positive finite number")
+        if self.adc_bits is not None and (
+            not _is_int(self.adc_bits) or not 8 <= self.adc_bits <= 32
+        ):
+            raise ValueError("adc_bits must be null or an integer in 8..32")
 
     @property
     def has_matrix_position(self) -> bool:
         return self.matrix_row is not None and self.matrix_col is not None
+
+    @property
+    def voltage_basis_complete(self) -> bool:
+        return (
+            self.adc_reference_uv is not None
+            and self.adc_gain is not None
+            and self.adc_bits is not None
+        )
+
+    def count_to_voltage_uv(self, raw: float | None) -> float | None:
+        """Convert raw counts to the ADC input voltage only on an explicit basis.
+
+        The basis (reference, gain and bit depth) must come from HELLO/config.
+        No default 3.3 V or 24-bit assumption is made here.  For a bipolar ADC,
+        full scale is +/- VREF/gain and raw is interpreted as two's complement
+        signed counts.
+        """
+        if raw is None or not self.voltage_basis_complete:
+            return None
+        if not _is_number(raw):
+            return None
+        assert self.adc_reference_uv is not None
+        assert self.adc_gain is not None
+        assert self.adc_bits is not None
+        full_scale = 2 ** (self.adc_bits - 1)
+        if abs(raw) > full_scale:
+            return None
+        return float(raw) / full_scale * self.adc_reference_uv / self.adc_gain
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "ChannelConfig":
@@ -115,6 +185,13 @@ class ChannelConfig:
                 "matrix_col",
                 "enabled",
                 "unit",
+                "sensor_kind",
+                "name",
+                "electrode_axis",
+                "electrode_index",
+                "adc_reference_uv",
+                "adc_gain",
+                "adc_bits",
             }
         }
         return cls(
@@ -126,6 +203,13 @@ class ChannelConfig:
             matrix_col=_optional_int(value, "matrix_col"),
             enabled=value.get("enabled", True),
             unit=value.get("unit", "ADC_COUNTS"),
+            sensor_kind=value.get("sensor_kind", "UNKNOWN"),
+            name=value.get("name"),
+            electrode_axis=value.get("electrode_axis"),
+            electrode_index=_optional_int(value, "electrode_index"),
+            adc_reference_uv=_optional_int(value, "adc_reference_uv", minimum=1),
+            adc_gain=value.get("adc_gain"),
+            adc_bits=_optional_int(value, "adc_bits", minimum=8),
             extra=extra,
         )
 
@@ -139,6 +223,13 @@ class ChannelConfig:
             "matrix_col": self.matrix_col,
             "enabled": self.enabled,
             "unit": self.unit,
+            "sensor_kind": self.sensor_kind,
+            "name": self.name,
+            "electrode_axis": self.electrode_axis,
+            "electrode_index": self.electrode_index,
+            "adc_reference_uv": self.adc_reference_uv,
+            "adc_gain": self.adc_gain,
+            "adc_bits": self.adc_bits,
             **self.extra,
         }
 
@@ -153,6 +244,7 @@ class ChannelConfiguration:
     adc_count: int | None = None
     scan_mode: str = "UNKNOWN"
     status: str = "PROPOSED"
+    sensor_profile: str = "UNKNOWN"
 
     def __post_init__(self) -> None:
         if not self.channels:
@@ -182,6 +274,87 @@ class ChannelConfiguration:
             raise ValueError("scan_mode must be a string")
         if not isinstance(self.status, str):
             raise ValueError("status must be a string")
+        if self.sensor_profile not in (
+            "UNKNOWN",
+            "FSR_ONLY",
+            "HYBRID_6X6_FSR2",
+            "MATRIX_ELECTRODES_12",
+        ):
+            raise ValueError(
+                "sensor_profile must be UNKNOWN, FSR_ONLY, HYBRID_6X6_FSR2 or MATRIX_ELECTRODES_12"
+            )
+        if self.sensor_profile == "FSR_ONLY":
+            if len(self.channels) != 2:
+                raise ValueError("FSR_ONLY requires exactly 2 FSR channels")
+            if self.matrix_rows is not None or self.matrix_cols is not None:
+                raise ValueError("FSR_ONLY must not declare matrix dimensions")
+            if any(channel.has_matrix_position for channel in self.channels):
+                raise ValueError("FSR_ONLY channels must not have matrix positions")
+            if any(self.effective_kind(channel) not in ("FSR", "UNKNOWN") for channel in self.channels):
+                raise ValueError("FSR_ONLY accepts only FSR channels")
+        if self.sensor_profile == "HYBRID_6X6_FSR2":
+            if len(self.channels) != 38:
+                raise ValueError("HYBRID_6X6_FSR2 requires 38 logical channels")
+            if self.matrix_rows != 6 or self.matrix_cols != 6:
+                raise ValueError("HYBRID_6X6_FSR2 requires a 6x6 matrix")
+            matrix = [channel for channel in self.channels if self.effective_kind(channel) == "MATRIX_CELL"]
+            fsr = [channel for channel in self.channels if self.effective_kind(channel) == "FSR"]
+            if len(matrix) != 36 or len(fsr) != 2:
+                raise ValueError("HYBRID_6X6_FSR2 requires 36 MATRIX_CELL + 2 FSR")
+            positions = {(channel.matrix_row, channel.matrix_col) for channel in matrix}
+            expected = {(row, col) for row in range(6) for col in range(6)}
+            if positions != expected:
+                raise ValueError("HYBRID_6X6_FSR2 matrix map must cover all 36 cells")
+        if self.sensor_profile == "MATRIX_ELECTRODES_12":
+            if len(self.channels) != 12:
+                raise ValueError("MATRIX_ELECTRODES_12 requires exactly 12 electrode channels")
+            if self.matrix_rows != 6 or self.matrix_cols != 6:
+                raise ValueError("MATRIX_ELECTRODES_12 reserves a 6x6 logical matrix geometry")
+            electrodes = [channel for channel in self.channels if self.effective_kind(channel) == "MATRIX_ELECTRODE"]
+            if len(electrodes) != 12:
+                raise ValueError("MATRIX_ELECTRODES_12 accepts only MATRIX_ELECTRODE channels")
+            rows = {channel.electrode_index for channel in electrodes if channel.electrode_axis == "ROW"}
+            cols = {channel.electrode_index for channel in electrodes if channel.electrode_axis == "COLUMN"}
+            if rows != set(range(6)) or cols != set(range(6)):
+                raise ValueError("MATRIX_ELECTRODES_12 requires row indices 0..5 and column indices 0..5")
+            if any(channel.has_matrix_position for channel in electrodes):
+                raise ValueError("MATRIX_ELECTRODES_12 must not invent 36 cell positions")
+
+    def effective_kind(self, channel: ChannelConfig) -> str:
+        """Return the declared kind, or infer only from profile + matrix position.
+
+        No sensor kind is inferred from a device name, serial port or channel
+        count.  A matrix position is structural evidence; an FSR kind may be
+        inferred only when the HELLO profile explicitly declares an FSR
+        profile and the channel has no matrix position.
+        """
+        if channel.sensor_kind != "UNKNOWN":
+            return channel.sensor_kind
+        if channel.electrode_axis is not None:
+            return "MATRIX_ELECTRODE"
+        if channel.has_matrix_position:
+            return "MATRIX_CELL"
+        if self.sensor_profile in ("FSR_ONLY", "HYBRID_6X6_FSR2"):
+            return "FSR"
+        return "UNKNOWN"
+
+    @property
+    def fsr_channels(self) -> tuple[ChannelConfig, ...]:
+        return tuple(
+            channel for channel in self.channels if self.effective_kind(channel) == "FSR"
+        )
+
+    @property
+    def matrix_channels(self) -> tuple[ChannelConfig, ...]:
+        return tuple(
+            channel for channel in self.channels if self.effective_kind(channel) == "MATRIX_CELL"
+        )
+
+    @property
+    def electrode_channels(self) -> tuple[ChannelConfig, ...]:
+        return tuple(
+            channel for channel in self.channels if self.effective_kind(channel) == "MATRIX_ELECTRODE"
+        )
 
     @property
     def expected_channel_count(self) -> int:
@@ -193,6 +366,8 @@ class ChannelConfiguration:
 
     @property
     def matrix_cells(self) -> int | None:
+        if self.sensor_profile == "MATRIX_ELECTRODES_12":
+            return None
         if self.matrix_rows is None or self.matrix_cols is None:
             return None
         return self.matrix_rows * self.matrix_cols
@@ -214,6 +389,7 @@ class ChannelConfiguration:
             "matrix_cols": self.matrix_cols,
             "adc_count": self.adc_count,
             "scan_mode": self.scan_mode,
+            "sensor_profile": self.sensor_profile,
             "channels": [channel.to_dict() for channel in self.channels],
         }
 
@@ -231,6 +407,7 @@ class ChannelConfiguration:
             adc_count=value.get("adc_count"),
             scan_mode=value.get("scan_mode", "UNKNOWN"),
             status=value.get("status", "PROPOSED"),
+            sensor_profile=value.get("sensor_profile", "UNKNOWN"),
         )
 
 

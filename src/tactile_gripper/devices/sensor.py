@@ -70,6 +70,7 @@ class SensorAdapter:
         self.last_frame: TactileFrame | None = None
         self.last_error: str | None = None
         self.last_hello: HelloMessage | None = None
+        self.last_status: DeviceStatus | None = None
         self.last_error_message: ErrorMessage | None = None
         self.invalid_frames = 0
         self.messages_received = 0
@@ -212,7 +213,10 @@ class SensorAdapter:
             return frame
         if message_type == "STATUS":
             status = parse_status(message, source=self.source)
+            self.last_status = status
             self.last_error = status.last_error
+            if status.state in ("STREAMING", "FAULT", "WAITING"):
+                self.state = status.state
             self._update_state()
             return None
         if message_type == "ERROR":
@@ -245,6 +249,52 @@ class SensorAdapter:
         self._update_state()
         return self.status()
 
+    def query_status(self, *, request_id: str | None = None) -> bool:
+        """Send an opt-in STATUS query if the transport allows it.
+
+        The device answers on the normal read path; this method never changes
+        control state and does not wait for a reply.  A missing capability is
+        reported, not silently ignored.
+        """
+        from ..protocol import encode_status_query
+
+        return self._send_query("STATUS", encode_status_query(request_id=request_id))
+
+    def query_hello(self, *, request_id: str | None = None) -> bool:
+        """Ask for a repeat HELLO after a missed boot announcement."""
+        from ..protocol import encode_hello_query
+
+        return self._send_query("HELLO", encode_hello_query(request_id=request_id))
+
+    def _send_query(self, label: str, payload: bytes) -> bool:
+        write_line = getattr(self.transport, "write_line", None)
+        if write_line is None:
+            self.last_error = f"transport does not support {label} query"
+            return False
+        try:
+            write_line(payload)
+        except Exception as exc:
+            self.last_error = f"{label} query failed: {exc}"
+            return False
+        self.last_error = None
+        return True
+
+    def identity(self) -> dict:
+        """Identity facts actually observed, not a guessed port name."""
+        return {
+            "role": "SENSOR",
+            "device_id": self.device_id,
+            "boot_id": self.tracker.last_boot_id,
+            "firmware_version": self.last_hello.firmware_version if self.last_hello else None,
+            "sensor_profile": self.channel_config.sensor_profile if self.channel_config else None,
+            "channel_count": (
+                self.channel_config.expected_channel_count if self.channel_config else None
+            ),
+            "port": getattr(self.transport, "port", None),
+            "baudrate": getattr(self.transport, "baudrate", None),
+            "source": self.source.value,
+        }
+
     def status(self) -> DeviceStatus:
         self._update_state()
         detail = {
@@ -253,11 +303,30 @@ class SensorAdapter:
             "recent_anomalies": self.tracker.recent_anomalies(10),
             "last_error_message": self.last_error_message.raw if self.last_error_message else None,
             "channel_config_status": self.channel_config.status if self.channel_config else None,
+            "sensor_profile": self.channel_config.sensor_profile if self.channel_config else None,
+            "channel_config": self.channel_config.to_dict() if self.channel_config else None,
             "matrix": (
                 [self.channel_config.matrix_rows, self.channel_config.matrix_cols]
                 if self.channel_config is not None
                 else None
             ),
+            "fsr_channel_ids": (
+                [channel.channel_id for channel in self.channel_config.fsr_channels]
+                if self.channel_config is not None
+                else []
+            ),
+            "matrix_channel_ids": (
+                [channel.channel_id for channel in self.channel_config.matrix_channels]
+                if self.channel_config is not None
+                else []
+            ),
+            "electrode_channel_ids": (
+                [channel.channel_id for channel in self.channel_config.electrode_channels]
+                if self.channel_config is not None
+                else []
+            ),
+            "device_identity": self.identity(),
+            "last_status": self.last_status.to_dict() if self.last_status is not None else None,
             "reconnect_count": self.reconnect_count,
             "reconnect_attempts": self.reconnect_attempts,
             "last_reconnect_error": self.last_reconnect_error,
@@ -269,6 +338,7 @@ class SensorAdapter:
         if self.last_hello is not None:
             detail["hello"] = {
                 "firmware_version": self.last_hello.firmware_version,
+                "sensor_profile": self.last_hello.sensor_profile,
                 "capabilities": list(self.last_hello.capabilities),
             }
         return DeviceStatus(
@@ -297,12 +367,79 @@ class SensorAdapter:
 
 
 class JsonlReplayTransport:
-    """Read-only JSONL source.  It can never write to hardware."""
+    """Read-only JSONL source.  It can never write to hardware.
+
+    A file may be a raw wire capture (HELLO/SAMPLE) or a Trial
+    ``frames.jsonl``.  Trial rows are unwrapped into wire SAMPLE messages and
+    a HELLO is synthesized from sibling ``metadata.json`` so an existing Trial
+    can be replayed without a separate export step.
+    """
 
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self.lines = self.path.read_text(encoding="utf-8").splitlines()
+        self.lines = self._normalise_trial_lines(self.lines)
         self.offset = 0
+
+    def _normalise_trial_lines(self, lines: list[str]) -> list[str]:
+        records: list[dict] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                return lines
+            if not isinstance(value, dict):
+                return lines
+            records.append(value)
+        frames = [row for row in records if row.get("record_type") == "SENSOR_FRAME"]
+        if not frames:
+            return lines
+        metadata_path = self.path.parent / "metadata.json"
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
+        parameters = metadata.get("parameters") if isinstance(metadata, dict) else {}
+        config_payload = (parameters or {}).get("sensor_config")
+        if not isinstance(config_payload, dict):
+            return lines
+        try:
+            config = ChannelConfiguration.from_dict(config_payload)
+        except (TypeError, ValueError):
+            return lines
+        identities = (parameters or {}).get("device_identities") or {}
+        identity = identities.get("sensor") or {}
+        first = frames[0]
+        normalised: list[str] = [
+            encode_hello(
+                str(first.get("device_id") or identity.get("device_id") or "trial-replay"),
+                str(first.get("boot_id") or identity.get("boot_id") or "trial-replay"),
+                config,
+                firmware_version=str(identity.get("firmware_version") or "trial-replay"),
+            ).decode("utf-8").strip()
+        ]
+        for row in frames:
+            raw = row.get("raw")
+            if isinstance(raw, dict) and raw.get("type") == "SAMPLE":
+                payload = raw
+            else:
+                payload = {
+                    "protocol_version": PROTOCOL_VERSION,
+                    "type": "SAMPLE",
+                    "device_id": row.get("device_id") or identity.get("device_id") or "trial-replay",
+                    "boot_id": row.get("boot_id") or identity.get("boot_id") or "trial-replay",
+                    "frame_seq": row.get("frame_seq"),
+                    "mcu_time_us": row.get("mcu_time_us"),
+                    "channel_ids": row.get("channel_ids") or list(config.channel_ids),
+                    "channels": row.get("channels"),
+                    "valid_mask": row.get("valid_mask"),
+                }
+                if row.get("contact_score") is not None:
+                    payload["contact_score"] = row.get("contact_score")
+            normalised.append(json.dumps(payload, ensure_ascii=False, allow_nan=False))
+        return normalised
 
     def connect(self) -> None:
         if not self.path.is_file():
@@ -392,15 +529,36 @@ class SimulatedSensorTransport:
     def _sample(self, seq: int) -> TactileFrame:
         channels: list[float | None] = []
         mask: list[bool] = []
+        fsr_index = 0
         for index, channel in enumerate(self.channel_config.channels):
+            kind = self.channel_config.effective_kind(channel)
             row = channel.matrix_row or 0
             col = channel.matrix_col or 0
-            wave = 2048 + 240 * math.sin(seq * 0.35 + index * 0.7) + 60 * math.cos(row + col)
-            valid = not (index == 2 and seq % 17 == 0)
+            if kind == "FSR":
+                # Two clearly different unloaded levels, then a contact ramp.
+                # This is synthetic, not a calibrated sensor model.
+                baseline = 80_000 + fsr_index * 25_000
+                ramp = max(0.0, min(1.0, (seq - 6) / 45.0))
+                wave = baseline + 420_000 * ramp + 18_000 * math.sin(seq * 0.31 + fsr_index)
+                fsr_index += 1
+                valid = not (seq % 29 == 0 and fsr_index == 1)
+            elif kind == "MATRIX_ELECTRODE":
+                # 12 raw row/column electrode channels only.  No 36-cell
+                # pressure estimate is synthesized from them.
+                electrode = channel.electrode_index or 0
+                wave = 1800 + 260 * math.sin(seq * 0.27 + electrode * 0.9)
+                valid = not (index == 7 and seq % 23 == 0)
+            else:
+                wave = 2048 + 240 * math.sin(seq * 0.35 + index * 0.7) + 60 * math.cos(row + col)
+                valid = not (index == 2 and seq % 17 == 0)
             channels.append(round(wave) if valid else None)
             mask.append(valid)
-        contact = 0.0
-        if seq > 8:
+        contact = None
+        if (
+            not self.channel_config.fsr_channels
+            and not self.channel_config.electrode_channels
+            and seq > 8
+        ):
             contact = min(1.0, (seq - 8) / 40.0)
         return TactileFrame(
             protocol_version=PROTOCOL_VERSION,
@@ -457,6 +615,29 @@ def default_demo_config(root: Path | str | None = None) -> ChannelConfiguration:
     return config_from_json_file(base / "config" / "sensor_channels.demo.json")
 
 
+def demo_config_for_profile(
+    profile: str = "MATRIX_6X6",
+    root: Path | str | None = None,
+) -> ChannelConfiguration:
+    """Load a labelled offline demo map for a supported sensor profile.
+
+    These are synthetic fixtures, not hardware maps.  ``MATRIX_6X6`` is kept
+    as the default to preserve V1 behaviour.
+    """
+    base = Path(root) if root is not None else PROJECT_ROOT
+    names = {
+        "MATRIX_6X6": "sensor_channels.demo.json",
+        "FSR_ONLY": "sensor_channels.fsr_only.demo.json",
+        "HYBRID_6X6_FSR2": "sensor_channels.hybrid.demo.json",
+        "MATRIX_ELECTRODES_12": "sensor_channels.matrix_electrodes12.demo.json",
+    }
+    try:
+        name = names[profile.upper()]
+    except KeyError as exc:
+        raise ValueError(f"unknown demo profile: {profile}") from exc
+    return config_from_json_file(base / "config" / name)
+
+
 def describe_config(config: ChannelConfiguration | None) -> dict:
     if config is None:
         return {"channel_count": None, "matrix": None, "status": "UNKNOWN"}
@@ -466,4 +647,8 @@ def describe_config(config: ChannelConfiguration | None) -> dict:
         "status": config.status,
         "scan_mode": config.scan_mode,
         "adc_count": config.adc_count,
+        "sensor_profile": config.sensor_profile,
+        "fsr_channel_ids": [channel.channel_id for channel in config.fsr_channels],
+        "matrix_channel_count": len(config.matrix_channels),
+        "electrode_channel_count": len(config.electrode_channels),
     }

@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 
 from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
 from ...control import Mode
 from ...sources import DataSource
-from ..charts import bar_options, heatmap_options
+from ..charts import bar_options, fsr_trend_options, heatmap_options, matrix_view
 from ..theme import (
     card_header,
+    clock_label,
     empty_state,
-    fmt_ns,
     metric_card,
     pill,
     set_pill,
@@ -23,6 +22,7 @@ from ..theme import (
 )
 from ..text_zh import (
     action_label,
+    contact_reason_label,
     event_detail_label,
     firmware_state_label,
     mode_label,
@@ -36,15 +36,30 @@ from ..text_zh import (
 )
 
 
+CONTACT_STATE_ZH = {
+    "NO_CONTACT": "未接触",
+    "INSUFFICIENT": "接触不足",
+    "NORMAL": "正常",
+    "TIGHT": "偏紧",
+    "INVALID": "无效帧",
+    "UNCALIBRATED": "未标定",
+    "NOT_APPLICABLE": "不适用",
+}
+CONTACT_TONE = {
+    "NO_CONTACT": "slate",
+    "INSUFFICIENT": "amber",
+    "NORMAL": "green",
+    "TIGHT": "red",
+    "INVALID": "red",
+    "UNCALIBRATED": "amber",
+    "NOT_APPLICABLE": "slate",
+}
+
+
 def _format_event(event: dict) -> dict:
-    stamp = event.get("timestamp_utc") or ""
-    try:
-        clock = datetime.fromisoformat(stamp).strftime("%H:%M:%S")
-    except ValueError:
-        clock = "—"
     return {
-        "id": event.get("event_id", f"{stamp}-{event.get('action')}"),
-        "time": clock,
+        "id": event.get("event_id", f"{event.get('timestamp_utc')}-{event.get('action')}"),
+        "time": clock_label(event.get("timestamp_utc"), with_date=False),
         "action": action_label(event.get("action", "—")),
         "stage": stage_label(event.get("stage", "—")),
         "pwm": event.get("commanded_pwm_us") if event.get("commanded_pwm_us") is not None else "—",
@@ -55,7 +70,13 @@ def _format_event(event: dict) -> dict:
 
 
 def live_page(core) -> None:
-    state = {"pending": 1500, "chart_key": None, "syncing": False}
+    state = {
+        "pending": 1500,
+        "chart_key": None,
+        "fsr_key": None,
+        "syncing": False,
+        "demo_profile": getattr(core, "demo_profile", "MATRIX_6X6"),
+    }
     if core.gripper is not None:
         state["pending"] = core.gripper.pwm_initial_us or 1500
     limits = core.gripper.pwm_limits if core.gripper is not None else {
@@ -73,7 +94,7 @@ def live_page(core) -> None:
         core,
         SOFTWARE_VERSION,
     ) as refs:
-        with ui.element("div").classes("grid-12"):
+        with ui.element("div").classes("grid-12 metric-grid"):
             with ui.element("div").classes("col-3"):
                 s3_value, s3_caption = metric_card("控制器状态", "memory", "离线（OFFLINE）", "尚无控制会话")
             with ui.element("div").classes("col-3"):
@@ -89,7 +110,7 @@ def live_page(core) -> None:
             fault_reset_button = ui.button("清除故障", color="negative").props("outline no-caps").style("margin-left:auto")
         fault_banner.set_visibility(False)
 
-        with ui.element("div").classes("grid-12"):
+        with ui.element("div").classes("grid-12 main-grid"):
             with ui.element("div").classes("col-7"):
                 with ui.column().classes("card gap-3"):
                     with ui.row().classes("w-full items-start justify-between"):
@@ -98,7 +119,13 @@ def live_page(core) -> None:
                             ui.label("ADC 原始计数 · 无效通道不当作零接触 · 未标定数据不解释为压力/摩擦力/重量").classes("card-sub")
                         with ui.row().classes("items-center gap-3"):
                             sensor_connect_button = ui.button("连接传感器", color="secondary").props("outline no-caps")
+                            sensor_query_button = ui.button("查询状态", color="secondary").props("outline no-caps")
+                            sensor_hello_button = ui.button("查询 HELLO", color="secondary").props("outline no-caps")
                             demo_switch = ui.switch("仿真演示（SIMULATION）", value=False).props("dense")
+                            demo_profile_select = ui.select(
+                                ["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2", "MATRIX_ELECTRODES_12"],
+                                value=state["demo_profile"],
+                            ).props("dense outlined").classes("w-60")
                             source_pill = pill(source_label("SIMULATION"), "teal")
                     chart_holder = ui.column().classes("w-full")
                     with ui.row().classes("w-full items-center gap-4"):
@@ -153,11 +180,37 @@ def live_page(core) -> None:
                         auto_mode_button = ui.button("自动", color="secondary").props("outline no-caps")
                         ui.label("MANUAL / STANDBY / AUTO · 自动模式需真实传感器与标定").classes("card-sub")
                     auto_hint = ui.label("自动模式不可用").classes("card-sub")
+                    commission_button = ui.button("真实 AUTO 调试入口（当前拒绝）", color="secondary").props("outline no-caps").classes("w-full")
                     ui.label(
                         f"范围来源：{limits['source'].split('/config/')[-1]}。这是 Bench 配置范围，"
                         "不是已验证的机械安全边界。"
                     ).classes("card-sub")
                     ui.label("STOP 关闭 PWM 输出；不保证机械爪继续保持夹持，也不是独立硬件急停。").classes("notice notice-amber").style("width:100%")
+
+        with ui.column().classes("card gap-3 w-full") as fsr_section:
+            with ui.row().classes("w-full items-start justify-between"):
+                with ui.column().classes("gap-0"):
+                    ui.label("FSR 相对接触").classes("card-title")
+                    ui.label(
+                        "相对空载基线，不是压力/牛顿/摩擦力；电压仅在 HELLO 给出参考、增益和位数时显示。"
+                    ).classes("card-sub")
+                with ui.row().classes("items-center gap-2"):
+                    baseline_hint = ui.label("基线未采集").classes("card-sub")
+                    baseline_button = ui.button("采集空载基线", color="secondary").props("outline no-caps")
+                    baseline_clear_button = ui.button("清除基线", color="secondary").props("outline no-caps")
+            with ui.element("div").classes("grid-12"):
+                fsr_cards = []
+                for index in range(2):
+                    with ui.column().classes("col-6 gap-1") as card:
+                        with ui.row().classes("w-full items-center justify-between"):
+                            fsr_name = ui.label(f"FSR {index + 1}").classes("card-kicker")
+                            fsr_state = pill("—", "slate")
+                        fsr_raw = ui.label("原始 ADC —").classes("value-mono")
+                        fsr_voltage = ui.label("电压 —").classes("card-sub")
+                        fsr_delta = ui.label("相对变化 —").classes("card-sub")
+                        fsr_cards.append((card, fsr_name, fsr_state, fsr_raw, fsr_voltage, fsr_delta))
+            fsr_chart_holder = ui.column().classes("w-full")
+        fsr_section.set_visibility(False)
 
         with ui.element("div").classes("grid-12"):
             with ui.element("div").classes("col-8"):
@@ -166,17 +219,17 @@ def live_page(core) -> None:
                         pass
                     decision_table = ui.table(
                         columns=[
-                            {"name": "time", "label": "时间", "field": "time", "align": "left"},
-                            {"name": "action", "label": "动作", "field": "action", "align": "left"},
-                            {"name": "stage", "label": "阶段", "field": "stage", "align": "left"},
-                            {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right"},
-                            {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "center"},
-                            {"name": "device", "label": "设备状态", "field": "device", "align": "left"},
-                            {"name": "detail", "label": "说明", "field": "detail", "align": "left"},
+                            {"name": "time", "label": "时间（本机）", "field": "time", "align": "left", "style": "width:14%;white-space:nowrap"},
+                            {"name": "action", "label": "动作", "field": "action", "align": "left", "style": "width:13%"},
+                            {"name": "stage", "label": "阶段", "field": "stage", "align": "left", "style": "width:12%"},
+                            {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right", "style": "width:10%"},
+                            {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "center", "style": "width:14%"},
+                            {"name": "device", "label": "设备状态", "field": "device", "align": "left", "style": "width:11%"},
+                            {"name": "detail", "label": "说明", "field": "detail", "align": "left", "style": "width:26%"},
                         ],
                         rows=[],
                         row_key="id",
-                    ).props('flat dense no-data-label="暂无数据"').classes("w-full")
+                    ).props('flat dense wrap-cells no-data-label="暂无数据"').classes("w-full data-table")
             with ui.element("div").classes("col-4"):
                 with ui.column().classes("card gap-3"):
                     with card_header("实验记录状态", "实验（Trial）生命周期与写入状态"):
@@ -214,11 +267,24 @@ def live_page(core) -> None:
     pwm_slider.on_value_change(on_slider)
     pwm_number.on_value_change(on_number)
 
-    def render_chart(frame: dict) -> None:
+    def render_chart(frame: dict, config: dict | None) -> None:
         chart_holder.clear()
+        view = matrix_view(config)
         with chart_holder:
-            if frame.get("matrix_rows") and frame.get("matrix_cols") and frame.get("channel_count") == frame["matrix_rows"] * frame["matrix_cols"]:
-                ui.echart(heatmap_options(frame)).classes("w-full").style("height:310px")
+            if view == "CELLS":
+                ui.echart(heatmap_options(frame, config)).classes("w-full").style("height:310px")
+            elif view == "ELECTRODES":
+                ui.echart(bar_options(frame, config)).classes("w-full").style("height:280px")
+                ui.label(
+                    "MATRIX_ELECTRODES_12：仅显示 12 路行列电极原始 ADC。"
+                    "R/C→ADC/AIN 映射未确认，36 点压力热图不可用；这里不推算压力分布。"
+                ).classes("notice notice-amber").style("width:100%")
+            elif config is not None:
+                empty_state(
+                    "grid_off",
+                    "此配置没有矩阵通道",
+                    "FSR 原始值、相对变化与趋势见下方 FSR 相对接触卡片；FSR 不会进入矩阵热图。",
+                )
             else:
                 ui.echart(bar_options(frame)).classes("w-full").style("height:310px")
             invalid = frame.get("channel_count", 0) - frame.get("valid_count", 0)
@@ -243,17 +309,43 @@ def live_page(core) -> None:
             s3_value.set_text("控制会话已建立")
         else:
             s3_value.set_text(status_label(gripper.get("state", "OFFLINE")))
+        gripper_identity = (snapshot.get("device_identities") or {}).get("gripper") or {}
         s3_caption.set_text(
             f"固件 {gripper.get('firmware_version') or '未知'} · 启动 ID {gripper.get('boot_id') or '—'}"
+            + (f" · {gripper_identity.get('port')}@{gripper_identity.get('baudrate')}" if gripper_identity.get("port") else "")
         )
         sensor_value.set_text(sensor_label(snapshot["sensor_state_label"]))
         rate = snapshot.get("sensor_sample_rate_hz")
         freshness = snapshot.get("sensor_freshness_ns")
         freshness_text = "新鲜度 —" if freshness is None else f"新鲜度 {freshness / 1e9:.2f}s"
+        config = snapshot.get("sensor_config")
+        sensor_identity = (snapshot.get("device_identities") or {}).get("sensor") or {}
+        profile = (config or {}).get("sensor_profile") or sensor_identity.get("sensor_profile") or "UNKNOWN"
+        fsr_count = sum(
+            1 for channel in (config or {}).get("channels", [])
+            if channel.get("sensor_kind") == "FSR"
+            or (
+                (config or {}).get("sensor_profile") in ("FSR_ONLY", "HYBRID_6X6_FSR2")
+                and channel.get("matrix_row") is None
+                and channel.get("matrix_col") is None
+            )
+        )
+        matrix_count = sum(
+            1 for channel in (config or {}).get("channels", [])
+            if channel.get("sensor_kind") == "MATRIX_CELL"
+            or (channel.get("matrix_row") is not None and channel.get("matrix_col") is not None)
+        )
+        electrode_count = sum(
+            1 for channel in (config or {}).get("channels", [])
+            if channel.get("sensor_kind") == "MATRIX_ELECTRODE"
+            or channel.get("electrode_axis") is not None
+        )
+        channel_summary = f"FSR {fsr_count} / 矩阵 {matrix_count}"
+        if electrode_count:
+            channel_summary = f"FSR {fsr_count} / 电极 {electrode_count}（36 点热图不可用）"
         sensor_caption.set_text(
-            f"{snapshot['sensor'].get('channel_count') or '—'} 通道"
-            + (f" · 矩阵 {snapshot['sensor']['detail'].get('matrix')[0]}×{snapshot['sensor']['detail'].get('matrix')[1]}"
-               if (snapshot['sensor'].get('detail') or {}).get('matrix') and (snapshot['sensor']['detail']['matrix'][0] is not None) else "")
+            f"{profile} · {snapshot['sensor'].get('channel_count') or '—'} 通道 / {channel_summary}"
+            + (f" · {sensor_identity.get('port')}@{sensor_identity.get('baudrate')}" if sensor_identity.get("port") else "")
             + f" · 已接收 {snapshot['frames_received']} 帧 · "
             f"{f'{rate:.1f} Hz' if rate else '采样率未知'} · {freshness_text}"
             + (f" · 重连 {snapshot.get('sensor_reconnect_count', 0)}" if snapshot.get("sensor_reconnect_count") else "")
@@ -298,7 +390,11 @@ def live_page(core) -> None:
         )
         standby_mode_button.set_enabled(snapshot["mode"] == "MANUAL")
         auto_mode_button.set_enabled(False)
-        auto_hint.set_text("自动模式不可用：V1.0 强制禁用，需真实传感器、协议确认与标定。")
+        auto_hint.set_text(
+            "真实 AUTO 硬关闭（AUTO_REAL_ENABLED=False）。仿真决策只记录动作与原因，不写 PWM；"
+            "真实入口需现场协议、硬件与标定签核。"
+        )
+        commission_button.set_visibility(core.source is DataSource.LIVE)
         apply_button.set_enabled(bool(snapshot["apply_enabled"]))
         stop_button.set_enabled(bool(snapshot["stop_enabled"]))
         apply_hint.set_text(
@@ -334,22 +430,33 @@ def live_page(core) -> None:
                 source_label(latest_source),
                 "teal" if latest_source == "SIMULATION" else "blue" if latest_source == "LIVE" else "purple",
             )
-            contact = latest.get("contact_score")
-            if contact is None:
-                contact_value.set_text("未知")
-                contact_caption.set_text("设备未上报接触评分；不推断压力/摩擦力/重量")
-            else:
-                contact_value.set_text(f"{contact:.3f}")
+            assessment = snapshot.get("fsr_assessment")
+            if assessment:
+                contact_state = assessment.get("state", "INVALID")
+                score = assessment.get("score")
+                contact_value.set_text("—" if score is None else f"{score:.3f}")
                 contact_caption.set_text(
-                    "仿真接触评分（SIMULATION）" if latest_source == "SIMULATION" else "设备上报 · 语义未标定"
+                    f"{CONTACT_STATE_ZH.get(contact_state, contact_state)} · 质量 {assessment.get('quality', 0):.2f} · "
+                    f"{contact_reason_label(assessment.get('reason'))}"
                 )
+            else:
+                contact = latest.get("contact_score")
+                if contact is None:
+                    contact_value.set_text("未知")
+                    contact_caption.set_text("设备未上报接触评分；不推断压力/摩擦力/重量")
+                else:
+                    contact_value.set_text(f"{contact:.3f}")
+                    contact_caption.set_text(
+                        "仿真接触评分（SIMULATION）" if latest_source == "SIMULATION" else "设备上报 · 语义未标定"
+                    )
             frame_caption.set_text(
-                f"帧 {latest['frame_seq']} · {latest['valid_count']}/{latest['channel_count']} 有效 · {fmt_ns(latest['host_received_ns'])}"
+                f"帧 {latest['frame_seq']} · {latest['valid_count']}/{latest['channel_count']} 有效 · "
+                f"接收于 {clock_label(latest.get('host_received_utc'), with_date=False)}（本机时间）"
             )
             key = (latest["frame_seq"], latest["boot_id"], latest["valid_count"], latest_source)
             if key != state["chart_key"]:
                 state["chart_key"] = key
-                render_chart(latest)
+                render_chart(latest, config)
         else:
             set_pill(source_pill, "暂无数据", "slate")
             contact_value.set_text("未知")
@@ -365,11 +472,70 @@ def live_page(core) -> None:
                         "没有真实触觉数据。可开启仿真演示查看界面数据，但会始终标注 SIMULATION。",
                     )
 
+        fsr_readings = (snapshot.get("fsr_assessment") or {}).get("readings") or []
+        fsr_section.set_visibility(bool(fsr_readings))
+        if fsr_readings:
+            baseline_ready = bool(snapshot.get("baseline_ready"))
+            baseline_hint.set_text(
+                "基线已采集：" + str((snapshot.get("fsr_assessment") or {}).get("baseline_source") or "—")
+                if baseline_ready
+                else "基线未采集：相对变化与接触状态不可用"
+            )
+            latest_seq = (latest or {}).get("frame_seq")
+            fsr_key = (latest_seq, baseline_ready, (snapshot.get("fsr_assessment") or {}).get("state"))
+            for index, card_refs in enumerate(fsr_cards):
+                card, fsr_name, fsr_state, fsr_raw, fsr_voltage, fsr_delta = card_refs
+                if index >= len(fsr_readings):
+                    card.set_visibility(False)
+                    continue
+                card.set_visibility(True)
+                reading = fsr_readings[index]
+                fsr_name.set_text(str(reading.get("name") or f"FSR {index + 1}"))
+                if not reading.get("valid") or reading.get("raw") is None:
+                    fsr_raw.set_text("原始 ADC —（无效/缺失，不当作零）")
+                    fsr_voltage.set_text("电压 —")
+                    fsr_delta.set_text("相对变化 —")
+                    set_pill(fsr_state, "无效帧" if baseline_ready else "未标定", "red" if baseline_ready else "amber")
+                else:
+                    fsr_raw.set_text(f"原始 ADC {int(reading['raw'])}")
+                    voltage_uv = reading.get("voltage_uv")
+                    if reading.get("voltage_basis_complete") and voltage_uv is not None:
+                        fsr_voltage.set_text(f"电压 {voltage_uv / 1e6:.3f} V（按 HELLO 换算基准）")
+                    else:
+                        fsr_voltage.set_text("电压 —（参考/增益/位数不全，不默认 3.3V）")
+                    if reading.get("baseline_raw") is not None and reading.get("relative_change") is not None:
+                        fsr_delta.set_text(
+                            f"相对 {reading['relative_change'] * 100:+.1f}% · Δ {reading['delta_counts']:+.0f} counts"
+                        )
+                    else:
+                        fsr_delta.set_text("相对变化 —（需先采集空载基线）")
+                    set_pill(
+                        fsr_state,
+                        "饱和" if reading.get("saturated") else "有效",
+                        "amber" if reading.get("saturated") else "green",
+                    )
+            if fsr_key != state["fsr_key"]:
+                state["fsr_key"] = fsr_key
+                fsr_chart_holder.clear()
+                with fsr_chart_holder:
+                    ui.echart(fsr_trend_options(snapshot.get("fsr_history") or [])).classes("w-full").style("height:170px")
+            baseline_button.set_enabled(bool(latest) and snapshot["mode"] != "FAULT")
+            baseline_clear_button.set_enabled(baseline_ready)
+
         decision_table.rows = [_format_event(item) for item in (snapshot.get("recent_events") or [])[:8]]
         decision_table.update()
 
         demo_switch.set_visibility(core.source is DataSource.SIMULATION)
+        demo_profile_select.set_visibility(core.source is DataSource.SIMULATION)
         sensor_connect_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
+        sensor_query_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
+        sensor_query_button.set_enabled(core.sensor is not None and hasattr(core.sensor, "query_status"))
+        sensor_hello_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
+        sensor_hello_button.set_enabled(core.sensor is not None and hasattr(core.sensor, "query_hello"))
+        if core.source is DataSource.SIMULATION and state["demo_profile"] != getattr(core, "demo_profile", state["demo_profile"]):
+            state["demo_profile"] = core.demo_profile
+            demo_profile_select.value = state["demo_profile"]
+            demo_profile_select.update()
         if core.source is DataSource.LIVE and core.sensor is not None:
             sensor_connected = bool(snapshot.get("sensor_connected"))
             sensor_connect_button.set_text("传感器已连接" if sensor_connected else "连接传感器")
@@ -380,6 +546,69 @@ def live_page(core) -> None:
                 state["syncing"] = True
                 demo_switch.value = connected
                 state["syncing"] = False
+
+    async def capture_baseline() -> None:
+        try:
+            assessment = await asyncio.to_thread(core.capture_fsr_baseline)
+            ui.notify(
+                f"空载基线已采集（{assessment.baseline_source}）；仅用于相对接触评分，不是力标定",
+                type="positive",
+            )
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative", timeout=6000)
+        refresh()
+
+    async def clear_baseline() -> None:
+        try:
+            await asyncio.to_thread(core.clear_fsr_baseline)
+            ui.notify("FSR 基线已清除；AUTO 接触状态回到未标定", type="warning")
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative")
+        refresh()
+
+    async def query_sensor() -> None:
+        try:
+            ok = await asyncio.to_thread(core.query_sensor_status)
+            ui.notify(
+                "STATUS 查询已发送；回复走正常读取路径" if ok else "STATUS 查询未发送，见事件日志",
+                type="positive" if ok else "warning",
+            )
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative", timeout=6000)
+        refresh()
+
+    async def query_sensor_hello() -> None:
+        try:
+            ok = await asyncio.to_thread(core.query_sensor_hello)
+            ui.notify(
+                "HELLO 查询已发送；回复走正常读取路径" if ok else "HELLO 查询未发送，见事件日志",
+                type="positive" if ok else "warning",
+            )
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative", timeout=6000)
+        refresh()
+
+    async def request_commissioning() -> None:
+        try:
+            await asyncio.to_thread(core.request_real_auto_commissioning)
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative", timeout=8000)
+        refresh()
+
+    async def on_demo_profile(event) -> None:
+        if not event.value or event.value == state["demo_profile"]:
+            return
+        state["demo_profile"] = event.value
+        try:
+            if demo_switch.value:
+                await asyncio.to_thread(core.set_demo_stream, True, profile=event.value)
+                ui.notify(f"仿真配置切换为 {event.value}（SIMULATION）", type="warning")
+            else:
+                await asyncio.to_thread(core.select_demo_profile, event.value)
+                ui.notify(f"离线仿真将使用 {event.value}；开启仿真后生效", type="info")
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative", timeout=6000)
+        refresh()
 
     async def apply_pwm() -> None:
         value = int(state["pending"])
@@ -466,6 +695,12 @@ def live_page(core) -> None:
     sensor_connect_button.on_click(connect_sensor)
     fault_reset_button.on_click(reset_fault)
     demo_switch.on_value_change(on_demo_change)
+    demo_profile_select.on_value_change(on_demo_profile)
+    baseline_button.on_click(capture_baseline)
+    baseline_clear_button.on_click(clear_baseline)
+    sensor_query_button.on_click(query_sensor)
+    sensor_hello_button.on_click(query_sensor_hello)
+    commission_button.on_click(request_commissioning)
 
     refresh()
     ui.timer(0.6, refresh)

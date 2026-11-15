@@ -4,6 +4,7 @@ import unittest
 
 from tactile_gripper.ui.text_zh import (
     action_label,
+    contact_reason_label,
     event_detail_label,
     sensor_label,
     source_label,
@@ -40,6 +41,39 @@ class ChineseMappingTests(unittest.TestCase):
         )
         self.assertIn("STOP", event_detail_label("STOP revokes permits and calls firmware output.off()"))
         self.assertEqual(event_detail_label("some technical detail"), "some technical detail")
+
+
+
+
+class ContactReasonTests(unittest.TestCase):
+    def test_known_reasons_are_chinese_and_keep_unknown_text(self):
+        self.assertEqual(
+            contact_reason_label("relative contact above tight threshold; do not keep tightening"),
+            "相对接触超过偏紧阈值；不要再继续夹紧",
+        )
+        self.assertEqual(contact_reason_label("no sensor frame"), "没有传感器帧")
+        self.assertEqual(contact_reason_label("some future reason"), "some future reason")
+        self.assertEqual(contact_reason_label(None), "")
+
+    def test_dynamic_reasons_keep_their_numbers(self):
+        self.assertEqual(
+            contact_reason_label("stale frame (250.0 ms > 200.0 ms)"),
+            "帧已过期：250.0 ms > 200.0 ms",
+        )
+        self.assertEqual(
+            contact_reason_label("invalid or saturated FSR channel(s): FSR_A, FSR_B"),
+            "无效或饱和的 FSR 通道：FSR_A, FSR_B",
+        )
+
+
+class DynamicEventDetailTests(unittest.TestCase):
+    def test_profile_specific_simulation_detail_is_translated(self):
+        self.assertEqual(
+            event_detail_label("SIMULATION sensor connected (MATRIX_ELECTRODES_12); not real hardware"),
+            "已连接仿真传感器；不是真实硬件",
+        )
+        self.assertEqual(event_detail_label("SIMULATION sensor disconnected"), "仿真传感器已断开")
+        self.assertEqual(event_detail_label("some unmapped detail"), "some unmapped detail")
 
 
 if __name__ == "__main__":

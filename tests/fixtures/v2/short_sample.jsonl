@@ -1,0 +1,1 @@
+{"protocol_version": 1, "type": "SAMPLE", "device_id": "sensor-fsr-01", "boot_id": "boot-fsr_only-1", "frame_seq": 4, "mcu_time_us": 4000, "channels": [80000], "valid_mask": [true], "channel_ids": [0]}
