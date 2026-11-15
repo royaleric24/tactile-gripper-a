@@ -575,6 +575,20 @@ class CoreLogFollowTests(unittest.TestCase):
             self.assertTrue(replay.is_file())
             core.shutdown()
 
+    def test_fsr_only_log_follow_is_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, fsr = self._session(tmp)
+            core = build_core(source=DataSource.LIVE, root=tmp, follow_fsr_log=fsr)
+            self.addCleanup(core.shutdown)
+            self.assertTrue(core.log_follow)
+            self.assertIsNone(core.gripper)
+            snapshot = core.snapshot()
+            self.assertTrue(snapshot["log_follow"])
+            self.assertFalse(snapshot["apply_enabled"])
+            self.assertFalse(snapshot["stop_enabled"])
+            core.tick()
+            self.assertGreaterEqual(core.snapshot()["frames_received"], 4)
+
     def test_partial_jsonl_line_waits_for_completion(self):
         with tempfile.TemporaryDirectory() as tmp:
             pwm, fsr = self._session(tmp)

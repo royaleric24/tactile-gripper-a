@@ -12,7 +12,7 @@ FSR_A counts/趋势、PWM 已发送/已 ACK/失败/未确认、固件状态/输�
 统一主机时间轴，并可在同一 Trial 保存帧+命令+ACK+事件、导出 CSV、回放。
 `LogFollowGripper.execute()` 永远拒绝，`core.request_pwm()/stop()` 返回 REJECTED；
 Dashboard 仍不发送 PWM。新增一键 Mac 启动 `scripts/run_live_monitor.py`（一个终端完成
-FSR 采集 + Dashboard + console）。离线测试 **408 tests OK（skipped=1，含新增 27 项）**；
+FSR 采集 + Dashboard + console）。离线测试 **409 tests OK（skipped=1，含新增 28 项）**；
 用私有真实 P3-B1 日志离线回放验证：`d499e640` 8/8 PWM ACK、0 NUL、STOP→`OUTPUT_OFF`；
 旧 FSR capture 1,719 帧、末帧 −996 counts/flag `0x04`。**未打开真实串口、未发 PWM、
 未烧录、未启用 AUTO；真实硬件联调待现场授权。** 启动闭合离线审计：`d499e640` 打开

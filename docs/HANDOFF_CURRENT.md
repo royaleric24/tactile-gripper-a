@@ -20,7 +20,7 @@
   默认 PWM `/dev/cu.usbserial-A5069RR4`、FSR `/dev/cu.usbserial-0001`；会创建
   `logs/real/sessions/session_<UTC>_<id>/`，后台启动 FSR 采集与 Dashboard，再在当前终端
   运行 `pwm_console --real --log-dir <session>`。只观察：`--no-console`。
-- **验收（离线）**：全套 **408 tests OK（skipped=1）**；新增 `tests/test_log_follow.py`
+- **验收（离线）**：全套 **409 tests OK（skipped=1）**；新增 `tests/test_log_follow.py`
   27 项 + Dashboard `--follow-session` 启动测试。私有真实日志回放：`d499e640`
   53/53 应答匹配、8/8 PWM ACK、0 NUL、STOP→`OUTPUT_OFF`；旧 FSR capture 1,719 帧、
   末帧 −996 counts/flag `0x04`。Chrome 无头截图 `cards=10 errors=0`，无 server Traceback。

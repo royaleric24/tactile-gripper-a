@@ -104,7 +104,10 @@ class ApplicationCore:
             raise ControlDenied("sensor source does not match application source")
         self.gripper = gripper
         self.sensor = sensor
-        self.log_follow = bool(getattr(gripper, "read_only", False))
+        self.log_follow = bool(
+            getattr(gripper, "read_only", False)
+            or getattr(sensor, "log_transport", None) is not None
+        )
         self.firmware_fixture = getattr(getattr(sensor, "transport", None), "scenario", None)
         self.trial_store = trial_store or TrialStore(self.root, self.source)
         self.clock = clock

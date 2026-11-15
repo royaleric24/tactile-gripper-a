@@ -152,7 +152,7 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py --no-console
 
 ```bash
 PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests     # 全套
-PYTHONPATH=src:. .venv/bin/python -m unittest tests.test_log_follow   # 新增 27 项
+PYTHONPATH=src:. .venv/bin/python -m unittest tests.test_log_follow   # 新增 28 项
 ```
 
 新增覆盖：正常会话、ACK-less、STOP 未确认、重复应答、心跳不产生 PWM 事件、陈旧 ACK、

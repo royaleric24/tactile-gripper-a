@@ -13,7 +13,7 @@
   `execute/stop` 被拒绝。`capture_fsr_live.py`、`run_live_monitor.py` 新增；
   `pwm_console.py` 增加 `--log-dir`。
 - **验证（离线）**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` →
-  **408 tests OK（skipped=1）**；新增 `tests/test_log_follow.py` 27 项 + Dashboard
+  **409 tests OK（skipped=1）**；新增 `tests/test_log_follow.py` 28 项 + Dashboard
   `--follow-session` 启动测试。私有真实日志回放：`d499e640` 53/53 应答匹配、8/8 PWM
   ACK、0 NUL、STOP→`OUTPUT_OFF`；旧 FSR capture 1,719 帧、末帧 −996 counts/0x04。
   Chrome 无头截图：`cards=10 errors=0`，无 server Traceback。
