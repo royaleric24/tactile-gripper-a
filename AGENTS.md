@@ -41,9 +41,16 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 真实输出并可能堵转；PWM 期间 NUL 的机制为 **LEADING_HYPOTHESIS：舵机电流/地弹/EMI 耦合
 UART**，未证实。**当前暂停真实 PWM**。**Test A（PM15S 5V 关、信号线断开）已 PASS**：GPIO4 输出 1500/1450 +
 120 次 PWM 期间心跳，151/151 应答匹配、0 NUL、0 ERROR/FAULT、最终 DISARMED。说明纯 GPIO4 PWM +
-S3 Serial/UART 路径不足以造成该故障；真实故障与舵机接通/通电或机械负载相关。下一步 Phase B
-（有舵机动力、无杯、机械空载，1500/1450 + 60 次心跳，测 5V/地电位/停止重复性）**尚未执行，
-需单独授权**；Phase B 前不继续夹杯、不自动重试 PWM。
+S3 Serial/UART 路径不足以造成该故障。
+
+**2026-11-16 重开 console 新证据**：成功 1040 会话 `cab808…` 409/409、0 NUL，操作者确认
+1500 全开、1040 稳定夹住空杯、无明显形变/下滑；但随后重开的 `a1790d/296054/ab8d2f` 均出现
+NUL ACK + timeout。**`ab8d2f` 没有任何 PWM 命令**（仅 GET_STATUS×2 + BEGIN_BENCH），
+BEGIN_BENCH ACK 含 12 NUL；最后有效 STATUS 为 DISARMED/DISABLED_UNMEASURED。因此
+“重开直接合上”**不是软件 PWM 命令**，是 STOP/DISARM 后舵机失电/失持、弹簧或残余位置（I-220）。
+串口损坏可发生在舵机连接/通电但无 PWM 时，指向舵机 5V/共地/线束/EMI 或闭合堵转状态，
+**尚未实测证实**。下一步：先测 5V/地电位/电流/线束；再做“舵机通电但无 PWM”的 no-PWM 会话
+→ 1500-only → 1040；链路稳定前不继续夹杯、不自动重试 PWM、不改固件/范围。
 
 ## 最近状态（P3-A V2 集成，2026-11-15）
 

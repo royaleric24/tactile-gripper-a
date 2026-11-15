@@ -1,5 +1,27 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜重开 console 后直接闭合与再次 NUL 超时｜hw/p3b1-fsr-real
+
+- **成功机械 1040（无 FSR 同步）**：`cab808…` 会话 409/409、0 NUL、0 timeout/FAULT，
+  PWM 序列至 1040，最终 DISARMED；操作者确认 1500 全开、1040 稳定夹住空杯、无明显形变/下滑。
+- **重开 console 后失败**：`a1790d…`（1500，heartbeat ACK 957 B / **24 NUL**）、
+  `296054…`（1500→1400，heartbeat ACK 957 B / **12 NUL**）、
+  `ab8d2f…`（**无任何 PWM 命令**，BEGIN_BENCH ACK 958 B / **12 NUL**）均 response_timeout。
+- **“重开直接合上”不是 PWM 命令**：`ab8d2f` 只有 GET_STATUS×2 + BEGIN_BENCH，没有
+  BENCH_HOLD/PULSE；最后有效 STATUS 为 DISARMED/DISABLED_UNMEASURED/commanded=null。
+  闭合是 STOP/DISARM 后舵机失电/失持、机械弹簧或残余位置，不是软件下发闭合。记 I-220。
+- **串口损坏新定位**：Test A（舵机 5V 关、信号线断开）151/151、0 NUL；成功 1040 会话 0 NUL；
+  但重开的无 PWM `ab8d2f` 也出现 12 NUL。说明损坏可发生在舵机连接/通电但无 PWM 时，
+  **不是 S3 产生 PWM 本身**；指向舵机 5V/共地/线束/EMI 或闭合堵转状态，**尚未实测证实**。
+- **FSR 数据（失败，未标记成功）**：`evidence/p3b1/private/cup_1040_sync_20261115T175105Z/`
+  15,909 SAMPLE、100% valid、257.67 s、min −126,287 / max 159,253、`0x04` 5,258、无饱和；
+  capture 起点在成功 1040 会话结束之后，覆盖的是失败重开会话，**不是成功 1040 的 FSR 曲线**。
+- **未执行**：未继续 PWM、未自动重试、未改固件/Dashboard/FSR/PWM 范围。
+- **文档**：新增 [重开 timeout 与 idle 损坏诊断](P3B1_RERUN_TIMEOUT_AND_IDLE_CORRUPTION.md)；
+  更新 I-218/I-219，新增 I-220。
+- **下一步（不执行，先修/测）**：先测舵机 5V/地电位/电流与线束；再做“舵机通电但无 PWM”的
+  no-PWM 会话 → 1500-only → 1040；链路稳定前不继续夹杯。
+
 ## 2026-11-16｜测试 A：无舵机负载的 S3 PWM + UART 隔离 PASS｜hw/p3b1-fsr-real
 
 - **条件（操作者确认）**：PM15S 独立 5V 关闭；舵机信号线从 GPIO4 断开；保持 TX 修复固件
