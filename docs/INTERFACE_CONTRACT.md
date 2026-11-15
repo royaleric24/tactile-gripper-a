@@ -2,6 +2,8 @@
 >
 > **2026-11-15 修正**：真实压敏布为 12 电极被动读取（R1–R6 各接 AIN + 各自 10 kΩ 下拉、C1–C6 各接 AIN + 各自 1 kΩ 上拉），**无 GPIO 列激励、无 HI_Z、无 36 点扫描**。下文“6×6/36 感测单元”目标已作废（HISTORICAL），当前接线与 profile 以 WIRING_FREEZE_V2 与 PROTOCOL_V2_PROPOSAL 为准。
 
+> V2 固件实现入口：[FSR_ONLY_INTERFACE_V2.md](hardware/FSR_ONLY_INTERFACE_V2.md)，包含当前 2/12/14 通道的离线协议。
+
 # 软硬件通信边界
 
 当前状态为 PROPOSED。下表摘自两个开发分支的发送器与接收器；联合验收、时钟回绕处理和控制用接触评分的标定尚未冻结。

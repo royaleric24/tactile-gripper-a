@@ -75,3 +75,27 @@ ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO
 - 2026-11-14：P0 完整归档与逐文件 SHA-256 核验通过；旧三工作区保持原状，硬件组 7 修改 + 7 未跟踪受到保护。P1 在公开 main `5ee92cd` 的独立工作区 `docs/demo-v2` 增量引入文档。静态检查通过（12 JSON、无新增断链），6 处历史缺失证据链接记为 I-010。ADC1–3 设计已确认，ADC4 待施工，协议仍 PROPOSED，V2 实机未验证。详见 [进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md) 与 [交接](docs/HANDOFF_CURRENT.md)。本轮范围止于 P0/P1，无硬件动作、烧录或 AUTO。
 
 - 2026-11-14 补充核验：硬件 14 个 WIP 文件已恢复到隔离目录并逐文件核对 SHA-256，符号链接目标与清单一致。接线文档的 Markdown 行尾空格在暂存检查中被发现，已去除；保留首个提交，使用追加提交修正。
+
+## 硬件组离线记录（2026-11-15；历史分支上下文）
+
+
+- 压敏布实为 **12 根独立电极**：R1–R6 各接 ADS1220 一个 AIN 并各用 10 kΩ 下拉 GND；C1–C6 各接
+  一个 AIN 并各用 1 kΩ 上拉 3.3 V。**无 GPIO 列驱动、无 HI_Z、无 36 点扫描**；12 路电压不是
+  36 个压力点。`COLUMN_SCAN_6X6` / `driveColumn()` / `parkColumns()` 与 HYBRID profile 已撤回，
+  生成器拒绝 HYBRID、解析器报 `PROFILE_HISTORICAL`。
+- 新 profile `MATRIX_ELECTRODES_12`（12 通道；+2 FSR = 14 通道）。真实 R/C→ADC/AIN 映射
+  **仍缺失**：配置 `electrodes.map = []`，固件对 12 个通道输出 `null` + `NO_DATA`，不伪造。
+- 证据：三 profile 离线编译 PASS（303819 / 312611 / 312659 B）、host 模拟 4 用例 PASS、
+  fixtures 9 个重建、`test_fsr2_*` 49 用例 OK。**未接线、未烧录、未真实采样**。
+- `docs/demo-v2`（PR #1）已在独立工作区同步修正（12 电极、无列驱动、映射 PENDING、HYBRID 历史）。
+- 硬件操作全部暂停，等用户明确通知与现场映射表；进度/问题/交接见 `docs/PROGRESS.md`、
+  `docs/ISSUES.md`（I-106 起）、`docs/HANDOFF_CURRENT.md`。
+
+## 历史状态（V2 硬件 / FSR_ONLY，2026-11-14）
+
+- 新分支 `hw/fsr-v2`（基线 `origin/feat/hardware-acquisition` @ b38e7bb），独立 worktree `~/Developer/research/tactile-gripper-v2-hw`；旧 `tactile-gripper-a-hw` 的 7 修改 + 7 未跟踪 WIP 已原样保护，未并入本分支。
+- V2 引脚冻结：ADC1 21/34、ADC2 22/35、ADC3 5/26、**ADC4 32/33**，四颗共用 SCLK18/MOSI23；FSR_A/B = ADC4 AIN0/AIN1，各自 10 kΩ 下拉，节点不互连。历史 `miso=[35,26,34]` 只属 V1，V2 生成器拒绝 3 ADC 配置。
+- 固件 `firmware/sensor_fsr2/` 自包含（driver/frame builder/sampler/生成头），不改动冻结的 `firmware/sensor/`。FSR 参考强制 `AVDD_AVSS`（内部 2.048 V 会削顶）。
+- 当前证据等级：两 profile **离线编译 PASS**（FSR_ONLY 303471 B / HYBRID 312695 B）、host 模拟与帧检查 **PASS**；**未接线、未烧录、未真实采样**，因此真实硬件行为一律 `IMPLEMENTED_UNVERIFIED`。
+- 接口以 `docs/hardware/FSR_ONLY_INTERFACE_V2.md` 为准（921600 8N1、null+valid 语义、实测行长度、验收清单）。软件组待办：`tools/tactile_acq/protocol.py` 需 profile 化（现硬编码 12 通道），波特率 115200 → 921600。
+- 进度、问题、交接：`docs/PROGRESS.md`、`docs/ISSUES.md`（新增 I-012 起）、`docs/HANDOFF_CURRENT.md`。`docs/demo-v2`（PR #1）未合入，本分支只引用不复写其文件。

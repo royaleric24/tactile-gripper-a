@@ -9,9 +9,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+.build/
 
 # Local toolchain and downloads (large, reproducible)
 .tools/
+.cache/
 
 # Firmware build outputs and binaries. Stable artifacts are backed up outside Git;
 # see docs/ASSET_MANIFEST.md for paths, versions and SHA-256.
@@ -37,7 +39,6 @@ evidence/
 *.pfx
 
 # Local build caches and private machine configuration
-.cache/
 .pio/
 config/*.local.json
 !.env.example

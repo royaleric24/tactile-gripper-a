@@ -1,3 +1,5 @@
+> 2026-11-15：压敏布实为 12 根被动电极（R×10 kΩ→GND，C×1 kΩ→3.3 V），无 GPIO 列驱动/6×6 扫描。见 docs/hardware/FSR_ONLY_INTERFACE_V2.md。
+
 # 板卡与采集入口
 
 > **2026-11-15 修正指针**：本页是硬件分支历史记录。真实压敏布为 12 电极被动读取（R1–R6 各接 AIN + 10 kΩ 下拉，C1–C6 各接 AIN + 1 kΩ 上拉），**无 GPIO 列激励、无 HI_Z、无 36 点扫描**；当前接线以 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md) 为准。

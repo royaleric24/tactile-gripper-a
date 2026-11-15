@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "device_id": "tactile-esp32-01",
+  "firmware_version": "tactile-matrix-0.1.0",
+  "serial_baud": 921600,
+  "matrix": {
+    "rows": 6,
+    "columns": 6,
+    "cell_order": "ROW_MAJOR_R1C1",
+    "row_pins": [4, 13, 14, 25, 27, 32],
+    "row_series_ohm": 1000,
+    "column_series_ohm": 1000,
+    "column_ref_ohm": 100000,
+    "reference_mode": "AVDD_AVSS",
+    "row_selected_level": "HIGH",
+    "unselected_row_state": "HIGH_Z",
+    "pre_discharge_us": 200,
+    "settle_us": 1000,
+    "conversion_wait_us": 4500,
+    "columns": [
+      {"column": 1, "adc": 1, "ain": 0},
+      {"column": 2, "adc": 1, "ain": 1},
+      {"column": 3, "adc": 2, "ain": 0},
+      {"column": 4, "adc": 2, "ain": 1},
+      {"column": 5, "adc": 3, "ain": 0},
+      {"column": 6, "adc": 3, "ain": 1}
+    ],
+    "unused_ains": [
+      {"adc": 1, "ain": 2},
+      {"adc": 1, "ain": 3},
+      {"adc": 2, "ain": 2},
+      {"adc": 2, "ain": 3},
+      {"adc": 3, "ain": 2},
+      {"adc": 3, "ain": 3}
+    ]
+  },
+  "ads1220": {
+    "spi_half_period_us": 1,
+    "data_rate_sps": 330,
+    "operating_mode": "NORMAL",
+    "conversion_mode": "SINGLE_SHOT",
+    "gain": 1,
+    "pga_bypass": true,
+    "idac_enabled": false,
+    "data_rate_code": 4
+  },
+  "spi": {
+    "sclk": 18,
+    "mosi": 23,
+    "miso": [35, 26, 34],
+    "cs": [21, 22, 5]
+  },
+  "note": "Offline matrix design only. Do not flash until row rework and electrical checks are confirmed."
+}
