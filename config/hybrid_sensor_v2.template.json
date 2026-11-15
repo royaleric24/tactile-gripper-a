@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "status": "USER_CONFIRMED_PINOUT_V2_WIRING_CORRECTED_2026-11-15_BUILD_NOT_STARTED",
+  "notes": "Documentation-only. 2026-11-15 correction (owner): the pressure-sensitive cloth has 12 electrodes, not a 6x6 scanned matrix. No GPIO column excitation, no HI_Z, no 36-point scan. Each R1-R6 electrode goes to its own ADS1220 AIN with its own 10k pulldown to GND; each C1-C6 electrode goes to its own ADS1220 AIN with its own 1k pullup to 3.3V. Electrode-to-ADC/AIN mapping is PENDING_REAL_WIRING; do not fill or guess any ADC/AIN numbers before the real wiring record. ADC1-3 CS/MISO pairings confirmed by user from new wiring diagram; ADC4 is planned, not built. Update legacy firmware pin map and verify SPI before reporting hardware PASS.",
+  "sensor_profiles": [
+    "FSR_ONLY",
+    "MATRIX_ELECTRODES_12"
+  ],
+  "selected_profile": "FSR_ONLY",
+  "historical_superseded_profiles": {
+    "HYBRID_6X6_FSR2": "HISTORICAL_SUPERSEDED_2026-11-15: relied on ESP32 GPIO column drive (4/13/14/25/27/19) and 36-point scanning; not usable on the real cloth and must not be flashed or reported as 36 measured pressure points."
+  },
+  "sensor_serial": {
+    "port": null,
+    "baudrate": null,
+    "verify_from_firmware": true
+  },
+  "gripper_serial": {
+    "port": null,
+    "baudrate": null
+  },
+  "electrodes": {
+    "count": 12,
+    "layout_rows": 6,
+    "layout_columns": 6,
+    "protocol_order": [
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "R5",
+      "R6",
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6"
+    ],
+    "bias_by_role": {
+      "R": {
+        "resistor_ohm_proposal": 10000,
+        "to": "GND",
+        "mode": "pulldown"
+      },
+      "C": {
+        "resistor_ohm_proposal": 1000,
+        "to": "3.3V",
+        "mode": "pullup"
+      }
+    },
+    "gpio_column_drive": false,
+    "hi_z_switching": false,
+    "scan_mode": "PASSIVE_12_ELECTRODE_SINGLE_ENDED",
+    "channel_mapping": [],
+    "mapping_status": "PENDING_REAL_WIRING",
+    "mapping_notes": "Empty by design. Physical mapping is unknown until the real soldering/bench record exists; fill electrode -> ads1220_id -> adc_input per WIRING_FREEZE_V2.md section 4.1. Do not assume row-major order. Channel count is 12 logical measurements, never 36 pressure points.",
+    "adc_reference_mode_proposal": "AVDD_AVSS",
+    "validated": false
+  },
+  "fsr": {
+    "count": 2,
+    "adc_id_proposal": 4,
+    "adc_inputs_proposal": [
+      "AIN0",
+      "AIN1"
+    ],
+    "divider_resistor_ohm_proposal": 10000,
+    "independent_pulldowns_required": true,
+    "excitation_voltage_v_proposal": 3.3,
+    "adc4_cs_gpio_proposal": 32,
+    "adc4_miso_gpio_proposal": 33,
+    "adc_reference_mode_proposal": "AVDD_AVSS",
+    "sensor_model": null,
+    "validated": false
+  },
+  "cup_reference": {
+    "initial_pwm_us_observation": 1300,
+    "visible_deformation_pwm_us_observation": 1270,
+    "operational_min_pwm_us": null,
+    "operational_max_pwm_us": null,
+    "scope": "one specific cup; not a certified clamp bound"
+  },
+  "auto": {
+    "enabled": false,
+    "fsr_contact_threshold": null,
+    "fsr_overpressure_threshold": null,
+    "slip_proxy_threshold": null,
+    "pwm_step_us": null,
+    "min_interval_ms": null,
+    "max_frame_age_ms": null
+  },
+  "spi": {
+    "sclk_gpio": 18,
+    "mosi_gpio": 23,
+    "adc_cs_gpio": [
+      21,
+      22,
+      5,
+      32
+    ],
+    "adc_miso_gpio_v2_user_confirmed": [
+      34,
+      35,
+      26,
+      33
+    ],
+    "adc1": {
+      "cs": 21,
+      "miso": 34
+    },
+    "adc2": {
+      "cs": 22,
+      "miso": 35
+    },
+    "adc3": {
+      "cs": 5,
+      "miso": 26
+    },
+    "adc4": {
+      "cs": 32,
+      "miso": 33
+    },
+    "adc4_status": "PROPOSED_NOT_BUILT",
+    "legacy_miso_gpio_historical_code": [
+      35,
+      26,
+      34
+    ],
+    "legacy_config_migration_required": true,
+    "v2_hardware_communication_verified": false,
+    "separate_cs_and_miso_for_each_adc": true
+  }
+}
