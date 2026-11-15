@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
 """Generate the V2 four-ADS1220 firmware header from a board JSON file.
 
-The V2 board keeps ADC1/ADC2/ADC3 as the 6x6 matrix row inputs and adds ADC4
-for the two FSR dividers.  Two profiles are supported:
+Board facts fixed by the 2026-11-15 wiring correction:
 
-  FSR_ONLY          two channels, ADC4 AIN0/AIN1, matrix scanning disabled
-  HYBRID_6X6_FSR2   38 channels, 0..35 row-major R1C1..R6C6, 36=FSR_A, 37=FSR_B
+* ADC1..ADC4 share SCLK18/MOSI23 with CS 21/22/5/32 and MISO 34/35/26/33.
+* The pressure cloth has twelve independent electrodes.  R1..R6 each sit on
+  their own single-ended AIN with a 10 kOhm resistor to GND; C1..C6 each sit on
+  their own single-ended AIN with a 1 kOhm resistor to 3.3 V.  Nothing drives a
+  column from a GPIO, and twelve electrode voltages are *not* 36 pressure
+  cells.
+* Which electrode reaches which ADC/AIN is decided by the physical harness and
+  has not been recorded yet.  A configuration may therefore declare
+  ``PENDING_REAL_WIRING`` and the generator emits an unmapped channel table
+  (sentinel 0xFF) instead of inventing pins.
 
-The generator validates pin assignments, the ADS1220 configuration and the
-channel ordering before writing anything, so a stale or historical pin map can
-never silently produce a V2 firmware header.  The historical ``[35, 26, 34]``
-MISO order is rejected on purpose: on the V2 board MISO is 34/35/26/33.
+Supported profiles:
+
+  FSR_ONLY            two channels, ADC4 AIN0/AIN1 (the FSR dividers)
+  MATRIX_ELECTRODES_12  twelve electrode channels, optionally followed by the
+                      two FSR channels (14 logical channels)
+
+``HYBRID_6X6_FSR2`` is withdrawn: it modelled 36 scanned cells that the real
+cloth does not have.  It is kept only in git history and the generator refuses
+to produce it again.
 """
 
 import argparse
@@ -39,8 +51,21 @@ REFERENCE_CODES = {
     "AVDD_AVSS": (3, 0xC0),
 }
 
-PROFILES = ("FSR_ONLY", "HYBRID_6X6_FSR2")
-FSR_PROFILES = ("FSR_ONLY", "HYBRID_6X6_FSR2")
+PROFILES = ("FSR_ONLY", "MATRIX_ELECTRODES_12")
+HISTORICAL_PROFILES = ("HYBRID_6X6_FSR2",)
+FSR_PROFILES = PROFILES  # both supported profiles read the 3.3 V divider domain
+ELECTRODE_ROLES = {"R": "ROW", "C": "COLUMN"}
+ELECTRODE_NAMES = ["R%d" % index for index in range(1, 7)] + [
+    "C%d" % index for index in range(1, 7)
+]
+ROW_BIAS = "PULLDOWN_10K_TO_GND"
+COLUMN_BIAS = "PULLUP_1K_TO_3V3"
+MISSING_MAPPING = "PENDING_REAL_WIRING"
+PROVIDED_MAPPING = "TABLE_PROVIDED"
+UNMAPPED = 0xFF
+ELECTRODE_COUNT = 12
+ELECTRODE_ROWS = 6
+ELECTRODE_COLUMNS = 6
 SERIAL_BAUDS = (115200, 230400, 460800, 921600, 1500000, 2000000)
 
 MAX_FIRMWARE_LINE_BYTES = 8192
@@ -175,8 +200,9 @@ def validate_ads1220(ads, profile):
     if profile in FSR_PROFILES:
         if reference_name != "AVDD_AVSS":
             raise SystemExit(
-                "profile %s requires ads1220.reference_mode AVDD_AVSS: the FSR divider sits near "
-                "3.3 V and the internal 2.048 V reference would clip it" % profile
+                "profile %s requires ads1220.reference_mode AVDD_AVSS: the FSR divider and the "
+                "electrode nodes sit near 3.3 V and the internal 2.048 V reference would clip them"
+                % profile
             )
         if gain != 1:
             raise SystemExit(
@@ -205,71 +231,111 @@ def validate_ads1220(ads, profile):
     }
 
 
-def validate_matrix(matrix, sclk, mosi, miso, cs):
-    if not isinstance(matrix, dict):
-        raise SystemExit("matrix must be an object for HYBRID_6X6_FSR2")
-    rows = require_int(matrix.get("rows"), "matrix.rows", 1, 6)
-    cols = require_int(matrix.get("cols"), "matrix.cols", 1, 6)
-    if rows != 6 or cols != 6:
-        raise SystemExit("HYBRID_6X6_FSR2 requires matrix.rows 6 and matrix.cols 6")
+def validate_electrodes(electrodes, adc_count, has_fsr):
+    """Validate the twelve-electrode block and return (channels, mapping_status).
 
-    column_pins = matrix.get("column_pins")
-    if not isinstance(column_pins, list) or len(column_pins) != cols:
-        raise SystemExit("matrix.column_pins must list one GPIO per column")
-    column_pins = [
-        require_int(pin, "matrix.column_pins[%d]" % index, 0, 39)
-        for index, pin in enumerate(column_pins)
-    ]
-    reserved = {sclk, mosi} | set(miso) | set(cs)
-    for index, pin in enumerate(column_pins):
-        if pin in FLASH_PINS:
-            raise SystemExit("matrix.column_pins[%d] uses flash pin GPIO%d" % (index, pin))
-        if pin in INPUT_ONLY_PINS:
-            raise SystemExit("matrix.column_pins[%d] uses input-only GPIO%d" % (index, pin))
-        if pin in reserved:
-            raise SystemExit("matrix.column_pins[%d] GPIO%d collides with an SPI pin" % (index, pin))
-    if len(set(column_pins)) != len(column_pins):
-        raise SystemExit("matrix.column_pins contains duplicate GPIOs")
-
-    row_inputs = matrix.get("row_inputs")
-    if not isinstance(row_inputs, list) or len(row_inputs) != rows:
-        raise SystemExit("matrix.row_inputs must list one entry per row")
-    expected = [(index // 2 + 1, index % 2) for index in range(rows)]
-    mapped = []
-    for index, entry in enumerate(row_inputs):
-        if not isinstance(entry, dict):
-            raise SystemExit("matrix.row_inputs[%d] must be an object" % index)
-        adc_id = require_int(entry.get("adc_id"), "matrix.row_inputs[%d].adc_id" % index, 1, 3)
-        adc_input = require_int(
-            entry.get("adc_input"), "matrix.row_inputs[%d].adc_input" % index, 0, 1
-        )
-        require_int(
-            entry.get("pulldown_resistor_ohm", 10000),
-            "matrix.row_inputs[%d].pulldown_resistor_ohm" % index,
-            100,
-            1000000,
-        )
-        mapped.append((adc_id, adc_input))
-    if mapped != expected:
+    An empty ``map`` means the physical harness is not documented yet.  That is
+    the normal state today: the firmware must then expose twelve explicitly
+    unmapped channels instead of guessing which AIN carries which electrode.
+    """
+    if not isinstance(electrodes, dict):
+        raise SystemExit("electrodes must be an object for MATRIX_ELECTRODES_12")
+    count = require_int(electrodes.get("count"), "electrodes.count", 1, 32)
+    rows = require_int(electrodes.get("rows"), "electrodes.rows", 1, 16)
+    columns = require_int(electrodes.get("columns"), "electrodes.columns", 1, 16)
+    if count != ELECTRODE_COUNT or rows != ELECTRODE_ROWS or columns != ELECTRODE_COLUMNS:
         raise SystemExit(
-            "matrix.row_inputs must map row n to ADC(n//2+1) AIN(n%%2), i.e. %s; the column scan "
-            "firmware assumes that order" % expected
+            "the pressure cloth has %d electrodes in a %dx%d grid; electrodes.count/rows/columns "
+            "must be %d/%d/%d"
+            % (ELECTRODE_COUNT, ELECTRODE_ROWS, ELECTRODE_COLUMNS,
+               ELECTRODE_COUNT, ELECTRODE_ROWS, ELECTRODE_COLUMNS)
+        )
+    if electrodes.get("row_bias", ROW_BIAS) != ROW_BIAS:
+        raise SystemExit(
+            "electrodes.row_bias must be %s: every row electrode has its own 10 kOhm resistor "
+            "to GND" % ROW_BIAS
+        )
+    if electrodes.get("column_bias", COLUMN_BIAS) != COLUMN_BIAS:
+        raise SystemExit(
+            "electrodes.column_bias must be %s: every column electrode has its own 1 kOhm "
+            "resistor to 3.3 V" % COLUMN_BIAS
+        )
+    if electrodes.get("gpio_excitation", False):
+        raise SystemExit(
+            "electrodes.gpio_excitation must be false: the cloth is not scanned by driving "
+            "columns from GPIOs"
         )
 
-    if matrix.get("inactive_column_mode") != "HI_Z":
-        raise SystemExit("matrix.inactive_column_mode must be HI_Z")
-    settle_us = require_int(matrix.get("settle_us", 1000), "matrix.settle_us", 10, 50000)
-    pre_discharge_us = require_int(
-        matrix.get("pre_discharge_us", 200), "matrix.pre_discharge_us", 0, 20000
-    )
-    return {
-        "rows": rows,
-        "cols": cols,
-        "column_pins": column_pins,
-        "settle_us": settle_us,
-        "pre_discharge_us": pre_discharge_us,
-        "scan_mode": require_str(matrix.get("scan_mode", "COLUMN_SCAN_6X6"), "matrix.scan_mode"),
-    }
+    mapping = electrodes.get("map")
+    if not isinstance(mapping, list):
+        raise SystemExit("electrodes.map must be a list (empty while the harness is undocumented)")
+    status = require_str(electrodes.get("mapping_status", MISSING_MAPPING), "electrodes.mapping_status")
+    if status not in (MISSING_MAPPING, PROVIDED_MAPPING):
+        raise SystemExit(
+            "electrodes.mapping_status must be %s or %s" % (MISSING_MAPPING, PROVIDED_MAPPING)
+        )
+
+    entries = {name: None for name in ELECTRODE_NAMES}
+    if not mapping:
+        if status != MISSING_MAPPING:
+            raise SystemExit(
+                "electrodes.mapping_status %s needs a complete map of %d electrodes"
+                % (PROVIDED_MAPPING, ELECTRODE_COUNT)
+            )
+    else:
+        if status != PROVIDED_MAPPING:
+            raise SystemExit(
+                "electrodes.map is filled but mapping_status is %s; set %s once the harness is "
+                "recorded" % (status, PROVIDED_MAPPING)
+            )
+        if len(mapping) != ELECTRODE_COUNT:
+            raise SystemExit("electrodes.map must list all %d electrodes" % ELECTRODE_COUNT)
+        occupied = set()
+        for index, entry in enumerate(mapping):
+            if not isinstance(entry, dict):
+                raise SystemExit("electrodes.map[%d] must be an object" % index)
+            name = require_str(entry.get("electrode"), "electrodes.map[%d].electrode" % index)
+            if name not in entries:
+                raise SystemExit(
+                    "electrodes.map[%d].electrode %r is not one of %s"
+                    % (index, name, ELECTRODE_NAMES)
+                )
+            if entries[name] is not None:
+                raise SystemExit("electrodes.map lists %s more than once" % name)
+            adc_id = require_int(entry.get("adc_id"), "electrodes.map[%d].adc_id" % index, 1, adc_count)
+            if adc_id == adc_count:
+                raise SystemExit(
+                    "electrodes.map[%d] puts %s on ADC%d, which is the FSR ADC; electrode AINs are "
+                    "wired to ADC1..ADC%d" % (index, name, adc_count, adc_count - 1)
+                )
+            adc_input = require_int(
+                entry.get("adc_input"), "electrodes.map[%d].adc_input" % index, 0, 3
+            )
+            if (adc_id, adc_input) in occupied:
+                raise SystemExit(
+                    "electrodes.map[%d] assigns %s to ADC%d AIN%d, already taken by another "
+                    "electrode" % (index, name, adc_id, adc_input)
+                )
+            occupied.add((adc_id, adc_input))
+            entries[name] = (adc_id - 1, adc_input)
+
+    channels = []
+    for position, name in enumerate(ELECTRODE_NAMES, start=1):
+        mapped = entries[name]
+        channel_position = (position - 1) % ELECTRODE_ROWS + 1
+        channels.append(
+            {
+                "channel_id": position - 1,
+                "adc_index": mapped[0] if mapped else UNMAPPED,
+                "adc_input": mapped[1] if mapped else UNMAPPED,
+                "mux_code": 8 + mapped[1] if mapped else UNMAPPED,
+                "kind": "ELECTRODE",
+                "role": ELECTRODE_ROLES[name[0]],
+                "position": channel_position,
+                "name": name,
+            }
+        )
+    return channels, status
 
 
 def validate_stream(stream):
@@ -313,7 +379,7 @@ def validate_stream(stream):
 
 def validate_fsr(fsr, pins, adc_count, channel_count):
     if not isinstance(fsr, dict):
-        raise SystemExit("fsr must be an object")
+        raise SystemExit("fsr must be an object or null")
     adc_id = require_int(fsr.get("adc_id"), "fsr.adc_id", 1, adc_count)
     if adc_id != adc_count:
         raise SystemExit(
@@ -394,37 +460,23 @@ def validate_fsr(fsr, pins, adc_count, channel_count):
     }
 
 
-def build_channels(config, fsr, matrix):
-    profile = config["sensor_profile"]
-    channels = []
-    if profile == "HYBRID_6X6_FSR2":
-        for row in range(matrix["rows"]):
-            for col in range(matrix["cols"]):
-                channels.append(
-                    {
-                        "channel_id": row * matrix["cols"] + col,
-                        "adc_index": row // 2,
-                        "adc_input": row % 2,
-                        "mux_code": 8 + (row % 2),
-                        "kind": "MATRIX_CELL",
-                        "matrix_row": row,
-                        "matrix_col": col,
-                        "name": "R%dC%d" % (row + 1, col + 1),
-                    }
-                )
-    for entry in fsr["channels"]:
-        channels.append(
-            {
-                "channel_id": entry["channel_id"],
-                "adc_index": config["pins"]["cs"].index(config["fsr"]["adc4_cs_gpio"]),
-                "adc_input": entry["adc_input"],
-                "mux_code": entry["mux_code"],
-                "kind": "FSR",
-                "matrix_row": -1,
-                "matrix_col": -1,
-                "name": entry["name"],
-            }
-        )
+def build_channels(electrode_channels, fsr):
+    channels = list(electrode_channels)
+    if fsr is not None:
+        adc_index = 3  # validated: fsr.adc_id == 4 and pins.cs[3] selects ADC4
+        for entry in fsr["channels"]:
+            channels.append(
+                {
+                    "channel_id": entry["channel_id"],
+                    "adc_index": adc_index,
+                    "adc_input": entry["adc_input"],
+                    "mux_code": entry["mux_code"],
+                    "kind": "FSR",
+                    "role": "NONE",
+                    "position": 0,
+                    "name": entry["name"],
+                }
+            )
     channels.sort(key=lambda item: item["channel_id"])
     for index, channel in enumerate(channels):
         if channel["channel_id"] != index:
@@ -440,25 +492,24 @@ def display_path(path):
         return Path(path).name
 
 
-def render_header(config, config_path, profile, ads, pins, fsr, matrix, stream, channels):
+def render_header(config, config_path, profile, ads, pins, fsr, electrodes, stream, channels):
     def cstr(value):
         return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
     miso = [str(pin) for pin in pins[2]]
     cs = [str(pin) for pin in pins[3]]
-    column_pins = [str(pin) for pin in (matrix["column_pins"] if matrix else [0])]
-    fsr_ids = [str(item["channel_id"]) for item in fsr["channels"]]
+    fsr_ids = [str(item["channel_id"]) for item in fsr["channels"]] if fsr else []
     fsr_ids.sort(key=int)
 
     digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
     channel_count = len(channels)
-    matrix_rows = matrix["rows"] if matrix else 0
-    matrix_cols = matrix["cols"] if matrix else 0
-    matrix_adcs = 3 if matrix else 0
-    rounds = 2 if matrix else 0
-    column_count = matrix["cols"] if matrix else 0
-    settle_us = matrix["settle_us"] if matrix else 0
-    discharge_us = matrix["pre_discharge_us"] if matrix else 0
+    electrode_count = len(electrodes[0]) if electrodes else 0
+    mapping_status = electrodes[1] if electrodes else MISSING_MAPPING
+    row_bias = ROW_BIAS
+    column_bias = COLUMN_BIAS
+    divider_ohm = fsr["divider_ohm"] if fsr else 0
+    excitation_mv = fsr["excitation_mv"] if fsr else 0
+    scan_mode = config.get("scan_mode") or ("OFFLINE_ELECTRODE_READ" if electrodes else "FSR_ONLY_2CH")
 
     lines = []
     lines.append("// AUTO-GENERATED FILE - do not edit by hand.")
@@ -466,8 +517,13 @@ def render_header(config, config_path, profile, ads, pins, fsr, matrix, stream, 
     lines.append("// Regenerate: python3 scripts/generate_sensor_fsr2_config.py --config %s"
                  % display_path(config_path))
     lines.append("//")
-    lines.append("// V2 board: four ADS1220 share SCLK/MOSI; ADC1/ADC2/ADC3 carry the 6x6 matrix")
-    lines.append("// rows, ADC4 carries the two FSR dividers.  Channel order is the protocol order.")
+    lines.append("// V2 board: four ADS1220 share SCLK/MOSI.  Every electrode and every FSR")
+    lines.append("// divider is read on its own single-ended AIN; no GPIO drives a column.")
+    if electrodes and mapping_status == MISSING_MAPPING:
+        lines.append("//")
+        lines.append("// WIRING NOT RECORDED: electrode channels are emitted with sentinel")
+        lines.append("// 0xFF (unmapped) and the firmware reports null + NO_DATA for them.")
+        lines.append("// Fill electrodes.map in the JSON once the harness is documented.")
     lines.append("#pragma once")
     lines.append("")
     lines.append('#include "fsr2.h"')
@@ -475,15 +531,13 @@ def render_header(config, config_path, profile, ads, pins, fsr, matrix, stream, 
     lines.append("// MISO/CS are ordered by ADS1220 index: ADC1..ADC%d." % len(cs))
     lines.append("static const uint8_t FSR2_MISO_PINS[%d] = {%s};" % (len(miso), ", ".join(miso)))
     lines.append("static const uint8_t FSR2_CS_PINS[%d] = {%s};" % (len(cs), ", ".join(cs)))
-    if matrix:
-        lines.append("static const uint8_t FSR2_COLUMN_PINS[%d] = {%s};"
-                     % (len(column_pins), ", ".join(column_pins)))
-    else:
-        lines.append("// FSR_ONLY drives no matrix columns; the placeholder keeps the array non-empty.")
-        lines.append("static const uint8_t FSR2_COLUMN_PINS[1] = {0};")
     if fsr_ids:
         lines.append("static const uint8_t FSR2_FSR_CHANNEL_INDICES[%d] = {%s};"
                      % (len(fsr_ids), ", ".join(fsr_ids)))
+    lines.append("")
+    lines.append("static const char FSR2_ELECTRODE_MAPPING[] = %s;" % cstr(mapping_status))
+    lines.append("static const char FSR2_ROW_BIAS[] = %s;" % cstr(row_bias))
+    lines.append("static const char FSR2_COLUMN_BIAS[] = %s;" % cstr(column_bias))
     lines.append("")
     lines.append("// Buffer sizes the sketch must provide; confirmed against struct Fsr2Profile.")
     lines.append("static const uint16_t FSR2_MAX_LINE_BYTES = %d;" % stream["max_line_bytes"])
@@ -491,16 +545,18 @@ def render_header(config, config_path, profile, ads, pins, fsr, matrix, stream, 
                  % stream["max_command_bytes"])
     lines.append("")
     lines.append("static const Fsr2ChannelConfig FSR2_CHANNELS[%d] = {" % channel_count)
+    kind_names = {"ELECTRODE": "FSR2_KIND_ELECTRODE", "FSR": "FSR2_KIND_FSR"}
+    role_names = {"NONE": "FSR2_ROLE_NONE", "ROW": "FSR2_ROLE_ROW", "COLUMN": "FSR2_ROLE_COLUMN"}
     for channel in channels:
         lines.append(
-            "    {%d, %d, %d, %s, %d, %d, %s},  // channel %d"
+            "    {%d, %d, %d, %s, %s, %d, %s},  // channel %d"
             % (
                 channel["adc_index"],
                 channel["adc_input"],
                 channel["mux_code"],
-                "FSR2_KIND_MATRIX_CELL" if channel["kind"] == "MATRIX_CELL" else "FSR2_KIND_FSR",
-                channel["matrix_row"],
-                channel["matrix_col"],
+                kind_names[channel["kind"]],
+                role_names[channel["role"]],
+                channel["position"],
                 cstr(channel["name"]),
                 channel["channel_id"],
             )
@@ -512,9 +568,7 @@ def render_header(config, config_path, profile, ads, pins, fsr, matrix, stream, 
     lines.append("    %s,  // device_id" % cstr(config["device_id"]))
     lines.append("    %s,  // firmware_version" % cstr(config["firmware_version"]))
     lines.append("    %s,  // sensor_profile" % cstr(profile))
-    lines.append(
-        "    %s,  // scan_mode" % cstr(matrix["scan_mode"] if matrix else "FSR_ONLY_2CH")
-    )
+    lines.append("    %s,  // scan_mode" % cstr(scan_mode))
     lines.append("    %s,  // reference_mode_name" % cstr(ads["reference_name"]))
     lines.append("    %dUL,  // serial_baud" % config["serial_baud"])
     lines.append("    %d,  // sclk_pin" % pins[0])
@@ -523,18 +577,16 @@ def render_header(config, config_path, profile, ads, pins, fsr, matrix, stream, 
     lines.append("    %d,  // channel_count" % channel_count)
     lines.append("    FSR2_MISO_PINS,  // miso_pins")
     lines.append("    FSR2_CS_PINS,  // cs_pins")
-    lines.append("    %d,  // matrix_rows" % matrix_rows)
-    lines.append("    %d,  // matrix_cols" % matrix_cols)
-    lines.append("    %d,  // matrix_adc_count" % matrix_adcs)
-    lines.append("    %d,  // matrix_rounds" % rounds)
-    lines.append("    %d,  // column_count" % column_count)
-    lines.append("    %s,  // column_pins" % ("FSR2_COLUMN_PINS" if matrix else "nullptr"))
-    lines.append("    %d,  // matrix_settle_us" % settle_us)
-    lines.append("    %d,  // matrix_pre_discharge_us" % discharge_us)
-    lines.append("    %d,  // fsr_count" % len(fsr["channels"]))
-    lines.append("    FSR2_FSR_CHANNEL_INDICES,  // fsr_channel_indices")
-    lines.append("    %d,  // fsr_divider_ohm" % fsr["divider_ohm"])
-    lines.append("    %d,  // fsr_excitation_mv" % fsr["excitation_mv"])
+    lines.append("    %d,  // electrode_count" % electrode_count)
+    lines.append("    %d,  // electrode_rows" % (ELECTRODE_ROWS if electrodes else 0))
+    lines.append("    %d,  // electrode_columns" % (ELECTRODE_COLUMNS if electrodes else 0))
+    lines.append("    %s,  // electrode_mapping" % ("FSR2_ELECTRODE_MAPPING" if electrodes else "nullptr"))
+    lines.append("    %s,  // row_bias" % ("FSR2_ROW_BIAS" if electrodes else "nullptr"))
+    lines.append("    %s,  // column_bias" % ("FSR2_COLUMN_BIAS" if electrodes else "nullptr"))
+    lines.append("    %d,  // fsr_count" % (len(fsr["channels"]) if fsr else 0))
+    lines.append("    %s,  // fsr_channel_indices" % ("FSR2_FSR_CHANNEL_INDICES" if fsr else "nullptr"))
+    lines.append("    %d,  // fsr_divider_ohm" % divider_ohm)
+    lines.append("    %d,  // fsr_excitation_mv" % excitation_mv)
     lines.append("    FSR2_CHANNELS,  // channels")
     lines.append("    %d,  // reference_mode_code" % ads["reference_code"])
     lines.append("    %d,  // data_rate_code" % ads["data_rate_code"])
@@ -560,6 +612,12 @@ def generate(config_path, output_path):
         raise SystemExit("%s must contain a JSON object" % config_path)
 
     profile = require_str(config.get("sensor_profile"), "sensor_profile")
+    if profile in HISTORICAL_PROFILES:
+        raise SystemExit(
+            "sensor_profile %s is withdrawn: the pressure cloth has twelve independent electrodes "
+            "and is not scanned as 6x6 cells.  Use MATRIX_ELECTRODES_12 (optionally with the two "
+            "FSR channels) and record the real R/C to ADC/AIN harness mapping first." % profile
+        )
     if profile not in PROFILES:
         raise SystemExit("sensor_profile %r is not one of %s" % (profile, list(PROFILES)))
     require_str(config.get("device_id"), "device_id")
@@ -573,25 +631,45 @@ def generate(config_path, output_path):
     ads = validate_ads1220(config.get("ads1220"), profile)
     stream = validate_stream(config.get("stream"))
 
-    matrix = None
-    if profile == "HYBRID_6X6_FSR2":
-        matrix = validate_matrix(config.get("matrix"), pins[0], pins[1], pins[2], pins[3])
-    elif config.get("matrix") is not None:
-        raise SystemExit("FSR_ONLY must set matrix to null: no column is driven in this profile")
+    if config.get("matrix") is not None:
+        raise SystemExit(
+            "matrix must be null: the cloth has no scanned matrix; electrodes are described by "
+            "the electrodes block"
+        )
 
-    fsr_channel_count = 2
-    channel_count = (matrix["rows"] * matrix["cols"] if matrix else 0) + fsr_channel_count
-    fsr = validate_fsr(config.get("fsr"), pins, adc_count, channel_count)
-    channels = build_channels(config, fsr, matrix)
+    electrodes = None
+    fsr_config = config.get("fsr")
+    if profile == "FSR_ONLY":
+        if config.get("electrodes") is not None:
+            raise SystemExit("FSR_ONLY must set electrodes to null; use MATRIX_ELECTRODES_12")
+        if fsr_config is None:
+            raise SystemExit("FSR_ONLY needs the fsr block")
+        electrode_count = 0
+    else:
+        if fsr_config is not None and not isinstance(fsr_config, dict):
+            raise SystemExit("fsr must be an object or null")
+        electrodes = validate_electrodes(config.get("electrodes"), adc_count, fsr_config is not None)
+        electrode_count = len(electrodes[0])
+
+    fsr = None
+    channel_count = electrode_count
+    if fsr_config is not None:
+        channel_count += 2
+        fsr = validate_fsr(fsr_config, pins, adc_count, channel_count)
+
+    channels = build_channels(electrodes[0] if electrodes else [], fsr)
+    if len(channels) != channel_count:  # pragma: no cover - defensive
+        raise SystemExit("internal channel count mismatch")
 
     text = render_header(
-        config, config_path, profile, ads, pins, fsr, matrix, stream, channels
+        config, config_path, profile, ads, pins, fsr, electrodes, stream, channels
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(text, encoding="utf-8")
     return {
         "profile": profile,
         "channel_count": channel_count,
+        "mapping_status": electrodes[1] if electrodes else "NOT_APPLICABLE",
         "output": str(output_path),
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
     }
@@ -612,8 +690,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     result = generate(Path(args.config).resolve(), Path(args.output).resolve())
     print(
-        "wrote %s (%s profile, %d channels, header sha256 %s)"
-        % (result["output"], result["profile"], result["channel_count"], result["sha256"][:16])
+        "wrote %s (%s profile, %d channels, mapping %s, header sha256 %s)"
+        % (
+            result["output"],
+            result["profile"],
+            result["channel_count"],
+            result["mapping_status"],
+            result["sha256"][:16],
+        )
     )
     return 0
 

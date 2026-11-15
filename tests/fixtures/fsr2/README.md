@@ -1,4 +1,4 @@
-# FSR V2 样例帧
+# 触觉采集样例帧（V2）
 
 这些 JSONL 行**由固件帧构造器通过 host 模拟实际输出**，再写入文件，不是手写样例，也不是硬件实测。
 
@@ -9,11 +9,18 @@
 
 | 文件 | 内容 |
 |---|---|
-| `hello_fsr_only.json` | FSR_ONLY HELLO，2 通道，四 ADC 全 OK |
-| `sample_fsr_only_valid.json` | 健康帧，两路 counts 有效 |
-| `sample_fsr_only_no_adc4.json` | ADC4 无响应：两通道 null + `NO_DATA` |
-| `hello_hybrid.json` | HYBRID_6X6_FSR2 HELLO，38 通道 |
-| `sample_hybrid_valid.json` | 38 通道健康帧 |
-| `sample_hybrid_no_adc4.json` | 矩阵 36 通道有效、两路 FSR 失效 |
+| `hello_fsr_only.json` | FSR_ONLY HELLO，2 通道 |
+| `sample_fsr_only_valid.json` | FSR 健康帧 |
+| `sample_fsr_only_no_adc4.json` | ADC4 无响应：两路 FSR `null` + `NO_DATA` |
+| `hello_electrodes12_fsr2_unmapped.json` | 12 电极 + FSR HELLO，`mapping_status = PENDING_REAL_WIRING` |
+| `sample_electrodes12_fsr2_unmapped.json` | 12 电极全部 `null` + `NO_DATA`，FSR 两路有效 |
+| `sample_electrodes12_fsr2_fsr_absent.json` | ADC4 缺失：FSR 失效，电极仍为未映射 |
+| `hello_electrodes12_mapped_synthetic.json` | 12 电极**合成映射** HELLO（仅测试） |
+| `sample_electrodes12_mapped_synthetic.json` | 合成映射下 12 路电极数值（仅测试） |
+| `sample_electrodes12_mapped_adc_absent.json` | 合成映射下 ADC1 缺失（仅测试） |
+
+**注意**：`*_mapped_*` 系列使用 `tools/fsr2_sim/electrode_test_profile.h` 的
+`SIM_SYNTHETIC_MAPPING`，只证明"映射齐全时读数正确"的代码路径；它不是现场接线表，不能作为
+配置模板或验收证据。真实 R/C→ADC/AIN 映射缺失状态见 `docs/ISSUES.md` I-107。
 
 真实硬件跑通后，再补一组带实测 AVDD 与按压记录的样例；在此之前本目录**不得**被引用为硬件证据。

@@ -33,7 +33,8 @@ SIM_SOURCES = [
 TESTS = [
     ("test_fsr2_driver", "tools/fsr2_sim/test_fsr2_driver.cpp", []),
     ("test_fsr2_sampler", "tools/fsr2_sim/test_fsr2_sampler.cpp", []),
-    ("test_fsr2_sampler_hybrid", "tools/fsr2_sim/test_fsr2_sampler_hybrid.cpp", []),
+    ("test_fsr2_sampler_electrodes", "tools/fsr2_sim/test_fsr2_sampler_electrodes.cpp", []),
+    ("test_fsr2_sampler_mapped", "tools/fsr2_sim/test_fsr2_sampler_mapped.cpp", []),
 ]
 
 INCLUDE_DIRS = ["tools/firmware_sim", "tools/fsr2_sim", "firmware/sensor_fsr2"]
@@ -103,8 +104,9 @@ def main(argv: list[str]) -> int:
 
     summary["result"] = "PASS" if failed == 0 else "FAIL"
     summary["note"] = (
-        "Offline host simulation of four ADS1220 devices. It validates driver timing, "
-        "decode, sampler validity semantics and JSON framing. It is not hardware evidence."
+        "Offline host simulation of four ADS1220 devices. It validates driver timing, decode, "
+        "the 12-electrode null/NO_DATA semantics, FSR acquisition and JSON framing. The mapped "
+        "electrode case uses a SYNTHETIC table, not the real harness. Not hardware evidence."
     )
     (evidence / "host_tests.json").write_text(json.dumps(summary, indent=2) + "\n")
     print("host tests:", summary["result"])

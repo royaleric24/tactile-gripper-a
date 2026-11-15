@@ -2,9 +2,10 @@
 //
 // The wire format is protocol_version 1 JSON lines, as before.  The V2
 // additions are additive and optional for an old consumer:
-//   * "sensor_profile"      FSR_ONLY or HYBRID_6X6_FSR2
-//   * "sensor_kind"         MATRIX_CELL or FSR, per channel in channel_config
-//   * "fsr_layout"          FSR divider description in HELLO/STATUS
+//   * "sensor_profile"      FSR_ONLY or MATRIX_ELECTRODES_12
+//   * "sensor_kind"         ELECTRODE or FSR, per channel in channel_config
+//   * "electrode_layout"    electrode roles/bias and the real (or MISSING) ADC map
+//   * "fsr_layout"          FSR divider description (only when fsr_count > 0)
 //   * "channel_config.status" carries the verification state honestly
 //
 // The builders take the profile by reference, so the same compiled code emits

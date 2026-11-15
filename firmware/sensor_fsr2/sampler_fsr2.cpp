@@ -11,7 +11,6 @@ const int32_t kNegativeFullScale = -8388608;  // -2^23
 const int32_t kNearRail = 8220834;            // 98 % of the positive full scale
 const uint8_t kMaxChannels = 64;
 const uint8_t kMaxAdcs = 4;
-const uint8_t kMaxColumns = 16;
 const uint8_t kMaxWindow = 64;
 
 uint8_t clampWindow(uint8_t requested) {
@@ -50,11 +49,14 @@ Fsr2Sampler::Fsr2Sampler(const Fsr2Profile& profile)
       started_(false),
       poll_hook_(nullptr) {}
 
-uint8_t Fsr2Sampler::firstChannelOfDevice(uint8_t index) const {
+uint8_t Fsr2Sampler::firstMuxOfDevice(uint8_t index) const {
   for (uint8_t channel_id = 0; channel_id < profile_->channel_count; ++channel_id) {
-    if (profile_->channels[channel_id].adc_index == index) return channel_id;
+    const Fsr2ChannelConfig& channel = profile_->channels[channel_id];
+    if (channel.adc_index == index) return channel.mux_code;
   }
-  return 0;
+  // No channel on this converter (for example ADC4 in a profile without FSR).
+  // The MUX nibble still has to hold a legal single-ended code.
+  return 8;
 }
 
 void Fsr2Sampler::buildExpectedConfig(uint8_t index, uint8_t mux_code, uint8_t out[4]) const {
@@ -74,8 +76,7 @@ bool Fsr2Sampler::begin(const char* boot_id, uint32_t now_ms) {
     last_error_ = "UNSUPPORTED_CHANNEL_LAYOUT";
     return false;
   }
-  if (profile_->channel_count > kMaxChannels || profile_->adc_count > kMaxAdcs ||
-      profile_->column_count > kMaxColumns) {
+  if (profile_->channel_count > kMaxChannels || profile_->adc_count > kMaxAdcs) {
     last_error_ = "PROFILE_EXCEEDS_FIRMWARE_LIMITS";
     return false;
   }
@@ -104,13 +105,13 @@ bool Fsr2Sampler::begin(const char* boot_id, uint32_t now_ms) {
     last_success_ms_[index] = 0;
     last_reinit_ms_[index] = 0;
     config_checks_[index] = 0;
-    last_mux_code_[index] = profile_->channels[firstChannelOfDevice(index)].mux_code;
+    last_mux_code_[index] = firstMuxOfDevice(index);
   }
   for (uint8_t channel_id = 0; channel_id < kMaxChannels; ++channel_id) {
     invalidateChannel(channel_id);
   }
   for (uint8_t index = 0; index < profile_->adc_count; ++index) {
-    last_mux_code_[index] = profile_->channels[firstChannelOfDevice(index)].mux_code;
+    last_mux_code_[index] = firstMuxOfDevice(index);
   }
 
   delay(20);  // let the four converters finish their power-on reset
@@ -130,7 +131,7 @@ bool Fsr2Sampler::initDevice(uint8_t index, bool recovery, uint32_t now_ms) {
   uint8_t reset_defaults[4] = {0, 0, 0, 0};
   bool ok = devices_[index].probe(reset_defaults);
   if (ok) {
-    const uint8_t mux = profile_->channels[firstChannelOfDevice(index)].mux_code;
+    const uint8_t mux = firstMuxOfDevice(index);
     uint8_t expected[4];
     buildExpectedConfig(index, mux, expected);
     uint8_t readback[4] = {0, 0, 0, 0};
@@ -247,88 +248,36 @@ bool Fsr2Sampler::waitConversion(uint16_t wait_us) {
   return true;
 }
 
-void Fsr2Sampler::driveColumn(uint8_t column) {
-  for (uint8_t index = 0; index < profile_->column_count; ++index) {
-    const uint8_t pin = profile_->column_pins[index];
-    if (!streaming_) return;
-    if (index == column) {
-      pinMode(pin, OUTPUT);
-      digitalWrite(pin, HIGH);
-    } else {
-      // Inactive columns stay high impedance; the row pulldowns define the
-      // node so an unselected column cannot drive current into the matrix.
-      pinMode(pin, INPUT);
-    }
-  }
-}
-
-void Fsr2Sampler::parkColumns() {
-  for (uint8_t index = 0; index < profile_->column_count; ++index) {
-    pinMode(profile_->column_pins[index], INPUT);
-  }
-}
-
 bool Fsr2Sampler::scanFrame(uint32_t now_us, uint32_t now_ms) {
   if (!started_ || !streaming_) return false;
   const uint32_t frame_start = now_us;
 
-  if (profile_->matrix_rows > 0) {
-    for (uint8_t column = 0; column < profile_->column_count; ++column) {
-      parkColumns();
-      if (profile_->matrix_pre_discharge_us > 0) {
-        delayMicroseconds(profile_->matrix_pre_discharge_us);
+  if (profile_->electrode_count > 0) {
+    const bool electrodes_mapped = fsr2ElectrodesMapped(*profile_);
+    for (uint8_t channel_id = 0; channel_id < profile_->electrode_count; ++channel_id) {
+      const Fsr2ChannelConfig& channel = profile_->channels[channel_id];
+      // An unmapped electrode has no ADC/AIN at all, so it is reported as
+      // null + NO_DATA every frame rather than as a plausible-looking number.
+      if (!electrodes_mapped || status_[channel.adc_index].state != FSR2_ADC_OK) {
+        invalidateChannel(channel_id);
+        continue;
       }
-      driveColumn(column);
-      if (profile_->matrix_settle_us > 0) {
-        delayMicroseconds(profile_->matrix_settle_us);
-      }
-      for (uint8_t round = 0; round < profile_->matrix_rounds; ++round) {
-        bool conversion_started = false;
-        for (uint8_t adc = 0; adc < profile_->matrix_adc_count; ++adc) {
-          if (status_[adc].state != FSR2_ADC_OK) continue;
-          uint8_t channel_id = 0;
-          if (!fsr2MatrixChannelIndex(*profile_, adc, round, column, &channel_id)) continue;
-          devices_[adc].setMux(profile_->channels[channel_id].mux_code);
-          last_mux_code_[adc] = profile_->channels[channel_id].mux_code;
-          devices_[adc].startConversion();
-          conversion_started = true;
-        }
-        if (!conversion_started) {
-          for (uint8_t adc = 0; adc < profile_->matrix_adc_count; ++adc) {
-            uint8_t channel_id = 0;
-            if (fsr2MatrixChannelIndex(*profile_, adc, round, column, &channel_id)) {
-              invalidateChannel(channel_id);
-            }
-          }
-          continue;
-        }
-        if (!waitConversion(profile_->conversion_wait_us)) {
-          // Streaming stopped mid-conversion: never leave a column energised.
-          parkColumns();
-          return false;
-        }
-        for (uint8_t adc = 0; adc < profile_->matrix_adc_count; ++adc) {
-          uint8_t channel_id = 0;
-          if (!fsr2MatrixChannelIndex(*profile_, adc, round, column, &channel_id)) continue;
-          if (status_[adc].state != FSR2_ADC_OK) {
-            invalidateChannel(channel_id);
-            continue;
-          }
-          int32_t value = 0;
-          if (devices_[adc].readData(&value)) {
-            recordChannel(channel_id, value, static_cast<uint32_t>(micros()), now_ms);
-          } else {
-            markDeviceError(adc, "READ_FAILED");
-            invalidateDeviceChannels(adc);
-          }
-        }
+      devices_[channel.adc_index].setMux(channel.mux_code);
+      last_mux_code_[channel.adc_index] = channel.mux_code;
+      devices_[channel.adc_index].startConversion();
+      if (!waitConversion(profile_->conversion_wait_us)) return false;
+      int32_t value = 0;
+      if (devices_[channel.adc_index].readData(&value)) {
+        recordChannel(channel_id, value, static_cast<uint32_t>(micros()), now_ms);
+      } else {
+        markDeviceError(channel.adc_index, "READ_FAILED");
+        invalidateDeviceChannels(channel.adc_index);
       }
     }
-    parkColumns();
   }
 
   const uint8_t fsr_adc = static_cast<uint8_t>(profile_->adc_count - 1);
-  for (uint8_t index = 0; index < profile_->fsr_count; ++index) {
+  for (uint8_t index = 0; profile_->fsr_count > 0 && index < profile_->fsr_count; ++index) {
     const uint8_t channel_id = profile_->fsr_channel_indices[index];
     if (status_[fsr_adc].state != FSR2_ADC_OK) {
       invalidateChannel(channel_id);
@@ -337,10 +286,7 @@ bool Fsr2Sampler::scanFrame(uint32_t now_us, uint32_t now_ms) {
     devices_[fsr_adc].setMux(profile_->channels[channel_id].mux_code);
     last_mux_code_[fsr_adc] = profile_->channels[channel_id].mux_code;
     devices_[fsr_adc].startConversion();
-    if (!waitConversion(profile_->conversion_wait_us)) {
-      if (profile_->matrix_rows > 0) parkColumns();
-      return false;
-    }
+    if (!waitConversion(profile_->conversion_wait_us)) return false;
     int32_t value = 0;
     if (devices_[fsr_adc].readData(&value)) {
       recordChannel(channel_id, value, static_cast<uint32_t>(micros()), now_ms);

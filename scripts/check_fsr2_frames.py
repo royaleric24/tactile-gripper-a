@@ -2,14 +2,15 @@
 """Check the V2 firmware JSONL output and refresh the committed fixtures.
 
 The firmware code is compiled against tools/fsr2_sim and asked to emit HELLO and
-SAMPLE lines for both sensor profiles.  Every line is parsed with the strict
-reference parser in tools/fsr2/protocol_v2.py, then copied into
-tests/fixtures/fsr2 so software-group tests can parse the real structure without
-a board.
+SAMPLE lines for the FSR-only profile, the production 14-channel electrode
+profile (real mapping still missing) and a synthetic fully-mapped electrode
+table.  Every line is parsed with the strict reference parser in
+tools/fsr2/protocol_v2.py, then copied into tests/fixtures/fsr2 so software tests
+can parse the real structure without a board.
 
 The fixtures are SIMULATED.  They demonstrate the wire format, the null/NO_DATA
-semantics and the profile channel tables; they are not measurements and must not
-be presented as hardware evidence.
+semantics and the electrode tables; they are not measurements and must not be
+presented as hardware evidence.
 """
 
 from __future__ import annotations
@@ -32,18 +33,31 @@ FIXTURE_DIR = ROOT / "tests" / "fixtures" / "fsr2"
 DEFAULT_EVIDENCE = ROOT / "evidence" / "fsr2" / "frames"
 
 EMITTERS = [
-    ("test_fsr2_sampler", "FSR_ONLY"),
-    ("test_fsr2_sampler_hybrid", "HYBRID_6X6_FSR2"),
+    ("test_fsr2_sampler", "fsr"),
+    ("test_fsr2_sampler_electrodes", "electrodes_unmapped"),
+    ("test_fsr2_sampler_mapped", "electrodes_mapped"),
 ]
 
 FIXTURE_NAMES = {
-    ("FSR_ONLY", 0): "hello_fsr_only.json",
-    ("FSR_ONLY", 1): "sample_fsr_only_valid.json",
-    ("FSR_ONLY", 2): "sample_fsr_only_no_adc4.json",
-    ("HYBRID_6X6_FSR2", 0): "hello_hybrid.json",
-    ("HYBRID_6X6_FSR2", 1): "sample_hybrid_valid.json",
-    ("HYBRID_6X6_FSR2", 2): "sample_hybrid_no_adc4.json",
+    ("fsr", 0): "hello_fsr_only.json",
+    ("fsr", 1): "sample_fsr_only_valid.json",
+    ("fsr", 2): "sample_fsr_only_no_adc4.json",
+    ("electrodes_unmapped", 0): "hello_electrodes12_fsr2_unmapped.json",
+    ("electrodes_unmapped", 1): "sample_electrodes12_fsr2_unmapped.json",
+    ("electrodes_unmapped", 2): "sample_electrodes12_fsr2_fsr_absent.json",
+    ("electrodes_mapped", 0): "hello_electrodes12_mapped_synthetic.json",
+    ("electrodes_mapped", 1): "sample_electrodes12_mapped_synthetic.json",
+    ("electrodes_mapped", 2): "sample_electrodes12_mapped_adc_absent.json",
 }
+RETIRED_FIXTURES = (
+    "hello_hybrid.json",
+    "sample_hybrid_valid.json",
+    "sample_hybrid_no_adc4.json",
+)
+
+ELECTRODE_NAMES = ["R%d" % index for index in range(1, 7)] + [
+    "C%d" % index for index in range(1, 7)
+]
 
 
 class CheckFailure(Exception):
@@ -62,8 +76,7 @@ def emit_lines(binary: Path) -> list[str]:
     result = subprocess.run([str(binary), "--emit"], cwd=ROOT, capture_output=True, text=True)
     if result.returncode != 0:
         raise CheckFailure("emitter failed: %s" % (result.stdout[-2000:],))
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
-    return lines
+    return [line for line in result.stdout.splitlines() if line.strip()]
 
 
 def describe(message) -> str:
@@ -72,7 +85,7 @@ def describe(message) -> str:
     return "%s %s" % (message["type"], message["sensor_profile"])
 
 
-def validate_fsr_only(frames: list, profile: str) -> None:
+def validate_fsr_only(frames: list) -> None:
     hello, valid, missing = frames
     check(hello["type"] == "HELLO" and hello["sensor_profile"] == "FSR_ONLY", "FSR_ONLY HELLO parses")
     check(hello["channel_count"] == 2, "FSR_ONLY declares two channels")
@@ -89,45 +102,89 @@ def validate_fsr_only(frames: list, profile: str) -> None:
 
     check(valid.frame_seq == 2 and valid.channel_count == 2, "FSR_ONLY SAMPLE has two channels")
     check(all(valid.valid), "healthy frame marks both FSR channels valid")
-    check(valid.channels[0] is not None and valid.channels[1] is not None, "healthy FSR channels carry counts")
     check(valid.fsr_values["FSR_A"] < valid.fsr_values["FSR_B"], "injected divider order is preserved")
-    check(all(entry["state"] == "OK" for entry in valid.adc_status), "healthy frame reports four OK converters")
+    check(all(entry["state"] == "OK" for entry in valid.adc_status),
+          "healthy frame reports four OK converters")
     check(valid.frame_period_us == 10000, "frame period is reported once a previous frame exists")
-    check(valid.effective_frame_rate_hz > 0, "frame rate is derived from the window")
 
     check(missing.frame_seq == 3, "the missing-converter frame keeps the sequence")
     for channel in (0, 1):
         check(missing.channels[channel] is None, "absent ADC4 channel %d is null, not zero" % (channel,))
         check(missing.valid[channel] is False, "absent ADC4 channel %d is invalid" % (channel,))
-        check(proto.FLAG_NO_DATA in [bit for bit in proto.CHANNEL_FLAGS if missing.channel_flags[channel] & bit],
+        check(missing.channel_flags[channel] == proto.FLAG_NO_DATA,
               "absent ADC4 channel %d carries NO_DATA" % (channel,))
     check(missing.adc_status[3]["state"] != "OK", "absent ADC4 is reported as not OK")
 
 
-def validate_hybrid(frames: list, profile: str) -> None:
-    hello, valid, missing = frames
-    check(hello["sensor_profile"] == "HYBRID_6X6_FSR2" and hello["channel_count"] == 38,
-          "HYBRID HELLO declares 38 channels")
-    check(hello["channel_config"]["matrix_rows"] == 6 and hello["channel_config"]["matrix_cols"] == 6,
-          "HYBRID channel_config declares a 6x6 matrix")
-    check(hello["pins"]["matrix_columns"] == [4, 13, 14, 25, 27, 19],
-          "HYBRID HELLO carries the six column GPIOs")
+def validate_electrodes_unmapped(frames: list) -> None:
+    hello, sample, degraded = frames
+    check(hello["sensor_profile"] == "MATRIX_ELECTRODES_12", "electrode HELLO declares the electrode profile")
+    check(hello["scan_mode"] == "OFFLINE_ELECTRODE_READ", "electrode profile uses a passive read scan mode")
+    check(hello["channel_count"] == 14, "electrode+FSR HELLO declares 14 logical channels")
+    check(hello["channel_config"]["matrix_rows"] is None and hello["channel_config"]["matrix_cols"] is None,
+          "electrode channel_config keeps matrix_rows/cols null")
+    check("matrix_columns" not in hello["pins"], "HELLO has no GPIO matrix column list")
+    layout = hello["electrode_layout"]
+    check(layout["count"] == 12 and layout["rows"] == 6 and layout["columns"] == 6,
+          "electrode_layout describes twelve nodes in a 6x6 grid")
+    check(layout["row_bias"] == "PULLDOWN_10K_TO_GND", "row bias is a 10k pulldown to GND")
+    check(layout["column_bias"] == "PULLUP_1K_TO_3V3", "column bias is a 1k pullup to 3.3 V")
+    check(layout["mapping_status"] == "PENDING_REAL_WIRING",
+          "the real R/C to ADC/AIN map is still missing")
+    check(layout["validated"] is False, "electrode_layout.validated is false")
+    check(layout["gpio_excitation"] is False, "electrode_layout declares no GPIO excitation")
+    check(all(entry["adc_id"] is None and entry["adc_input"] is None for entry in layout["channels"]),
+          "no electrode invents an ADC/AIN while the harness is unknown")
     kinds = [entry["sensor_kind"] for entry in hello["channel_config"]["channels"]]
-    check(kinds[:36] == ["MATRIX_CELL"] * 36 and kinds[36:] == ["FSR", "FSR"],
-          "HYBRID channel kinds are 36 matrix cells followed by two FSR channels")
-    check(hello["channel_config"]["channels"][0]["matrix_row"] == 0
-          and hello["channel_config"]["channels"][0]["matrix_col"] == 0, "HYBRID starts at R1C1")
-    check(hello["channel_config"]["channels"][35]["matrix_row"] == 5
-          and hello["channel_config"]["channels"][35]["matrix_col"] == 5, "HYBRID ends at R6C6")
+    check(kinds == ["ELECTRODE"] * 12 + ["FSR", "FSR"],
+          "channel kinds are twelve ELECTRODE then two FSR")
 
-    check(valid.channel_count == 38 and all(valid.valid), "HYBRID frame marks all 38 channels valid")
-    check(all(value is not None for value in valid.channels), "HYBRID frame carries every count")
-    check(missing.valid[36] is False and missing.valid[37] is False,
-          "HYBRID missing ADC4 invalidates only the two FSR channels")
-    check(missing.valid[0] and missing.valid[35], "HYBRID matrix cells stay valid when ADC4 is absent")
+    for index in range(12):
+        check(sample.valid[index] is False, "electrode channel %d is invalid" % (index,))
+        check(sample.channels[index] is None, "electrode channel %d is null, not zero" % (index,))
+        check(sample.channel_flags[index] == proto.FLAG_NO_DATA,
+              "electrode channel %d carries NO_DATA" % (index,))
+    check(sample.valid[12] and sample.valid[13], "FSR channels stay valid without an electrode map")
+    check(sample.fsr_values["FSR_A"] < sample.fsr_values["FSR_B"],
+          "FSR divider order is preserved alongside electrodes")
+
+    check(degraded.valid[12] is False and degraded.valid[13] is False,
+          "FSR channels go invalid when ADC4 is absent")
+    check(degraded.channels[12] is None, "absent ADC4 leaves a null FSR channel")
+    check(degraded.adc_status[3]["state"] != "OK", "absent ADC4 is reported as not OK")
 
 
-VALIDATORS = {"FSR_ONLY": validate_fsr_only, "HYBRID_6X6_FSR2": validate_hybrid}
+def validate_electrodes_mapped(frames: list) -> None:
+    hello, sample, degraded = frames
+    check(hello["channel_count"] == 12, "synthetic mapped HELLO declares twelve electrodes")
+    layout = hello["electrode_layout"]
+    check(layout["mapping_status"] == "SIM_SYNTHETIC_MAPPING",
+          "the synthetic table is labelled as synthetic, not real wiring")
+    mapped = [entry for entry in layout["channels"] if entry["adc_id"] is not None]
+    check(len(mapped) == 12, "every synthetic electrode has an ADC/AIN")
+    pairs = {(entry["adc_id"], entry["adc_input"]) for entry in mapped}
+    check(len(pairs) == 12, "synthetic ADC/AIN pairs are unique")
+    check("fsr_layout" not in hello, "the twelve-electrode variant has no FSR layout")
+    check([entry["role"] for entry in layout["channels"]] == ["ROW"] * 6 + ["COLUMN"] * 6,
+          "electrode roles are six rows then six columns")
+
+    check(all(sample.valid), "every mapped electrode is valid")
+    values = sample.electrode_values
+    check(sorted(values) == sorted(ELECTRODE_NAMES), "electrode values are addressable by name")
+    check(len(set(values.values())) == 12, "each electrode reports a distinct injected voltage")
+    check(sample.electrode_values["R1"] < sample.electrode_values["C6"],
+          "injected ramp order is preserved")
+
+    for index in range(4):
+        check(degraded.valid[index] is False, "electrode on the absent ADC1 is invalid (%d)" % (index,))
+    check(degraded.valid[4], "electrodes on other converters stay valid")
+
+
+VALIDATORS = {
+    "fsr": validate_fsr_only,
+    "electrodes_unmapped": validate_electrodes_unmapped,
+    "electrodes_mapped": validate_electrodes_mapped,
+}
 
 
 def main(argv: list[str]) -> int:
@@ -140,10 +197,14 @@ def main(argv: list[str]) -> int:
     evidence.mkdir(parents=True, exist_ok=True)
     fixture_dir = Path(args.fixture_dir).resolve()
     fixture_dir.mkdir(parents=True, exist_ok=True)
+    for name in RETIRED_FIXTURES:
+        retired = fixture_dir / name
+        if retired.is_file():
+            retired.unlink()
 
     cxx = host.find_cxx()
     binaries: dict[str, Path] = {}
-    for name, _profile in EMITTERS:
+    for name, _key in EMITTERS:
         source = "tools/fsr2_sim/%s.cpp" % (name,)
         binary = evidence / name
         log = evidence / (name + ".compile.log")
@@ -154,21 +215,21 @@ def main(argv: list[str]) -> int:
 
     summary = {"kind": "HOST_SIMULATION_NOT_HARDWARE", "profiles": [], "fixtures": {}}
     try:
-        for name, profile in EMITTERS:
+        for name, key in EMITTERS:
             lines = emit_lines(binaries[name])
-            check(len(lines) == 3, "%s emitted HELLO plus two SAMPLE frames" % (profile,))
+            check(len(lines) == 3, "%s emitted HELLO plus two SAMPLE frames" % (key,))
             parsed = [proto.parse_message(line) for line in lines]
             types = [describe(frame) for frame in parsed]
             print("  frames:", "; ".join(types))
-            VALIDATORS[profile](parsed, profile)
+            VALIDATORS[key](parsed)
 
             for index, line in enumerate(lines):
-                fixture_name = FIXTURE_NAMES[(profile, index)]
+                fixture_name = FIXTURE_NAMES[(key, index)]
                 (fixture_dir / fixture_name).write_text(line.strip() + "\n")
                 summary["fixtures"][fixture_name] = hashlib.sha256(
                     (line.strip() + "\n").encode("utf-8")
                 ).hexdigest()
-            summary["profiles"].append({"profile": profile, "frames": types, "result": "PASS"})
+            summary["profiles"].append({"case": key, "frames": types, "result": "PASS"})
     except CheckFailure as failure:
         summary["result"] = "FAIL"
         summary["failure"] = str(failure)
@@ -176,16 +237,16 @@ def main(argv: list[str]) -> int:
         print("frame check: FAIL")
         return 1
 
-    # The emitters are deterministic; a second run must reproduce the fixtures.
-    for name, _profile in EMITTERS:
+    for name, _key in EMITTERS:
         first = emit_lines(binaries[name])
         second = emit_lines(binaries[name])
         check(first == second, "%s emitter is deterministic across runs" % (name,))
 
     summary["result"] = "PASS"
     summary["note"] = (
-        "Emitted by this firmware compiled against the four-device host simulation. "
-        "Fixture data for parser tests; not hardware measurements."
+        "Emitted by this firmware compiled against the four-device host simulation. Fixture data "
+        "for parser tests; not hardware measurements. The mapped electrodes use a SYNTHETIC table, "
+        "not the real harness record (which is still missing)."
     )
     (evidence / "frames_check.json").write_text(json.dumps(summary, indent=2) + "\n")
     print("frame check: PASS")

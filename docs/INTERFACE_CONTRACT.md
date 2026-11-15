@@ -1,3 +1,8 @@
+> **2026-11-15 接线修正**：压敏布为 12 根被动电极（R×10 kΩ 下拉 GND、C×1 kΩ 上拉 3.3 V），
+> 不存在 GPIO 列驱动/6×6 扫描；12 路电压不是 36 个压力点。当前 profile 为 `FSR_ONLY` 与
+> `MATRIX_ELECTRODES_12`，`HYBRID_6X6_FSR2` 已撤回。详见
+> `docs/hardware/FSR_ONLY_INTERFACE_V2.md`。
+
 # 软硬件通信边界
 
 当前状态为 PROPOSED。下表摘自两个开发分支的发送器与接收器；联合验收、时钟回绕处理和控制用接触评分的标定尚未冻结。

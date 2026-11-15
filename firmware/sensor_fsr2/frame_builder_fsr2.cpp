@@ -8,14 +8,6 @@ const char* kChannelConfigStatus = "IMPLEMENTED_UNVERIFIED";
 
 void writeKey(JsonLineWriter& writer, const char* name) { writer.key(name); }
 
-void writeNullIfZero(JsonLineWriter& writer, uint8_t value) {
-  if (value == 0) {
-    writer.nul();
-  } else {
-    writer.u32(value);
-  }
-}
-
 void appendPins(JsonLineWriter& writer, const Fsr2Profile& profile) {
   writer.ch('{');
   writeKey(writer, "sclk");
@@ -36,15 +28,6 @@ void appendPins(JsonLineWriter& writer, const Fsr2Profile& profile) {
     writer.u32(profile.cs_pins[index]);
   }
   writer.ch(']');
-  if (profile.column_count > 0) {
-    writeKey(writer, "matrix_columns");
-    writer.ch('[');
-    for (uint8_t index = 0; index < profile.column_count; ++index) {
-      if (index > 0) writer.ch(',');
-      writer.u32(profile.column_pins[index]);
-    }
-    writer.ch(']');
-  }
   writer.ch('}');
 }
 
@@ -80,10 +63,12 @@ void appendChannelConfig(JsonLineWriter& writer, const Fsr2Profile& profile) {
   writer.ch('{');
   writeKey(writer, "status");
   writer.str(kChannelConfigStatus);
+  // The cloth has no scanned matrix; these stay null so an old consumer cannot
+  // mistake the electrode list for a 6x6 cell map.
   writeKey(writer, "matrix_rows");
-  writeNullIfZero(writer, profile.matrix_rows);
+  writer.nul();
   writeKey(writer, "matrix_cols");
-  writeNullIfZero(writer, profile.matrix_cols);
+  writer.nul();
   writeKey(writer, "adc_count");
   writer.u32(profile.adc_count);
   writeKey(writer, "scan_mode");
@@ -94,6 +79,7 @@ void appendChannelConfig(JsonLineWriter& writer, const Fsr2Profile& profile) {
   writer.ch('[');
   for (uint8_t index = 0; index < profile.channel_count; ++index) {
     const Fsr2ChannelConfig& channel = profile.channels[index];
+    const bool mapped = channel.adc_index != FSR2_UNMAPPED;
     if (index > 0) writer.ch(',');
     writer.ch('{');
     writeKey(writer, "channel_id");
@@ -103,22 +89,100 @@ void appendChannelConfig(JsonLineWriter& writer, const Fsr2Profile& profile) {
     writeKey(writer, "sensor_kind");
     writer.str(fsr2SensorKindName(channel.kind));
     writeKey(writer, "ads1220_id");
-    writer.u32(static_cast<uint8_t>(channel.adc_index + 1));
-    writeKey(writer, "adc_input");
-    writer.u32(channel.adc_input);
-    writeKey(writer, "mux_channel");
-    writer.u32(channel.mux_code);
-    writeKey(writer, "matrix_row");
-    if (channel.matrix_row < 0) {
-      writer.nul();
+    if (mapped) {
+      writer.u32(static_cast<uint8_t>(channel.adc_index + 1));
     } else {
-      writer.u32(static_cast<uint8_t>(channel.matrix_row));
+      writer.nul();
     }
-    writeKey(writer, "matrix_col");
-    if (channel.matrix_col < 0) {
-      writer.nul();
+    writeKey(writer, "adc_input");
+    if (mapped) {
+      writer.u32(channel.adc_input);
     } else {
-      writer.u32(static_cast<uint8_t>(channel.matrix_col));
+      writer.nul();
+    }
+    writeKey(writer, "mux_channel");
+    if (mapped) {
+      writer.u32(channel.mux_code);
+    } else {
+      writer.nul();
+    }
+    writeKey(writer, "matrix_row");
+    writer.nul();
+    writeKey(writer, "matrix_col");
+    writer.nul();
+    writeKey(writer, "electrode_role");
+    writer.str(fsr2ElectrodeRoleName(channel.role));
+    writeKey(writer, "electrode_position");
+    if (channel.kind == FSR2_KIND_ELECTRODE) {
+      writer.u32(channel.position);
+    } else {
+      writer.nul();
+    }
+    writer.ch('}');
+  }
+  writer.ch(']');
+  writer.ch('}');
+}
+
+void appendElectrodeLayout(JsonLineWriter& writer, const Fsr2Profile& profile) {
+  writer.ch('{');
+  writeKey(writer, "count");
+  writer.u32(profile.electrode_count);
+  writeKey(writer, "rows");
+  writer.u32(profile.electrode_rows);
+  writeKey(writer, "columns");
+  writer.u32(profile.electrode_columns);
+  writeKey(writer, "mapping_status");
+  writer.str(profile.electrode_mapping);
+  writeKey(writer, "row_bias");
+  writer.str(profile.row_bias);
+  writeKey(writer, "column_bias");
+  writer.str(profile.column_bias);
+  writeKey(writer, "protocol_order");
+  writer.str("R1..R6 THEN C1..C6");
+  writeKey(writer, "gpio_excitation");
+  writer.boolean(false);
+  // Twelve electrode voltages are not 36 pressure cells and the firmware never
+  // claims the harness itself is validated.
+  writeKey(writer, "validated");
+  writer.boolean(false);
+  writeKey(writer, "channels");
+  writer.ch('[');
+  uint16_t channels_written = 0;
+  for (uint8_t index = 0; index < profile.channel_count; ++index) {
+    const Fsr2ChannelConfig& channel = profile.channels[index];
+    if (channel.kind != FSR2_KIND_ELECTRODE) continue;
+    const bool mapped = channel.adc_index != FSR2_UNMAPPED;
+    if (channels_written > 0) writer.ch(',');
+    ++channels_written;
+    writer.ch('{');
+    writeKey(writer, "channel_id");
+    writer.u32(index);
+    writeKey(writer, "name");
+    writer.str(channel.name);
+    writeKey(writer, "role");
+    writer.str(fsr2ElectrodeRoleName(channel.role));
+    writeKey(writer, "position");
+    writer.u32(channel.position);
+    writeKey(writer, "bias");
+    writer.str(channel.role == FSR2_ROLE_ROW ? profile.row_bias : profile.column_bias);
+    writeKey(writer, "adc_id");
+    if (mapped) {
+      writer.u32(static_cast<uint8_t>(channel.adc_index + 1));
+    } else {
+      writer.nul();
+    }
+    writeKey(writer, "adc_input");
+    if (mapped) {
+      writer.u32(channel.adc_input);
+    } else {
+      writer.nul();
+    }
+    writeKey(writer, "mux_channel");
+    if (mapped) {
+      writer.u32(channel.mux_code);
+    } else {
+      writer.nul();
     }
     writer.ch('}');
   }
@@ -322,8 +386,14 @@ bool fsr2BuildHelloFrame(char* buffer, size_t capacity, const Fsr2Profile& profi
   appendPins(writer, profile);
   writeKey(writer, "channel_config");
   appendChannelConfig(writer, profile);
-  writeKey(writer, "fsr_layout");
-  appendFsrLayout(writer, profile);
+  if (profile.electrode_count > 0) {
+    writeKey(writer, "electrode_layout");
+    appendElectrodeLayout(writer, profile);
+  }
+  if (profile.fsr_count > 0) {
+    writeKey(writer, "fsr_layout");
+    appendFsrLayout(writer, profile);
+  }
   writeKey(writer, "max_line_bytes");
   writer.u32(profile.max_line_bytes);
   writeKey(writer, "adc_status");
@@ -382,8 +452,14 @@ bool fsr2BuildStatusFrame(char* buffer, size_t capacity, const Fsr2StatusFrame& 
   appendPins(writer, profile);
   writeKey(writer, "channel_config");
   appendChannelConfig(writer, profile);
-  writeKey(writer, "fsr_layout");
-  appendFsrLayout(writer, profile);
+  if (profile.electrode_count > 0) {
+    writeKey(writer, "electrode_layout");
+    appendElectrodeLayout(writer, profile);
+  }
+  if (profile.fsr_count > 0) {
+    writeKey(writer, "fsr_layout");
+    appendFsrLayout(writer, profile);
+  }
   writeKey(writer, "max_line_bytes");
   writer.u32(profile.max_line_bytes);
   writeKey(writer, "adc_status");

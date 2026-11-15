@@ -1,27 +1,50 @@
-# V2 双 FSR（FSR_ONLY）串口接口说明
+# V2 触觉采集串口接口（FSR + 12 电极）
 
-- 状态：**IMPLEMENTED_UNVERIFIED**（固件两 profile 均已离线编译；host 模拟测试通过；**尚未接线、未烧录、未做任何真实采样**）
+> **2026-11-15 接线修正**：压敏布实际是 **12 根独立电极**——R1–R6 各接一颗 ADS1220 的
+> 一个 AIN，并各用 10 kΩ 下拉到 GND；C1–C6 各接一个 AIN，并各用 1 kΩ 上拉到 3.3 V。
+> **没有 GPIO 逐列激励、没有 HI_Z 切换、没有 36 点扫描矩阵**。本文件原先关于
+> `HYBRID_6X6_FSR2` / `COLUMN_SCAN_6X6` 的描述已撤回（见 §3 与 §12），当前 profile 为
+> `FSR_ONLY` 与 `MATRIX_ELECTRODES_12`。12 路电极电压**不等于** 36 个压力点。
+> 电极到 ADC/AIN 的分配**仍缺失**，代码以显式未映射通道处理，不猜引脚。
+
+- 状态：**IMPLEMENTED_UNVERIFIED**（三个 profile 均已离线编译；host 模拟测试通过；**尚未接线、未烧录、未做任何真实采样**）
 - 面向读者：软件组（解析 / 记录 / 界面）、总负责人、后续接手的硬件同学
 - 协议版本：`protocol_version = 1`（在 V1 基础上**只增字段**，不改变已有字段语义）
 - 传输：USB 串口 **`921600 8N1`**，UTF-8 JSON Lines，一行一条消息，以 `\n` 结束
 - 设备：旧 ESP32（NodeMCU ESP-32S V1.1）+ **4 × ADS1220**，其中 ADC4 专用于两路独立 FSR 分压
 - 固件目录：`firmware/sensor_fsr2/`（旧 `firmware/sensor/` 保持冻结，作为 V1 历史版本，不改动）
-- 配置：`config/sensor_esp32_fsr2.json`（FSR_ONLY）、`config/sensor_esp32_fsr2_hybrid.json`（HYBRID_6X6_FSR2）
+- 配置：`config/sensor_esp32_fsr2.json`（FSR_ONLY）、`config/sensor_esp32_electrodes12.json`（12 电极）、`config/sensor_esp32_electrodes12_fsr2.json`（12 电极 + 2 FSR = 14 逻辑通道）
 
 本文件只承诺 **ADS1220 原始计数**与**明确的无效语义**。没有独立标定前，不得把 counts 说成牛顿、压强或滑移概率。
 
-## 1. 为什么是第四颗 ADC
+## 1. 电极拓扑与第四颗 ADC
 
-V1 的三颗 ADS1220 承载 6×6 矩阵的行（每颗 4 个单端输入，实际用到 AIN0/AIN1）。FSR 需要**两个互不干扰**的分压节点，若继续挤在矩阵 ADC 上，任何一次矩阵列扫描都会把激励电流灌进 FSR 节点，读数不再代表纯分压。因此 V2 增加第四颗 ADS1220：
+压敏布是**被动 12 电极**网络，不是可扫描矩阵：
+
+| 电极 | 偏置 | 读数 |
+|---|---|---|
+| R1–R6 | 每根各经 10 kΩ 下拉到 GND | 每根独立接一个 ADS1220 单端 AIN |
+| C1–C6 | 每根各经 1 kΩ 上拉到 3.3 V | 每根独立接一个 ADS1220 单端 AIN |
+
+- 没有 GPIO 列驱动，没有 HI_Z 切换，也没有"逐列选通得到 36 点"的时序。任何按
+  `COLUMN_SCAN_6X6` / `driveColumn()` / `parkColumns()` 建模的固件都与实物不符，已从本分支移除。
+- 12 个电极都是**同时存在的独立电位节点**，12 路电压只是 12 个测量值；它们不能唯一还原 36 个
+  接触点的压力分布，界面不得画成 36 格热图。
+- **R/C 到 ADC 编号与 AIN 的对应关系尚未记录**（现场焊接表还没有）。固件与配置因此支持
+  "未映射"状态，而不是编一组看起来合理的引脚号。
+
+ADC 分配（SPI 固定）：
 
 | 器件 | CS | MISO | 用途 |
 |---|---:|---:|---|
-| ADC1 | 21 | 34 | 矩阵行 1–2（AIN0/AIN1） |
-| ADC2 | 22 | 35 | 矩阵行 3–4（AIN0/AIN1） |
-| ADC3 | 5 | 26 | 矩阵行 5–6（AIN0/AIN1） |
+| ADC1 | 21 | 34 | 电极 AIN（具体分配 PENDING） |
+| ADC2 | 22 | 35 | 电极 AIN（具体分配 PENDING） |
+| ADC3 | 5 | 26 | 电极 AIN（具体分配 PENDING） |
 | **ADC4** | **32** | **33** | **FSR_A = AIN0，FSR_B = AIN1** |
 
-四颗共用 `SCLK = 18`、`MOSI = 23`；每颗独立 CS。`GPIO32` 在 V2 中**只作 ADC4 片选**，不再是矩阵列。历史映射 `miso = [35, 26, 34]` 已作废，不得再用来生成 V2 固件（生成器会直接拒绝 3 颗 ADC 的配置）。
+四颗共用 `SCLK = 18`、`MOSI = 23`；每颗独立 CS。`GPIO32` 在 V2 中**只作 ADC4 片选**。历史映射
+`miso = [35, 26, 34]` 已作废，不得再用来生成 V2 固件（生成器会直接拒绝 3 颗 ADC 的配置）。
+ADC4 保留给 FSR：电极如果被错误分配到 ADC4，生成器会拒绝该配置。
 
 FSR 分压：`3V3 ── R_fsr ──┬── AINx`，`AINx ── 10 kΩ ── GND`。两路各自独立 10 kΩ 下拉，两个节点不得互连（互连后两路读数会被平均，且一路短路会带偏另一路）。
 
@@ -50,14 +73,21 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 
 ## 3. Profile 与通道号
 
-同一份固件通过生成头文件切换 profile，线格式完全一致，只有 `sensor_profile`、通道数、`channel_config` 不同。
+同一份固件通过生成头文件切换 profile，线格式完全一致，只有 `sensor_profile`、通道数、
+`electrode_layout` 与 `fsr_layout` 不同。
 
 | profile | 通道数 | 通道含义 |
 |---|---:|---|
 | `FSR_ONLY` | 2 | `0 = FSR_A`，`1 = FSR_B`；`matrix_rows/cols = null` |
-| `HYBRID_6X6_FSR2` | 38 | `0..35` 行优先 `R1C1..R6C6`，`36 = FSR_A`，`37 = FSR_B`；`matrix_rows/cols = 6` |
+| `MATRIX_ELECTRODES_12`（仅电极） | 12 | `0..5 = R1..R6`，`6..11 = C1..C6` |
+| `MATRIX_ELECTRODES_12`（电极 + FSR） | 14 | 同上，`12 = FSR_A`，`13 = FSR_B` |
 
-FSR_ONLY 只做两路分压采样，不驱动任何矩阵列，因而不存在列间串扰，这也是本阶段优先交付它的原因。HYBRID 的矩阵扫描逻辑已实现并离线通过 host 模拟，但**矩阵物理有效性未验证**，不作为本阶段验收项。
+- 通道 0..11 的顺序是**协议顺序**（R1..R6 再 C1..C6），不是物理接线顺序；物理映射以
+  `electrode_layout.channels[i].adc_id/adc_input` 为准，未记录时两者均为 `null`。
+- `HYBRID_6X6_FSR2`（38 通道、36 个扫描单元）已**撤回**：它与实物接线不符。解析器收到该
+  `sensor_profile` 会直接报 `PROFILE_HISTORICAL`；生成器拒绝为它生成固件。代码与旧样例只留在
+  git 历史里，不得向当前布料烧录或用于任何"36 点已实测"的表述。
+- 电极 profile 不驱动任何 GPIO，所有通道都是静态单端读数。
 
 ## 4. HELLO（设备 → 主机，上电后一次；也可用 `HELLO` 命令重发）
 
@@ -84,8 +114,31 @@ FSR_ONLY 只做两路分压采样，不驱动任何矩阵列，因而不存在�
 
 - `boot_id` 每次上电/复位都变。**软件必须以 `boot_id` 判断“是否同一次启动”**，不能只看 `frame_seq`；错过的 `frame_seq` 不能跨 `boot_id` 拼接。
 - `channel_config.status` 是 `IMPLEMENTED_UNVERIFIED`，只有做过整机实测后才会升级；`fsr_layout.validated` 在真实台架标定前恒为 `false`。
-- `pins.miso` / `pins.cs` 长度恒为 4（四颗 ADC 全在配置里，即使 HYBRID profile 的 ADC4 只做 FSR）。
+- `pins.miso` / `pins.cs` 长度恒为 4（四颗 ADC 全在配置里；12 电极 profile 也会探测 ADC4，只是不读通道）。
 - 重连时先发 `STATUS`（见 §6）即可拿到当前状态，无需复位设备。
+
+### 4.1 电极 profile 的 HELLO 追加字段
+
+`MATRIX_ELECTRODES_12` 在 §4 的字段之外增加 `electrode_layout`，并在 `channel_config.channels`
+里把前 12 项标成 `sensor_kind = "ELECTRODE"`：
+
+```json
+{"electrode_layout":{"count":12,"rows":6,"columns":6,"mapping_status":"PENDING_REAL_WIRING",
+ "row_bias":"PULLDOWN_10K_TO_GND","column_bias":"PULLUP_1K_TO_3V3",
+ "protocol_order":"R1..R6 THEN C1..C6","gpio_excitation":false,"validated":false,
+ "channels":[{"channel_id":0,"name":"R1","role":"ROW","position":1,
+              "bias":"PULLDOWN_10K_TO_GND","adc_id":null,"adc_input":null,"mux_channel":null}, ...]},
+ "channel_config":{"matrix_rows":null,"matrix_cols":null,
+   "channels":[{"channel_id":0,"name":"R1","sensor_kind":"ELECTRODE","ads1220_id":null,
+                "adc_input":null,"mux_channel":null,"matrix_row":null,"matrix_col":null,
+                "electrode_role":"ROW","electrode_position":1}, ...]}}
+```
+
+- `mapping_status`：`PENDING_REAL_WIRING`（真实接线表尚未记录，所有 `adc_id/adc_input/mux_channel`
+  为 `null`）或 `TABLE_PROVIDED`（现场表已填满且唯一）。fixtures 里的 `SIM_SYNTHETIC_MAPPING`
+  只出现在 host 测试合成表，**不是**真实接线，软件应照常显示但不得当成实测映射。
+- `validated` 在真实台架记录前恒为 `false`；`gpio_excitation` 恒为 `false`。
+- 14 通道变体（电极 + FSR）会同时带 `fsr_layout`；12 通道变体不带。
 
 ## 5. SAMPLE（设备 → 主机，每帧一条）
 
@@ -117,6 +170,13 @@ FSR_ONLY 只做两路分压采样，不驱动任何矩阵列，因而不存在�
 | `reference_mode` | string | FSR profile 恒为 `AVDD_AVSS` |
 | `effective_frame_rate_hz` | number | 最近 32 帧滑动窗口速率，centi 精度 |
 | `adc_status` | object[] | 4 个对象，`id` 必须 1..4 顺序 |
+
+电极 profile（12 或 14 通道）的语义：
+
+- 未映射电极：`raw_adc/channels/sample_timestamp_us` 全为 `null`，`valid=false`，`channel_flags`
+  含 `NO_DATA`。**这是正确状态**，不是故障、不是 0 值。
+- FSR 通道（14 通道变体的 12/13）独立于电极映射：即使 12 个电极全部未映射，FSR 两路仍可有效。
+- 不要把这 12/14 个通道拼成 6x6 热图；`matrix_rows/cols` 恒为 `null`。
 
 `channel_flags` 位（沿用 V1）：`0x01 SAT_HIGH`、`0x02 SAT_LOW`、`0x04 NEGATIVE_SINGLE_ENDED`、`0x08 NEAR_RAIL`、`0x10 STUCK_EXTREME`、`0x20 NO_DATA`。
 
@@ -153,13 +213,16 @@ FSR_ONLY 只做两路分压采样，不驱动任何矩阵列，因而不存在�
 
 | 帧 | 字节数 |
 |---|---:|
-| HELLO FSR_ONLY | 1650 |
+| HELLO FSR_ONLY | 1750 |
 | SAMPLE FSR_ONLY（健康） | 931 |
 | SAMPLE FSR_ONLY（ADC4 掉线） | 964 |
-| HELLO HYBRID | 6554 |
-| SAMPLE HYBRID（健康） | 2311 |
+| HELLO 12 电极 + FSR（未映射） | 5972 |
+| SAMPLE 12 电极 + FSR（未映射） | 1348 |
+| HELLO 12 电极（合成映射） | 5070 |
+| SAMPLE 12 电极（合成映射） | 1326 |
 
-8192 字节发送缓冲对两种 profile 都有余量（最长 6554，约 80%）。软件侧单行缓冲建议 ≥ 8192；超过即视为协议错，不要拼接跨行内容。
+8192 字节发送缓冲对三种 profile 都有余量（最长 5972，约 73%）。软件侧单行缓冲建议 ≥ 8192；
+超过即视为协议错，不要拼接跨行内容。
 
 帧率：FSR_ONLY 每帧只做 2 次 330 SPS 转换，模型上远高于 100 Hz；sim 中 `frame_period_us = 10000` 是模拟器步进，**不是**真实帧率。真实值以台架 `STATUS` / `effective_frame_rate_hz` 为准。
 
@@ -184,8 +247,11 @@ FSR_ONLY 只做两路分压采样，不驱动任何矩阵列，因而不存在�
 ## 9. 样例与参考解析器
 
 - fixtures（由固件帧构造器实际输出、脱敏后提交）：`tests/fixtures/fsr2/`
-  - `hello_fsr_only.json`、`sample_fsr_only_valid.json`、`sample_fsr_only_no_adc4.json`
-  - `hello_hybrid.json`、`sample_hybrid_valid.json`、`sample_hybrid_no_adc4.json`
+  - FSR_ONLY：`hello_fsr_only.json`、`sample_fsr_only_valid.json`、`sample_fsr_only_no_adc4.json`
+  - 12 电极 + FSR（真实映射缺失）：`hello_electrodes12_fsr2_unmapped.json`、
+    `sample_electrodes12_fsr2_unmapped.json`、`sample_electrodes12_fsr2_fsr_absent.json`
+  - 12 电极**合成映射**（仅测试用，非真实接线）：`hello_electrodes12_mapped_synthetic.json`、
+    `sample_electrodes12_mapped_synthetic.json`、`sample_electrodes12_mapped_absent.json`
 - 严格参考解析器：`tools/fsr2/protocol_v2.py`（stdlib，无第三方依赖）
 
 ```python
@@ -200,7 +266,7 @@ print(sample.fsr_values)              # {'FSR_A': 762601, 'FSR_B': 889701}
 
 ## 10. 软件组需要同步的已知缺口
 
-1. **`tools/tactile_acq/protocol.py` 仍硬编码 12 通道 / 3 颗 ADC**：`CHANNEL_COUNT = 12`、`ADC_COUNT = 3`，会直接拒绝 FSR_ONLY 的 2 通道帧。需要按 `sensor_profile` 取通道数（2 / 38），并保留旧 12 通道路径。登记为 `docs/ISSUES.md` I-012。
+1. **`tools/tactile_acq/protocol.py` 仍硬编码 12 通道 / 3 颗 ADC**：`CHANNEL_COUNT = 12`、`ADC_COUNT = 3`，会拒绝 FSR_ONLY 的 2 通道帧与电极 profile 的 12/14 通道帧。需要按 `sensor_profile` 取通道数，并保留旧 12 通道路径；`tools/fsr2/protocol_v2.py` 已按新语义实现，可作为对照。登记为 `docs/ISSUES.md` I-101。
 2. **波特率 115200 → 921600**（I-006）。
 3. 记录器/CSV 列名沿用 `channel_0..channel_N` 时，需按 profile 生成列；FSR 专用列建议 `fsr_a_counts` / `fsr_b_counts`。
 4. 38 通道帧的 `sample_timestamp_us` 各不相同，不要按"整帧同时采样"做微分；滑移判断需要时间对齐或降采样。
@@ -209,7 +275,12 @@ print(sample.fsr_values)              # {'FSR_A': 762601, 'FSR_B': 889701}
 
 前置：**未接线、未烧录前不要执行**；接线、上电、烧录、串口各自需要现场明确授权。
 
-1. **断电接线核对**（断电、拔 USB）：ADC1–3 的 CS/MISO 分别为 21/34、22/35、5/26；ADC4 为 32/33；四颗 SCLK/MOSI 并联到 18/23；ADC4 的 AIN0/AIN1 各接一路独立 10 kΩ 下拉到 GND，两个节点不互连；3V3 与 GND 逐颗确认。
+1. **断电接线核对**：ADC1–3 的 CS/MISO 分别为 21/34、22/35、5/26；ADC4 为 32/33；四颗
+   SCLK/MOSI 并联到 18/23；**R1–R6 每根各串一颗 10 kΩ 到 GND，C1–C6 每根各串一颗 1 kΩ 到
+   3.3 V，12 根电极分别接到 ADS1220 的某个 AIN，不接任何 GPIO 列驱动**；ADC4 的 AIN0/AIN1
+   各接一路独立 10 kΩ 下拉到 GND，两个节点不互连；3V3 与 GND 逐颗确认。
+   同时把每根电极的 ADC/AIN 实测结果填进本文 §12 的映射表（V2 文档基线
+   `docs/WIRING_FREEZE_V2.md` 合并后以该文档 §4.1 为准），未填表前不要给配置填 `map`。
 2. **上电前测阻抗**：3V3 对 GND 不短路；每个 FSR 节点对 GND 约 10 kΩ ±5%。
 3. **烧录**（现场授权）：`python3 scripts/build_sensor_fsr2_firmware.py --build-dir "$PWD/evidence/fsr2/build_sensor_fsr2" && python3 -m esptool ...` 由现场同学执行；本仓库脚本只编译不烧录。
 4. **打开 921600 串口**，应立刻收到一行 `HELLO`：`channel_count = 2`、`pins.miso = [34,35,26,33]`、`reference_mode = "AVDD_AVSS"`、`adc_status` 四项均 `OK`。若 ADC4 为 `NO_RESPONSE`，先查 32/33 与供电，不要下发 `STREAM`。
@@ -220,12 +291,35 @@ print(sample.fsr_values)              # {'FSR_A': 762601, 'FSR_B': 889701}
 9. **恢复**：接回后 `RESET_ADC 4`，数秒内 `adc_status[3]` 回到 `OK`，通道重新有效。
 10. **记录**：把实测串口原始帧、帧率、空载/按压 counts、AVDD 实测值写进 `docs/PROGRESS.md`，并将一组真实样例脱敏后补进 `tests/fixtures/fsr2/`（当前 fixtures 全部来自 host 模拟，**不得**当作硬件验证证据）。
 
-## 12. 明确未验证的事项
+## 12. 电极映射核对表（现场填写）
 
-- 四颗 ADS1220 在同一组 bit-bang SCLK/MOSI 上的实际时序与 MISO 竞争（尤其是 ADC4 与 ADC1–3 同时输出）——**只用逻辑分析仪/实测能确认**。
-- 10 kΩ 分压是否覆盖实际 FSR 量程、按压方向与电压极性。
+| 电极 | ADC id (1–3) | AIN (0–3) | 偏置电阻 | 实测空载电压 | 核线人 | 日期 |
+|---|---|---|---|---|---|---|
+| R1 | | | 10 kΩ → GND | | | |
+| R2 | | | 10 kΩ → GND | | | |
+| R3 | | | 10 kΩ → GND | | | |
+| R4 | | | 10 kΩ → GND | | | |
+| R5 | | | 10 kΩ → GND | | | |
+| R6 | | | 10 kΩ → GND | | | |
+| C1 | | | 1 kΩ → 3.3 V | | | |
+| C2 | | | 1 kΩ → 3.3 V | | | |
+| C3 | | | 1 kΩ → 3.3 V | | | |
+| C4 | | | 1 kΩ → 3.3 V | | | |
+| C5 | | | 1 kΩ → 3.3 V | | | |
+| C6 | | | 1 kΩ → 3.3 V | | | |
+
+填完表后：把 `config/sensor_esp32_electrodes12*.json` 的 `electrodes.map` 按表填满，并把
+`mapping_status` 改为 `TABLE_PROVIDED`，重新生成头文件并编译。在那之前，固件对 12 个通道
+输出的都是 `null` + `NO_DATA`，这是正确行为而不是故障。
+
+## 13. 明确未验证的事项
+
+- 四颗 ADS1220 在同一组 bit-bang SCLK/MOSI 上的实际时序与 MISO 竞争（尤其是 ADC4 与 ADC1–3 同时输出）。
+- R1–R6 / C1–C6 到 ADC/AIN 的真实分配（**映射缺失**，见 §13）。
+- 12 电极在静止/按压/持杯下的实际电压范围与 C 极上拉对相邻节点的影响。
+- 10 kΩ FSR 分压是否覆盖实际量程、按压方向与极性。
 - 921600 下的实际吞吐与丢帧率。
-- 矩阵（HYBRID）扫描的物理有效性、列间串扰。
-- 命令层的逐条行为（仅编译通过与 README 描述）。
+- 电极布局能否支持任何"位置分辨"结论（12 路电压不是 36 点压力图）。
+- 命令层的逐条行为（仅编译通过与 host 模拟，未逐命令实测）。
 
-以上在 `docs/ISSUES.md` 以 I-013、I-014 等编号跟踪，状态标记遵循 AGENTS.md：只有实测过的行为才可写 PASS。
+以上在 `docs/ISSUES.md` 以 I-102、I-014 等编号跟踪，状态标记遵循 AGENTS.md：只有实测过的行为才可写 PASS。

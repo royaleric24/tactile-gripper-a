@@ -1,9 +1,9 @@
 // AUTO-GENERATED FILE - do not edit by hand.
-// Source: config/sensor_esp32_fsr2.json (sha256 9c11bb21f8dea02e8ecb9b0bdfb30872eecca756ea906b8ca6a39e5cc66a01f1)
+// Source: config/sensor_esp32_fsr2.json (sha256 e38792f6213369ff06a9b0caa055bb5eb8d37391e10136c548c3fe7e10c1c620)
 // Regenerate: python3 scripts/generate_sensor_fsr2_config.py --config config/sensor_esp32_fsr2.json
 //
-// V2 board: four ADS1220 share SCLK/MOSI; ADC1/ADC2/ADC3 carry the 6x6 matrix
-// rows, ADC4 carries the two FSR dividers.  Channel order is the protocol order.
+// V2 board: four ADS1220 share SCLK/MOSI.  Every electrode and every FSR
+// divider is read on its own single-ended AIN; no GPIO drives a column.
 #pragma once
 
 #include "fsr2.h"
@@ -11,17 +11,19 @@
 // MISO/CS are ordered by ADS1220 index: ADC1..ADC4.
 static const uint8_t FSR2_MISO_PINS[4] = {34, 35, 26, 33};
 static const uint8_t FSR2_CS_PINS[4] = {21, 22, 5, 32};
-// FSR_ONLY drives no matrix columns; the placeholder keeps the array non-empty.
-static const uint8_t FSR2_COLUMN_PINS[1] = {0};
 static const uint8_t FSR2_FSR_CHANNEL_INDICES[2] = {0, 1};
+
+static const char FSR2_ELECTRODE_MAPPING[] = "PENDING_REAL_WIRING";
+static const char FSR2_ROW_BIAS[] = "PULLDOWN_10K_TO_GND";
+static const char FSR2_COLUMN_BIAS[] = "PULLUP_1K_TO_3V3";
 
 // Buffer sizes the sketch must provide; confirmed against struct Fsr2Profile.
 static const uint16_t FSR2_MAX_LINE_BYTES = 8192;
 static const uint16_t FSR2_COMMAND_BUFFER_BYTES = 512;
 
 static const Fsr2ChannelConfig FSR2_CHANNELS[2] = {
-    {3, 0, 8, FSR2_KIND_FSR, -1, -1, "FSR_A"},  // channel 0
-    {3, 1, 9, FSR2_KIND_FSR, -1, -1, "FSR_B"},  // channel 1
+    {3, 0, 8, FSR2_KIND_FSR, FSR2_ROLE_NONE, 0, "FSR_A"},  // channel 0
+    {3, 1, 9, FSR2_KIND_FSR, FSR2_ROLE_NONE, 0, "FSR_B"},  // channel 1
 };
 
 // Field order must match struct Fsr2Profile in fsr2.h.
@@ -38,14 +40,12 @@ static const Fsr2Profile FSR2_PROFILE = {
     2,  // channel_count
     FSR2_MISO_PINS,  // miso_pins
     FSR2_CS_PINS,  // cs_pins
-    0,  // matrix_rows
-    0,  // matrix_cols
-    0,  // matrix_adc_count
-    0,  // matrix_rounds
-    0,  // column_count
-    nullptr,  // column_pins
-    0,  // matrix_settle_us
-    0,  // matrix_pre_discharge_us
+    0,  // electrode_count
+    0,  // electrode_rows
+    0,  // electrode_columns
+    nullptr,  // electrode_mapping
+    nullptr,  // row_bias
+    nullptr,  // column_bias
     2,  // fsr_count
     FSR2_FSR_CHANNEL_INDICES,  // fsr_channel_indices
     10000,  // fsr_divider_ohm

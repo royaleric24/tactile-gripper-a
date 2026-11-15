@@ -1,9 +1,9 @@
-"""Offline checks for the V2 FSR firmware configuration and generated header.
+"""Offline checks for the V2 firmware configuration and generated headers.
 
-These tests never touch hardware. They pin the board facts that the V2 plan
-freezes (four ADS1220, ADC4 = CS32/MISO33, AVDD/AVSS reference for the divider
-measurement) and prove that the committed generated header matches its JSON
-source, so a silent pin or reference regression fails here.
+These tests pin the board facts that the 2026-11-15 wiring correction froze
+(four ADS1220, ADC4 = CS32/MISO33, twelve passive electrodes with 10 kOhm row
+pulldowns and 1 kOhm column pullups, no GPIO column drive) and prove that every
+committed generated header matches its JSON source.
 """
 
 from __future__ import annotations
@@ -19,9 +19,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FSR_CONFIG = ROOT / "config" / "sensor_esp32_fsr2.json"
-HYBRID_CONFIG = ROOT / "config" / "sensor_esp32_fsr2_hybrid.json"
+ELECTRODE_CONFIG = ROOT / "config" / "sensor_esp32_electrodes12.json"
+ELECTRODE_FSR_CONFIG = ROOT / "config" / "sensor_esp32_electrodes12_fsr2.json"
 FSR_HEADER = ROOT / "firmware" / "sensor_fsr2" / "fsr2_config.h"
-HYBRID_HEADER = ROOT / "firmware" / "sensor_fsr2" / "fsr2_config_hybrid.h"
+ELECTRODE_HEADER = ROOT / "firmware" / "sensor_fsr2" / "fsr2_config_electrodes12.h"
+ELECTRODE_FSR_HEADER = ROOT / "firmware" / "sensor_fsr2" / "fsr2_config_electrodes12_fsr2.h"
 
 
 def load_generator():
@@ -43,51 +45,63 @@ def load(path: Path) -> dict:
 class BoardFactTests(unittest.TestCase):
     """The frozen V2 wiring facts, as consumed by the generator."""
 
-    def test_fsr_config_pins(self) -> None:
-        config = load(FSR_CONFIG)
-        self.assertEqual(config["pins"]["sclk"], 18)
-        self.assertEqual(config["pins"]["mosi"], 23)
-        self.assertEqual(config["pins"]["miso"], [34, 35, 26, 33])
-        self.assertEqual(config["pins"]["cs"], [21, 22, 5, 32])
-        self.assertEqual(config["sensor_profile"], "FSR_ONLY")
+    def test_spi_pins(self) -> None:
+        for path in (FSR_CONFIG, ELECTRODE_CONFIG, ELECTRODE_FSR_CONFIG):
+            config = load(path)
+            self.assertEqual(config["pins"]["sclk"], 18, path.name)
+            self.assertEqual(config["pins"]["mosi"], 23, path.name)
+            self.assertEqual(config["pins"]["miso"], [34, 35, 26, 33], path.name)
+            self.assertEqual(config["pins"]["cs"], [21, 22, 5, 32], path.name)
 
-    def test_adc4_owns_the_two_fsr_channels(self) -> None:
-        config = load(FSR_CONFIG)
+    def test_adc4_keeps_the_two_fsr_channels(self) -> None:
+        config = load(ELECTRODE_FSR_CONFIG)
         self.assertEqual(config["fsr"]["adc_id"], 4)
         self.assertEqual(config["fsr"]["adc4_cs_gpio"], 32)
         self.assertEqual(config["fsr"]["adc4_miso_gpio"], 33)
-        inputs = [channel["adc_input"] for channel in config["fsr"]["channels"]]
-        self.assertEqual(inputs, [0, 1])
+        self.assertEqual([channel["adc_input"] for channel in config["fsr"]["channels"]], [0, 1])
         self.assertTrue(config["fsr"]["independent_pulldowns_required"])
         self.assertFalse(config["fsr"]["validated"])
 
     def test_fsr_measurement_uses_avdd_reference(self) -> None:
-        config = load(FSR_CONFIG)
-        adc = config["ads1220"]
-        self.assertEqual(adc["reference_mode"], "AVDD_AVSS")
-        self.assertEqual(adc["reference_modes_allowed"], ["AVDD_AVSS"])
-        self.assertEqual(adc["gain"], 1)
-        self.assertTrue(adc["pga_bypass"])
-        self.assertFalse(adc["idac_enabled"])
-        self.assertEqual(adc["data_rate_sps"], 330)
+        for path in (FSR_CONFIG, ELECTRODE_CONFIG, ELECTRODE_FSR_CONFIG):
+            adc = load(path)["ads1220"]
+            self.assertEqual(adc["reference_mode"], "AVDD_AVSS", path.name)
+            self.assertEqual(adc["reference_modes_allowed"], ["AVDD_AVSS"], path.name)
+            self.assertEqual(adc["gain"], 1, path.name)
+            self.assertTrue(adc["pga_bypass"], path.name)
+            self.assertFalse(adc["idac_enabled"], path.name)
+            self.assertEqual(adc["data_rate_sps"], 330, path.name)
 
     def test_legacy_three_adc_mapping_is_not_reused(self) -> None:
-        config = load(FSR_CONFIG)
+        config = load(ELECTRODE_CONFIG)
         self.assertNotEqual(config["pins"]["miso"], [35, 26, 34])
         self.assertEqual(len(config["pins"]["cs"]), 4)
         self.assertIn(32, config["pins"]["cs"])
 
     def test_serial_baud_is_the_device_value(self) -> None:
-        for path in (FSR_CONFIG, HYBRID_CONFIG):
+        for path in (FSR_CONFIG, ELECTRODE_CONFIG, ELECTRODE_FSR_CONFIG):
             self.assertEqual(load(path)["serial_baud"], 921600, path.name)
 
-    def test_hybrid_profile_extends_without_blocking_fsr(self) -> None:
-        hybrid = load(HYBRID_CONFIG)
-        self.assertEqual(hybrid["sensor_profile"], "HYBRID_6X6_FSR2")
-        self.assertEqual(hybrid["matrix"]["rows"], 6)
-        self.assertEqual(hybrid["matrix"]["column_pins"], [4, 13, 14, 25, 27, 19])
-        self.assertEqual([channel["channel_id"] for channel in hybrid["fsr"]["channels"]], [36, 37])
-        self.assertEqual(hybrid["matrix"]["validated"], False)
+    def test_electrode_topology_is_passive(self) -> None:
+        for path in (ELECTRODE_CONFIG, ELECTRODE_FSR_CONFIG):
+            config = load(path)
+            self.assertIsNone(config["matrix"], path.name)
+            electrodes = config["electrodes"]
+            self.assertEqual(electrodes["count"], 12, path.name)
+            self.assertEqual(electrodes["rows"], 6, path.name)
+            self.assertEqual(electrodes["columns"], 6, path.name)
+            self.assertEqual(electrodes["row_bias"], "PULLDOWN_10K_TO_GND", path.name)
+            self.assertEqual(electrodes["column_bias"], "PULLUP_1K_TO_3V3", path.name)
+            self.assertFalse(electrodes["gpio_excitation"], path.name)
+            self.assertEqual(electrodes["map"], [], path.name)
+            self.assertEqual(electrodes["mapping_status"], "PENDING_REAL_WIRING", path.name)
+
+    def test_no_invented_electrode_mapping(self) -> None:
+        electrodes = load(ELECTRODE_FSR_CONFIG)["electrodes"]
+        self.assertEqual(electrodes["map"], [])
+        for entry in electrodes["map"]:
+            self.assertNotIn("adc_id", entry)
+            self.assertNotIn("adc_input", entry)
 
 
 class GeneratorValidationTests(unittest.TestCase):
@@ -106,19 +120,24 @@ class GeneratorValidationTests(unittest.TestCase):
             self.generate_from(config)
         self.assertIn(needle, str(raised.exception))
 
+    def test_rejects_withdrawn_hybrid_profile(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_FSR_CONFIG))
+        config["sensor_profile"] = "HYBRID_6X6_FSR2"
+        self.assert_rejected(config, "withdrawn")
+
     def test_rejects_three_adc_mapping(self) -> None:
         config = copy.deepcopy(load(FSR_CONFIG))
         config["pins"]["miso"] = [35, 26, 34]
         config["pins"]["cs"] = [21, 22, 5]
         self.assert_rejected(config, "exactly 4")
 
-    def test_rejects_internal_reference_for_fsr(self) -> None:
+    def test_rejects_internal_reference(self) -> None:
         config = copy.deepcopy(load(FSR_CONFIG))
         config["ads1220"]["reference_mode"] = "INTERNAL_2V048"
         config["ads1220"]["reference_modes_allowed"] = ["INTERNAL_2V048"]
         self.assert_rejected(config, "AVDD_AVSS")
 
-    def test_rejects_gain_above_one_for_fsr(self) -> None:
+    def test_rejects_gain_above_one(self) -> None:
         config = copy.deepcopy(load(FSR_CONFIG))
         config["ads1220"]["gain"] = 2
         self.assert_rejected(config, "gain")
@@ -128,36 +147,54 @@ class GeneratorValidationTests(unittest.TestCase):
         config["fsr"]["adc4_cs_gpio"] = 5
         self.assert_rejected(config, "fourth chip select")
 
-    def test_rejects_adc4_miso_on_another_pin(self) -> None:
-        config = copy.deepcopy(load(FSR_CONFIG))
-        config["fsr"]["adc4_miso_gpio"] = 34
-        self.assert_rejected(config, "miso")
+    def test_rejects_gpio_column_excitation(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_CONFIG))
+        config["electrodes"]["gpio_excitation"] = True
+        self.assert_rejected(config, "gpio_excitation")
 
-    def test_rejects_slow_conversion_wait(self) -> None:
-        config = copy.deepcopy(load(FSR_CONFIG))
-        config["ads1220"]["conversion_wait_us"] = 100
-        self.assert_rejected(config, "conversion_wait_us")
+    def test_rejects_wrong_row_bias(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_CONFIG))
+        config["electrodes"]["row_bias"] = "PULLUP_1K_TO_3V3"
+        self.assert_rejected(config, "row_bias")
 
-    def test_rejects_duplicate_chip_select(self) -> None:
-        config = copy.deepcopy(load(FSR_CONFIG))
-        config["pins"]["cs"] = [21, 22, 5, 21]
-        self.assert_rejected(config, "share a GPIO")
+    def test_rejects_wrong_electrode_count(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_CONFIG))
+        config["electrodes"]["count"] = 10
+        self.assert_rejected(config, "the pressure cloth has 12 electrodes")
 
-    def test_rejects_flash_pin_as_column(self) -> None:
-        config = copy.deepcopy(load(HYBRID_CONFIG))
-        config["matrix"]["column_pins"][0] = 6
-        self.assert_rejected(config, "flash")
+    def test_rejects_partial_map(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_CONFIG))
+        config["electrodes"]["mapping_status"] = "TABLE_PROVIDED"
+        config["electrodes"]["map"] = [
+            {"electrode": "R1", "adc_id": 1, "adc_input": 0}
+        ]
+        self.assert_rejected(config, "all 12 electrodes")
 
-    def test_rejects_hybrid_row_order(self) -> None:
-        config = copy.deepcopy(load(HYBRID_CONFIG))
-        config["matrix"]["row_inputs"] = list(reversed(config["matrix"]["row_inputs"]))
-        self.assert_rejected(config, "row_inputs")
+    def test_rejects_duplicate_ain(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_CONFIG))
+        config["electrodes"]["mapping_status"] = "TABLE_PROVIDED"
+        config["electrodes"]["map"] = [
+            {"electrode": name, "adc_id": 1, "adc_input": 0}
+            for name in ["R1", "R2", "R3", "R4", "R5", "R6", "C1", "C2", "C3", "C4", "C5", "C6"]
+        ]
+        self.assert_rejected(config, "already taken")
 
-    def test_rejects_fsr_channel_not_last(self) -> None:
-        config = copy.deepcopy(load(FSR_CONFIG))
-        config["fsr"]["channels"][0]["channel_id"] = 5
-        config["fsr"]["channels"][1]["channel_id"] = 6
-        self.assert_rejected(config, "last channel ids")
+    def test_rejects_electrode_on_the_fsr_adc(self) -> None:
+        config = copy.deepcopy(load(ELECTRODE_FSR_CONFIG))
+        config["electrodes"]["mapping_status"] = "TABLE_PROVIDED"
+        mapping = []
+        for index, name in enumerate(
+            ["R1", "R2", "R3", "R4", "R5", "R6", "C1", "C2", "C3", "C4", "C5", "C6"]
+        ):
+            mapping.append(
+                {
+                    "electrode": name,
+                    "adc_id": 4 if index == 0 else 1 + index // 4,
+                    "adc_input": index % 4,
+                }
+            )
+        config["electrodes"]["map"] = mapping
+        self.assert_rejected(config, "FSR ADC")
 
     def test_rejects_oversized_line(self) -> None:
         config = copy.deepcopy(load(FSR_CONFIG))
@@ -166,19 +203,22 @@ class GeneratorValidationTests(unittest.TestCase):
 
 
 class GeneratedHeaderTests(unittest.TestCase):
-    """The committed header must be reproducible from its JSON source."""
+    """Every committed header must be reproducible from its JSON source."""
+
+    def _check(self, config: Path, header: Path, filename: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / filename
+            GENERATOR.generate(config, output)
+            self.assertEqual(output.read_text(), header.read_text())
 
     def test_fsr_header_matches_generator(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "fsr2_config.h"
-            GENERATOR.generate(FSR_CONFIG, output)
-            self.assertEqual(output.read_text(), FSR_HEADER.read_text())
+        self._check(FSR_CONFIG, FSR_HEADER, "fsr2_config.h")
 
-    def test_hybrid_header_matches_generator(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "fsr2_config_hybrid.h"
-            GENERATOR.generate(HYBRID_CONFIG, output)
-            self.assertEqual(output.read_text(), HYBRID_HEADER.read_text())
+    def test_electrode_header_matches_generator(self) -> None:
+        self._check(ELECTRODE_CONFIG, ELECTRODE_HEADER, "fsr2_config_electrodes12.h")
+
+    def test_electrode_fsr_header_matches_generator(self) -> None:
+        self._check(ELECTRODE_FSR_CONFIG, ELECTRODE_FSR_HEADER, "fsr2_config_electrodes12_fsr2.h")
 
     def test_fsr_header_content(self) -> None:
         text = FSR_HEADER.read_text()
@@ -187,15 +227,25 @@ class GeneratedHeaderTests(unittest.TestCase):
         self.assertIn('"FSR_ONLY"', text)
         self.assertIn("3,  // reference_mode_code", text)
         self.assertIn("4,  // data_rate_code", text)
-        self.assertIn("FSR2_KIND_FSR", text)
-        self.assertNotIn("FSR2_KIND_MATRIX_CELL", text)
+        self.assertNotIn("FSR2_KIND_ELECTRODE", text)
 
-    def test_hybrid_header_content(self) -> None:
-        text = HYBRID_HEADER.read_text()
-        self.assertIn("static const uint8_t FSR2_COLUMN_PINS[6] = {4, 13, 14, 25, 27, 19};", text)
-        self.assertIn("38", text)
-        self.assertIn('"R6C6"', text)
+    def test_electrode_header_content(self) -> None:
+        text = ELECTRODE_HEADER.read_text()
+        self.assertIn('"MATRIX_ELECTRODES_12"', text)
+        self.assertIn('"PENDING_REAL_WIRING"', text)
+        self.assertIn('"PULLDOWN_10K_TO_GND"', text)
+        self.assertIn('"PULLUP_1K_TO_3V3"', text)
+        self.assertIn("255, 255, 255, FSR2_KIND_ELECTRODE, FSR2_ROLE_ROW, 1, \"R1\"", text)
+        self.assertIn("12,  // electrode_count", text)
+        self.assertIn("0,  // fsr_count", text)
+        self.assertNotIn("FSR2_COLUMN_PINS", text)
+
+    def test_electrode_fsr_header_content(self) -> None:
+        text = ELECTRODE_FSR_HEADER.read_text()
+        self.assertIn("14,  // channel_count", text)
+        self.assertIn("static const uint8_t FSR2_FSR_CHANNEL_INDICES[2] = {12, 13};", text)
         self.assertIn('"FSR_A"', text)
+        self.assertIn('"C6"', text)
 
 
 class ScriptSurfaceTests(unittest.TestCase):
@@ -208,8 +258,7 @@ class ScriptSurfaceTests(unittest.TestCase):
             "run_fsr2_host_tests.py",
             "check_fsr2_frames.py",
         ):
-            path = ROOT / "scripts" / name
-            self.assertTrue(path.is_file(), name)
+            self.assertTrue((ROOT / "scripts" / name).is_file(), name)
 
     def test_scripts_are_valid_python(self) -> None:
         for name in ("generate_sensor_fsr2_config.py", "run_fsr2_host_tests.py",

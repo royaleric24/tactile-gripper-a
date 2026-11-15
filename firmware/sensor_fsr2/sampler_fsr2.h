@@ -1,5 +1,9 @@
 // Acquisition loop for the V2 four-ADS1220 board.
 //
+// Every electrode and every FSR divider is read on its own single-ended AIN; no
+// GPIO drives a column.  Electrodes whose ADC/AIN assignment is not recorded yet
+// are reported as null + NO_DATA instead of a fabricated value.
+//
 // The sampler owns the ADS1220 instances and the channel buffer, but it never
 // touches Serial: the sketch passes a poll hook so command bytes are drained
 // during conversion waits, and it takes now_ms as an argument so the same code
@@ -53,11 +57,9 @@ class Fsr2Sampler {
   void recordChannel(uint8_t channel_id, int32_t value, uint32_t sample_us, uint32_t now_ms);
   void recordFrameStart(uint32_t now_us);
   bool waitConversion(uint16_t wait_us);
-  void driveColumn(uint8_t column);
-  void parkColumns();
   void poll();
   void buildExpectedConfig(uint8_t index, uint8_t mux_code, uint8_t out[4]) const;
-  uint8_t firstChannelOfDevice(uint8_t index) const;
+  uint8_t firstMuxOfDevice(uint8_t index) const;
 
   const Fsr2Profile* profile_;
   Ads1220Device devices_[4];

@@ -1,7 +1,8 @@
-// Shared sampler test cases for both V2 profiles.
+// Shared sampler test cases for every V2 profile.
 //
-// Included by test_fsr2_sampler.cpp (FSR_ONLY generated header) and by
-// test_fsr2_sampler_hybrid.cpp (HYBRID generated header), so exactly one
+// Included by test_fsr2_sampler.cpp (FSR_ONLY generated header),
+// test_fsr2_sampler_electrodes.cpp (production 14-channel electrode header) and
+// test_fsr2_sampler_mapped.cpp (synthetic mapped electrode table).  Exactly one
 // FSR2_PROFILE symbol is visible per translation unit.
 #pragma once
 
@@ -42,32 +43,20 @@ inline bool near(int32_t actual, double expected, int32_t tolerance) {
   return delta <= static_cast<double>(tolerance);
 }
 
+// Same ramp the harness injects: 0.3 V + 50 mV per channel id.
 inline double expectedCounts(uint8_t channel_id) {
-  // Same ramp the harness injects: 0.3 V + 50 mV per channel id.
   const double volts = 0.3 + 0.05 * static_cast<double>(channel_id);
   return volts / 3.3 * 8388607.0;
 }
 
-// Matrix cells share an ADC input: R1C1..R1C6 all sit on ADC1/AIN0 and differ
-// only by the driven column, which the simulation does not model.  So the
-// injected voltage of an input is whatever the last channel on it set, and the
-// expected count follows that channel.
-inline double expectedCountsFor(const Fsr2Profile& profile, uint8_t channel_id) {
-  const Fsr2ChannelConfig& config = profile.channels[channel_id];
-  uint8_t last = channel_id;
-  for (uint8_t index = static_cast<uint8_t>(channel_id + 1); index < profile.channel_count;
-       ++index) {
-    if (profile.channels[index].adc_index == config.adc_index &&
-        profile.channels[index].adc_input == config.adc_input) {
-      last = index;
-    }
-  }
-  return expectedCounts(last);
+inline bool channelMapped(const Fsr2ChannelConfig& channel) {
+  return channel.adc_index != FSR2_UNMAPPED && channel.adc_input != FSR2_UNMAPPED;
 }
 
 inline void injectVoltages(const Fsr2Profile& profile) {
   for (uint8_t channel = 0; channel < profile.channel_count; ++channel) {
     const Fsr2ChannelConfig& config = profile.channels[channel];
+    if (!channelMapped(config)) continue;
     FakeAds1220V2* device = simDevice(profile.cs_pins[config.adc_index]);
     if (device != nullptr) {
       device->setInput(config.adc_input, 0.3 + 0.05 * static_cast<double>(channel));
@@ -76,8 +65,10 @@ inline void injectVoltages(const Fsr2Profile& profile) {
   }
 }
 
-inline void emitLine(const char* buffer) {
-  std::printf("%s\n", buffer);
+inline void emitLine(const char* buffer) { std::printf("%s\n", buffer); }
+
+inline bool isElectrode(const Fsr2Profile& profile, uint8_t channel) {
+  return profile.channels[channel].kind == FSR2_KIND_ELECTRODE;
 }
 
 }  // namespace fsr2cases
@@ -92,6 +83,9 @@ inline int run_fsr2_sampler_cases(const Fsr2Profile& profile, bool emit) {
   char out_buffer[8192];
   char second_buffer[8192];
   const char* boot_id = "sim-fsr2-boot-01";
+  const bool mapped_electrodes = fsr2ElectrodesMapped(profile);
+  const bool has_electrodes = profile.electrode_count > 0;
+  const bool has_fsr = profile.fsr_count > 0;
 
   simReset();
   for (uint8_t index = 0; index < profile.adc_count; ++index) {
@@ -100,12 +94,22 @@ inline int run_fsr2_sampler_cases(const Fsr2Profile& profile, bool emit) {
   }
 
   Fsr2Sampler sampler(profile);
-  expect(sampler.begin(boot_id, 100), "sampler.begin succeeds for a consistent layout");
+  const bool started = sampler.begin(boot_id, 100);
+  expect(started, "sampler.begin succeeds for a consistent layout");
+  if (!started) {
+    std::printf("FSR2_SAMPLER_TESTS_FAILED %d (layout: %s)\n", failureCount(),
+                sampler.lastError() == nullptr ? "unknown" : sampler.lastError());
+    return 1;
+  }
   expect(sampler.adcStatusCount() == profile.adc_count, "status count matches the ADC count");
   for (uint8_t index = 0; index < profile.adc_count; ++index) {
     expect(sampler.adcStatus(index).state == FSR2_ADC_OK, "device reports OK after init");
   }
   expect(!sampler.streaming(), "sampler starts stopped");
+  if (has_electrodes) {
+    expect(fsr2ElectrodesMapped(profile) == mapped_electrodes,
+           "electrode mapping status is reported consistently");
+  }
 
   injectVoltages(profile);
   sampler.setStreaming(true);
@@ -116,21 +120,27 @@ inline int run_fsr2_sampler_cases(const Fsr2Profile& profile, bool emit) {
   expect(first.frame_seq == 1, "first frame increments frame_seq");
   expect(first.timestamp_us == 100000, "frame timestamp is the scan start");
   expect(!first.has_previous, "the first frame has no previous frame");
-  expect(first.channel_flags != nullptr, "channel flags are exposed");
   expect(sampler.frameSeq() == 1, "sampler frame_seq agrees with the frame");
 
   for (uint8_t channel = 0; channel < profile.channel_count; ++channel) {
-    expect(first.valid[channel], "every channel is valid on a healthy frame");
-    expect(near(first.raw_adc[channel], expectedCountsFor(profile, channel), 3),
-           "channel raw count matches the injected divider voltage");
-    expect(first.sample_timestamp_us[channel] > 0, "sampled channels carry a timestamp");
+    const Fsr2ChannelConfig& config = profile.channels[channel];
+    if (config.kind == FSR2_KIND_ELECTRODE && !mapped_electrodes) {
+      expect(!first.valid[channel], "unmapped electrode is invalid, not fabricated");
+      expect(first.channel_flags[channel] == FSR2_FLAG_NO_DATA,
+             "unmapped electrode carries NO_DATA");
+      expect(first.sample_timestamp_us[channel] == 0,
+             "unmapped electrode has no sample time");
+      continue;
+    }
+    expect(first.valid[channel], "mapped channel is valid on a healthy frame");
+    expect(near(first.raw_adc[channel], expectedCounts(channel), 3),
+           "mapped channel raw count matches the injected voltage");
+    expect(first.sample_timestamp_us[channel] > 0, "mapped channel carries a timestamp");
   }
-  for (uint8_t channel = 0; channel < profile.channel_count; ++channel) {
-    if (!first.valid[channel] ||
-        !near(first.raw_adc[channel], expectedCountsFor(profile, channel), 3)) {
-      std::printf("  channel %u raw %ld expected %.1f\n", static_cast<unsigned>(channel),
-                  static_cast<long>(first.raw_adc[channel]), expectedCountsFor(profile, channel));
-      break;
+  if (has_fsr) {
+    for (uint8_t index = 0; index < profile.fsr_count; ++index) {
+      expect(first.valid[profile.fsr_channel_indices[index]],
+             "FSR channel stays valid independently of the electrode mapping");
     }
   }
 
@@ -155,48 +165,49 @@ inline int run_fsr2_sampler_cases(const Fsr2Profile& profile, bool emit) {
     }
   }
 
-  // A missing fourth converter must surface as null + NO_DATA, never as zeros.
-  const uint8_t fsr_cs = profile.cs_pins[profile.adc_count - 1];
-  simSetPresent(fsr_cs, false);
-  expect(!sampler.reinitDevice(static_cast<uint8_t>(profile.adc_count - 1), 120),
-         "reinitDevice fails when the FSR converter is absent");
-  expect(sampler.adcStatus(static_cast<uint8_t>(profile.adc_count - 1)).state != FSR2_ADC_OK,
+  // Degraded frame: disconnect the converter that carries the most interesting
+  // channel group (FSR ADC when present, otherwise the first electrode ADC).
+  const uint8_t victim = has_fsr ? static_cast<uint8_t>(profile.adc_count - 1) : 0;
+  simSetPresent(profile.cs_pins[victim], false);
+  expect(!sampler.reinitDevice(victim, 120), "reinitDevice fails when the converter is absent");
+  expect(sampler.adcStatus(victim).state != FSR2_ADC_OK,
          "the absent converter is not reported as OK");
 
   sampler.setStreaming(true);
-  const bool missing_frame_ok = sampler.scanFrame(140000, 140);
-  expect(missing_frame_ok, "scanFrame still completes with one absent converter");
-  const Fsr2SampleFrame& missing = sampler.frame();
-  for (uint8_t index = 0; index < profile.fsr_count; ++index) {
-    const uint8_t channel = profile.fsr_channel_indices[index];
-    expect(!missing.valid[channel], "FSR channel is invalid when its converter is absent");
-    expect(missing.channel_flags[channel] == FSR2_FLAG_NO_DATA,
-           "invalid FSR channel is flagged NO_DATA, not zero");
-    expect(missing.sample_timestamp_us[channel] == 0, "invalid channel has no sample time");
+  expect(sampler.scanFrame(140000, 140), "scanFrame still completes with one absent converter");
+  const Fsr2SampleFrame& degraded = sampler.frame();
+  for (uint8_t channel = 0; channel < profile.channel_count; ++channel) {
+    const Fsr2ChannelConfig& config = profile.channels[channel];
+    if (config.kind == FSR2_KIND_ELECTRODE && !mapped_electrodes) continue;
+    if (config.adc_index != victim) continue;
+    expect(!degraded.valid[channel], "channel on the absent converter is invalid");
+    expect(degraded.channel_flags[channel] == FSR2_FLAG_NO_DATA,
+           "channel on the absent converter is NO_DATA, not zero");
+    expect(degraded.sample_timestamp_us[channel] == 0,
+           "channel on the absent converter has no sample time");
   }
 
   if (emit) {
-    if (fsr2BuildSampleFrame(out_buffer, sizeof(out_buffer), missing)) {
+    if (fsr2BuildSampleFrame(out_buffer, sizeof(out_buffer), degraded)) {
       emitLine(out_buffer);
     }
   }
 
   // Recovery path: the converter answers again and the next frame is clean.
-  simSetPresent(fsr_cs, true);
-  expect(sampler.reinitDevice(static_cast<uint8_t>(profile.adc_count - 1), 150),
-         "reinitDevice succeeds once the converter answers");
-  expect(sampler.adcStatus(static_cast<uint8_t>(profile.adc_count - 1)).state == FSR2_ADC_OK,
-         "the recovered converter reports OK");
+  simSetPresent(profile.cs_pins[victim], true);
+  expect(sampler.reinitDevice(victim, 150), "reinitDevice succeeds once the converter answers");
+  expect(sampler.adcStatus(victim).state == FSR2_ADC_OK, "the recovered converter reports OK");
   expect(sampler.scanFrame(160000, 160), "scanFrame completes after recovery");
-  for (uint8_t index = 0; index < profile.fsr_count; ++index) {
-    expect(sampler.frame().valid[profile.fsr_channel_indices[index]],
-           "FSR channel is valid again after recovery");
+  for (uint8_t channel = 0; channel < profile.channel_count; ++channel) {
+    const Fsr2ChannelConfig& config = profile.channels[channel];
+    if (config.kind == FSR2_KIND_ELECTRODE && !mapped_electrodes) continue;
+    if (config.adc_index != victim) continue;
+    expect(sampler.frame().valid[channel], "channel on the recovered converter is valid again");
   }
 
   char report[2048];
   expect(sampler.buildConfigReport(report, sizeof(report)), "VERIFY_CONFIG report builds");
   expect(std::strstr(report, "readback") != nullptr, "config report carries the readback bytes");
-  expect(std::strstr(report, "AVDD") == nullptr || true, "config report stays compact");
 
   if (failureCount() == 0) {
     if (!emit) std::printf("FSR2_SAMPLER_TESTS_OK\n");

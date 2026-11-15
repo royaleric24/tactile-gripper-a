@@ -7,7 +7,8 @@ opened and nothing is flashed.
 
 Profiles:
     --profile fsr     config/sensor_esp32_fsr2.json        + fsr2_config.h
-    --profile hybrid  config/sensor_esp32_fsr2_hybrid.json + fsr2_config_hybrid.h
+    --profile electrodes12       config/sensor_esp32_electrodes12.json
+    --profile electrodes12_fsr2  config/sensor_esp32_electrodes12_fsr2.json
 
 Usage:
     python3 scripts/build_sensor_fsr2_firmware.py --build-dir "$PWD/evidence/fsr2/build_sensor_fsr2"
@@ -35,11 +36,19 @@ PROFILES = {
         "config": ROOT / "config/sensor_esp32_fsr2.json",
         "header": ROOT / "firmware/sensor_fsr2/fsr2_config.h",
         "extra_flags": "",
+        "sensor_profile": "FSR_ONLY",
     },
-    "hybrid": {
-        "config": ROOT / "config/sensor_esp32_fsr2_hybrid.json",
-        "header": ROOT / "firmware/sensor_fsr2/fsr2_config_hybrid.h",
-        "extra_flags": "-DFSR2_PROFILE_HYBRID",
+    "electrodes12": {
+        "config": ROOT / "config/sensor_esp32_electrodes12.json",
+        "header": ROOT / "firmware/sensor_fsr2/fsr2_config_electrodes12.h",
+        "extra_flags": "-DFSR2_PROFILE_ELECTRODES12",
+        "sensor_profile": "MATRIX_ELECTRODES_12",
+    },
+    "electrodes12_fsr2": {
+        "config": ROOT / "config/sensor_esp32_electrodes12_fsr2.json",
+        "header": ROOT / "firmware/sensor_fsr2/fsr2_config_electrodes12_fsr2.h",
+        "extra_flags": "-DFSR2_PROFILE_ELECTRODES12_FSR2",
+        "sensor_profile": "MATRIX_ELECTRODES_12",
     },
 }
 
@@ -145,7 +154,7 @@ def main() -> int:
     ).stdout.strip()
     metadata = {
         "target": "v2_four_ads1220_%s" % (args.profile,),
-        "sensor_profile": "FSR_ONLY" if args.profile == "fsr" else "HYBRID_6X6_FSR2",
+        "sensor_profile": profile["sensor_profile"],
         "result": "PASS" if code == 0 and artifacts else "FAIL",
         "kind": "OFFLINE_COMPILE_ONLY",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),

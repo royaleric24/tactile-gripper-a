@@ -1,6 +1,11 @@
 # 12 通道 ADS1220 触觉采集协议（硬件组实现）
 
-> **V2 增补（2026-11-14）**：四颗 ADS1220 与双 FSR 的接口在
+> **V2 修正（2026-11-15）**：压敏布是 12 根被动电极（R×10 kΩ 下拉 GND、C×1 kΩ 上拉 3.3 V），
+> **没有** GPIO 列驱动或 6×6 扫描；当前 profile 为 `FSR_ONLY` 与 `MATRIX_ELECTRODES_12`
+> （12 通道，+2 FSR 为 14 通道），`HYBRID_6X6_FSR2` 已撤回。详见
+> `docs/hardware/FSR_ONLY_INTERFACE_V2.md`。
+>
+> **V2 增补（2026-11-14，历史）**：四颗 ADS1220 与双 FSR 的接口在
 > `docs/hardware/FSR_ONLY_INTERFACE_V2.md`。V2 保留本文件的 `protocol_version = 1`
 > 与 JSON Lines 结构，只新增 `sensor_profile`、`sensor_kind`、`fsr_layout` 等可选字段；
 > FSR_ONLY 只有 2 个通道（0 = FSR_A，1 = FSR_B）。本文档描述的是 **V1 的 12 通道

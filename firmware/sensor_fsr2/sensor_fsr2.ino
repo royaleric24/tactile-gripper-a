@@ -1,4 +1,11 @@
-// V2 tactile gripper acquisition firmware: four ADS1220, FSR_ONLY profile.
+// V2 tactile gripper acquisition firmware: four ADS1220, three build profiles.
+//
+//   default                            FSR_ONLY (ADC4, two dividers)
+//   -DFSR2_PROFILE_ELECTRODES12        twelve passive electrodes (ADC1..ADC3)
+//   -DFSR2_PROFILE_ELECTRODES12_FSR2   twelve electrodes plus the two FSR dividers
+//
+// The electrode profile carries no GPIO column drive: R1..R6 are pulled to GND
+// through 10 kOhm and C1..C6 to 3.3 V through 1 kOhm, each on its own AIN.
 //
 // The heavy lifting lives in the sibling translation units so the host tests
 // can compile them without the Arduino runtime:
@@ -21,8 +28,10 @@
 #endif
 
 #include "fsr2.h"
-#if defined(FSR2_PROFILE_HYBRID)
-#include "fsr2_config_hybrid.h"
+#if defined(FSR2_PROFILE_ELECTRODES12_FSR2)
+#include "fsr2_config_electrodes12_fsr2.h"
+#elif defined(FSR2_PROFILE_ELECTRODES12)
+#include "fsr2_config_electrodes12.h"
 #else
 #include "fsr2_config.h"
 #endif
