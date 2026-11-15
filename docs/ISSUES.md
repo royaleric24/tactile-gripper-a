@@ -16,6 +16,19 @@
 | I-206 | OFFLINE_VERIFIED | 36 格仅在独立 SIMULATION 演示和历史矩阵回放中显示，现行采集保留 12 电极原始 ADC 条形图。 |
 | I-203 | OPEN | P3-B 需核对实际波特率、包吞吐、真实时间基准、FSR 极性与阈值、滑移代理、杯体机械风险。负责人：总负责人 / 现场硬件与软件组。 |
 
+## P3-B1 当前问题（2026-11-15 真实 FSR 接管）
+
+| 编号 | 状态 | 问题 / 证据 / 下一步 |
+|---|---|---|
+| I-207 | **OPEN（阻塞极性判断）** | 实测两个主要持续变化都是 counts **下降**（4.6 s −470k，48.8 s −1.72M），与配置 `VOLTAGE_RISES_WITH_FORCE` 相反。Dashboard 接触评分只认 `raw − baseline` 的正向增量，极性未确认时可能把真实夹持判为 `NO_CONTACT`。`AUTO_REAL_ENABLED=False` 必须保持。下一步：空杯“空载基线→夹持→释放”时序确认符号，未确认前不把评分当接触判据。 |
+| I-208 | **RESOLVED（分析已纠正）** | 采集脚本预写的三段式 marker 与实际操作不符；旧 `capture_analysis.json` 的窗口统计无效。已保留为 `capture_analysis_schedule_assumed.json`，用数据驱动分段生成 `capture_analysis_v2.json`。后续采集不得再写计划 marker 冒充真实事件。 |
+| I-209 | **OPEN（低优先级）** | 68.734/68.750/68.766 s 连续 3 帧 flag `0x04` 负单端（−124161/−230142/−1592），无饱和、无 NO_DATA。原因未知（SPI/模拟瞬态或接触抖动）。空杯采集时监控是否复现；若复现再查屏蔽/共地/接线。 |
+| I-210 | **OPEN（阻塞空杯实验）** | 当前 Mac 只枚举到旧 ESP32 的 CP2102；S3 的 FT232R 串口未出现。无法核对 S3 `boot_id`、0.9b26.0 状态或发送 PWM。下一步：用户连接 S3 USB 数据线/舵机电源与共地后重新枚举；不得把 CP2102 当 S3。 |
+| I-211 | **OPEN（环境限制）** | 本会话沙箱无 PTY（`openpty: Operation not permitted`），`pwm_console.py --real` 的交互终端无法由代理运行。下一步：用户在自己的真实 Terminal 运行 console，本进程独占 FSR 串口采集；或经用户明确同意改用 Dashboard LIVE 手动入口。不得修改 `isatty` 安全检查。 |
+| I-212 | **OPEN（影响重复性）** | 末段 S4 从约 1.1M 回升到 2.3M，85 s 内未回到初始 4.16M；S3 段还有 −61.6k counts/s 的慢漂移。释放恢复/蠕变时间常数未知。每个 trial 必须重新采空载基线，并保留足够长的释放后窗口。 |
+| I-213 | **ACCEPTED_LIMITATION** | `docs/ASSET_MANIFEST.md` 引用的 `evidence/stage09b26/build_s3/*` 不在本 worktree；S3 已验收固件不在本地可直接复核。本轮禁止重烧 S3，故不影响；若将来需要重烧，先从独立备份恢复并核对 SHA-256。 |
+| I-214 | **OPEN（待 LIVE 实测）** | Dashboard `fsr_history` 仅保留 180 帧（约 2.9 s @61.7 Hz），对空杯夹持/释放观察可能偏短。先跑真实 LIVE 看是否够用；若不够，仅做最小修改（增大窗口/改时间轴），不重构。 |
+
 > 状态为 OPEN / WAITING / RESOLVED / ACCEPTED_LIMITATION。解决后留历史记录，不直接删掉。每个开发进展后检查是否需要更新。
 
 | ID | 问题 | 状态 | 当前判断与下一步 |

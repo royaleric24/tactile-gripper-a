@@ -1,5 +1,34 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-15｜P3-B1 真实 FSR_A 数据接管与探索性分析｜hw/p3b1-fsr-real
+
+- **现场继承**：分支基线 `af1758e`（main 合入 PR #5 后）。Codex 已完成的真实采集在本地
+  `evidence/p3b1/private/real_20261115_2314/`：固件 `tactile-fsr2-0.3.0`、`FSR_ONLY`、
+  ADC4 AIN0/MUX8、921600 8N1、约 85.0 s、5247 个 SAMPLE。未重新初始化、未覆盖原始 JSONL。
+- **数据质量（VERIFIED_REAL）**：5247/5247 有效，帧序 1–5247 无缺帧/重复，实测 61.74 Hz，
+  ADC4 全程 `OK`，无饱和；ADC1–3 全程 `NO_RESPONSE`（本构建只装 ADC4，符合预期）。
+  仅 3 帧 flag `0x04` 负单端（68.73–68.77 s，−124161/−230142/−1592）；采集开始有 1 条 875 B
+  非 JSON 串口噪声，已丢弃，未进入样本。
+- **关键发现**：采集脚本按三段式预写的 marker（25/32/40/47/55/62/70 s）与实际操作不符；
+  操作者是“先一处按压、调整位置、另一处中等力度施压”。旧的窗口统计因此无效，已保留为
+  `capture_analysis_schedule_assumed.json`，并用数据驱动分段生成 `capture_analysis_v2.json`。
+  初始稳定段中位 4.163M counts、σ≈16k；约 4.6 s 首次持续下降 −470k、约 48.8 s 大幅下降 −1.72M、
+  约 70 s 后方差下降并缓慢回升（+44.6k counts/s），但 85 s 内未回到初始基线。
+  两个主要持续变化都是**下降**，与配置的 `VOLTAGE_RISES_WITH_FORCE` 相反；极性记为
+  **UNVERIFIED**，留待空杯“空载→夹持→释放”时序确认。
+- **结论**：FSR_A 对真实接触/位置变化有清晰、远超噪声的响应，初步响应验证 **成功**；
+  不需要重做手指三段式。counts→牛顿/摩擦/滑移/杯重均 **NOT_SUPPORTED**；按压位置/力度/时间
+  **NOT_TESTED**。
+- **文件**：新增 [P3-B1 分析报告](P3B1_FSR_REAL_ANALYSIS.md) 与
+  [真实曲线图](screenshots/p3b1/fsr_a_real_curve_v2.png)。原始 JSONL/CSV 留在本地 `evidence/`，未提交。
+- **离线检查**：`tests.test_dashboard`、`tests.test_p3a_firmware_dashboard`、`tests.test_pwm_console`
+  共 20 项 OK；`tests.test_fsr2_protocol`、`tests.test_fsr2_config` 共 51 项 OK。
+- **未执行**：未打开舵机串口、未发 PWM、未做机械动作、未重新烧录、未做 AUTO。
+  当前 Mac 只枚举到旧 ESP32 的 CP2102；S3 的 FT232R 串口未出现，空杯实验暂不能开始。
+- **下一步**：连接 S3 USB/舵机电源并核对共地、机械状态；一次确认空杯 MANUAL 范围
+  **1300–1500 μs、50 μs 步进、1300 为下限（不进 1270）**；用户在自己的真实终端运行
+  `pwm_console.py --target s3`，本进程独占 FSR 串口采集；随后运行 Dashboard LIVE 的 FSR_A 曲线。
+
 ## 2026-11-15｜P3-A PR #5 复核增量｜integrate/hybrid-demo-v2
 
 - 项目所有者确认唯一正常的 FSR_A 为 ADC4 AIN0，MUX 8，FSR_B 已损坏。新增现行 1/13 通道固件与 Dashboard，12 电极模式保持。原 2/14 通道 fixtures 与 Trial 继续兼容。[总控确认](https://github.com/royaleric24/tactile-gripper-a/pull/5#issuecomment-6895547216)

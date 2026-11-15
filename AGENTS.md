@@ -2,6 +2,22 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-B1 真实 FSR 接管，2026-11-15）
+
+已完成 `hw/p3b1-fsr-real` 上的真实 FSR_A 数据接管与探索性分析：固件 `tactile-fsr2-0.3.0`、
+ADC4 AIN0/MUX8、5247 个有效 SAMPLE、61.74 Hz、帧序 1–5247 无缺帧、ADC4 全程 OK、无饱和。
+操作者未按三段式计划；实测约 4.6 s 首次持续下降 −470k counts、约 48.8 s 大幅下降 −1.72M、
+约 70 s 后方差下降并缓慢回升，85 s 内未回到初始基线。接触变化清晰，**FSR 初步响应验证成功**，
+不需重做手指三段式；但两个主要变化方向与 `VOLTAGE_RISES_WITH_FORCE` 相反，极性
+**UNVERIFIED**，counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
+[P3-B1 分析](docs/P3B1_FSR_REAL_ANALYSIS.md) 与 [问题](docs/ISSUES.md)（I-207 起）。
+
+当前阻塞：Mac 只枚举到旧 ESP32 CP2102，S3 的 FT232R 串口未出现；本会话无 PTY，
+`pwm_console.py --real` 需用户在自己的 Terminal 运行。空杯 MANUAL 仍 **NOT_TESTED**，
+未发 PWM、未做机械动作、未重烧 S3、`AUTO_REAL_ENABLED=False`。下一步：连接并核对 S3 →
+一次授权 **1300–1500 μs、50 μs 步进、1300 下限（不进 1270）** → 无杯方向 → 空杯抓取 →
+Dashboard LIVE FSR_A 曲线 → 文档/commit/push/PR。原始 JSONL/CSV 留在本地 `evidence/`，不提交。
+
 ## 最近状态（P3-A V2 集成，2026-11-15）
 
 在独立 `integrate/hybrid-demo-v2` 合入 main `633e570`、硬件 `0827536` 与软件 `2c5a996`。

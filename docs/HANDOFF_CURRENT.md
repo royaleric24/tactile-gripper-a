@@ -1,3 +1,32 @@
+# 当前交接｜P3-B1 真实 FSR 接管（2026-11-15）
+
+- **工作区/分支**：`~/Developer/research/tactile-gripper-v2-p3b1`，`hw/p3b1-fsr-real`，
+  基线 `af1758e`（main 已合入 PR #5）。`git status -sb` 仅 `.venv` 为未跟踪符号链接。
+- **已完成的真实采集**：`tactile-fsr2-0.3.0` / `FSR_ONLY` / ADC4 AIN0 MUX8，CP2102 921600 8N1，
+  约 85.0 s、5247 SAMPLE、61.74 Hz、帧序 1–5247 无缺帧、ADC4 全程 OK、无饱和。
+  原始 JSONL/CSV 与旧分析在 `evidence/p3b1/private/real_20261115_2314/`（`evidence/` 已 gitignore，未提交）。
+- **分析结论**：操作者没有按三段式计划；4.6 s 首次持续下降 −470k counts、48.8 s 大幅下降 −1.72M、
+  70 s 后方差下降并缓慢回升；85 s 内未回到初始基线。接触变化清晰，**FSR 初步响应验证成功**，
+  不需要重做手指三段式。详见 [P3-B1 分析](P3B1_FSR_REAL_ANALYSIS.md) 与
+  [曲线图](screenshots/p3b1/fsr_a_real_curve_v2.png)。
+- **关键未决**：两个主要变化都是 counts 下降，与 `VOLTAGE_RISES_WITH_FORCE` 相反；
+  极性 **UNVERIFIED**。Dashboard 接触评分只认上升，空杯实验必须用“空载→夹持→释放”重新确认符号。
+  counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。
+- **当前硬件阻塞**：Mac 只枚举到旧 ESP32 CP2102 `/dev/cu.usbserial-0001`；S3 的 FT232R 串口
+  **未出现**（I-210）。本会话沙箱无 PTY，`pwm_console.py --real` 不能由代理直接运行（I-211）。
+  下一步需要用户连接 S3 USB/舵机电源并核对共地、机械状态，然后在自己的 Terminal 运行 console。
+- **空杯实验预案（尚未授权）**：PWM **1300–1500 μs、50 μs 步进、1300 为下限，不进 1270**；
+  先无杯 1500→1450→1400→1350→1500 验证方向，再空杯 1500→1450→1400→1350→1300，
+  首次接触即停，保持并观察，释放回 1500；2 次（最多 3 次）抓取/释放。
+  `AUTO_REAL_ENABLED=False`；FSR 只记录，不闭环。
+- **数据分工**：用户 terminal 的 `pwm_console.py --target s3` 独占 S3 串口并写
+  `logs/real/bench/<id>/transport.jsonl`；本进程用独立采集脚本独占 FSR 串口写
+  `evidence/p3b1/private/cup_*`。两个进程不得打开同一设备。
+- **未执行**：未发 PWM、未做机械动作、未重烧 S3、未做 AUTO、未做加水。
+- **下一步顺序**：S3 端口出现 → 只读 STATUS 核对 0.9b26.0/board_target/pwm_gpio=4/50 Hz/14-bit/
+  DISARMED → 用户一次授权 → 无杯方向 → 空杯抓取 → Dashboard LIVE FSR 曲线 → 保存/分析/文档/
+  commit/push/PR（不合并）。
+
 # 当前交接｜P3-A V2 离线集成（2026-11-15）
 
 集成分支 `integrate/hybrid-demo-v2`；独立目录同级 `tactile-gripper-v2-integration`。
