@@ -8,7 +8,8 @@
 
 本阶段完成 Dashboard V2 传感适配、两路 FSR 显示与相对接触评估、矩阵/FSR 分流、
 双设备身份/波特率/STATUS 查询入口、Trial/CSV/REPLAY 扩展，以及**不执行真实 PWM**
-的离线滞回决策与拒绝路径测试。
+的离线滞回决策与拒绝路径测试。2026-11-15 追加 12 电极拓扑适配与三视口 Dashboard
+视觉验收（见第 11 节）。
 
 真实 AUTO 仍由 `AUTO_REAL_ENABLED=False` 硬关闭。新增的
 `request_real_auto_commissioning()` 是显式、当前必定拒绝的现场入口，仅用于将来
@@ -23,19 +24,23 @@
 |---|---|---|
 | `FSR_ONLY` | 2 个 FSR | 无矩阵维度；推荐 `0=FSR_A, 1=FSR_B` |
 | `HYBRID_6X6_FSR2` | 38 | 36 个 `MATRIX_CELL` 覆盖 6×6 + 2 个 FSR；推荐 36/37 为 FSR |
+| `MATRIX_ELECTRODES_12` | 12 | R1–R6 = ROW 0..5，C1–C6 = COLUMN 0..5；禁止 `matrix_row/col`；不生成 36 点 |
 | `UNKNOWN` / 旧配置 | 按 `channel_config` 实际数量 | 不假定存在矩阵；仍可显示原始通道 |
 
 每个 `ChannelConfig` 支持：
 
-- `sensor_kind`: `MATRIX_CELL` / `FSR` / `UNKNOWN`
-- `name`: 显示名，例如 `FSR_A`
-- `matrix_row` / `matrix_col`: 零基矩阵位置；FSR 禁止携带
+- `sensor_kind`: `MATRIX_CELL` / `FSR` / `MATRIX_ELECTRODE` / `UNKNOWN`
+- `name`: 显示名，例如 `FSR_A`、`R1`、`C6`
+- `matrix_row` / `matrix_col`: 零基矩阵位置；FSR 与电极禁止携带
+- `electrode_axis` / `electrode_index`: 仅 `MATRIX_ELECTRODE` 使用；`ROW`/`COLUMN` 与
+  零基逻辑序号，**不是** ADS1220 AIN 编号
 - `adc_reference_uv` / `adc_gain` / `adc_bits`: 电压换算依据；缺失则不显示电压
 - `unit`: 仍只允许 `ADC_COUNTS` / `UNKNOWN`，不引入未标定的力单位
 
 矩阵热图只消费 `sensor_kind=MATRIX_CELL`（或具备矩阵位置的通道），位置使用
 `matrix_row/matrix_col`，不再使用 `divmod(channel_id, cols)`。即使 FSR 的通道号
-恰好落在 6×6 范围内，也不会进入热图。
+恰好落在 6×6 范围内，也不会进入热图。`MATRIX_ELECTRODES_12` 没有 36 个单元位置，
+Live 与 Analysis 只画 12 路原始 ADC 条形图，并明确提示“36 点压力热图不可用”。
 
 ## 3. 两路 FSR 显示与相对接触评分
 
@@ -144,6 +149,10 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
 # HYBRID：36 矩阵 + 2 FSR
 PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
   --demo-profile HYBRID_6X6_FSR2 --data-root /tmp/gripper-hybrid-demo --port 8080
+
+# 12 电极：12 路原始 ADC，无 36 点热图
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
+  --demo-profile MATRIX_ELECTRODES_12 --data-root /tmp/gripper-electrode-demo --port 8080
 ```
 
 页面：`/` Live、`/experiments` Trial、`/analysis` 分析。仿真开关、profile 选择、
@@ -168,7 +177,7 @@ fixtures 全部为合成数据，不含真实设备日志。
 PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -v
 ```
 
-结果：**278 tests, OK**（2026-11-14，本地离线，Python 3.13.15）。
+结果：**285 tests, OK**（2026-11-15，本地离线，Python 3.13.15；含 12 电极测试 7 个）。
 
 覆盖重点：
 
@@ -179,6 +188,8 @@ PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -v
 - 真实 AUTO 仍不可用，显式 commissioning 入口被拒绝
 - 短帧、无效 ADC、REPLAY、Trial 原始帧/身份/PWM/ACK/决策、CSV、直接 frames REPLAY
 - 串口 921600 可配置、HELLO/STATUS 查询默认关闭、REPLAY 不误判旧帧过期
+- 12 电极：配置/索引校验、禁止矩阵位置、条形图选择、HELLO 往返、仿真无接触评分、
+  电极 Trial metadata 与 12 列 CSV
 
 状态标注：
 
@@ -204,3 +215,45 @@ PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -v
 8. 真实 AUTO 的门控签核流程：协议冻结、硬件授权、标定确认、现场急停与失联策略。
 
 在上述确认前，本分支不能宣称真实 FSR→PWM 闭环已完成。
+
+## 11. 12 电极拓扑与 Dashboard 视觉验收（2026-11-15 追加）
+
+### 11.1 接线事实与边界
+
+用户确认：R1–R6 分别连接 ADS1220 AIN，各自经 10 kΩ 下拉到 GND；C1–C6 分别连接
+ADS1220 AIN，各自经 1 kΩ 上拉到 3.3 V。这不是 GPIO 逐列激励方案。具体 R/C 到
+ADS1220/AIN 的物理映射、扫描顺序、增益与基准尚未现场确认。
+
+因此：
+
+- 12 个电极测量值是 12 路单端原始 ADC，不是 36 个独立压力点；
+- 不合成 `contact_score`、压力、牛顿或摩擦力；
+- 不绘制 36 点热图，也不把 12 路值插值成 6×6；
+- FSR_ONLY 两通道方案继续保留，互不影响。
+
+### 11.2 实现
+
+- `MATRIX_ELECTRODES_12` 严格校验 12 个通道、ROW/COLUMN 各 0..5、无矩阵位置；
+- 仿真 transport 只产生 12 路带少量噪声的原始 ADC，并保留偶发无效通道；
+- Live 用条形图显示 R1–R6/C1–C6，附琥珀色提示；接触指标为“未知”；
+- Analysis 回放按 metadata 中的 `sensor_config` 选择条形图，并显示同一提示；
+- 电极 Trial 的 `sensor_config` 保留 `electrode_axis/index`；CSV 仍按实际通道并集
+  生成 `ch_0..ch_11`，不写 `ch_36`；
+- `scripts/ui_screenshot_audit.mjs` 仅驱动本机 SIMULATION 页面截图，不接触硬件。
+
+### 11.3 视觉验收
+
+1440×900、1280×800、1920×1080 各截取 Live/Experiments/Analysis；修复前截图见
+`docs/screenshots/p2s-ui-audit/before/`，修复后见 `after/`，12 电极见
+`after-electrodes/`。对比与残留轻微不对称见同目录 `README.md`。
+
+结果为 PASS（离线）：所有视口 `bodyScrollWidth == viewport`，console/page error 0；
+顶部指标卡与主卡片等高；FSR 读数两列；表格不再溢出卡片。仍为仿真数据，真机视觉、
+长时间运行和交互路径未验证。
+
+### 11.4 仍需现场确认
+
+1. R1–R6 / C1–C6 到 ADS1220 AIN 的逐路映射与板号；
+2. ADS1220 单端/差分、增益、基准、数据速率与有符号计数约定；
+3. 10 kΩ 下拉 / 1 kΩ 上拉下的实际电压范围、饱和与串扰；
+4. 是否存在可验证的扫描/激励方案；没有之前不得输出 36 点压力图。

@@ -10,7 +10,7 @@ from nicegui import ui
 from ...constants import SOFTWARE_VERSION
 from ...control import Mode
 from ...sources import DataSource
-from ..charts import bar_options, fsr_trend_options, heatmap_options
+from ..charts import bar_options, fsr_trend_options, heatmap_options, matrix_view
 from ..theme import (
     card_header,
     empty_state,
@@ -99,7 +99,7 @@ def live_page(core) -> None:
         core,
         SOFTWARE_VERSION,
     ) as refs:
-        with ui.element("div").classes("grid-12"):
+        with ui.element("div").classes("grid-12 metric-grid"):
             with ui.element("div").classes("col-3"):
                 s3_value, s3_caption = metric_card("控制器状态", "memory", "离线（OFFLINE）", "尚无控制会话")
             with ui.element("div").classes("col-3"):
@@ -115,7 +115,7 @@ def live_page(core) -> None:
             fault_reset_button = ui.button("清除故障", color="negative").props("outline no-caps").style("margin-left:auto")
         fault_banner.set_visibility(False)
 
-        with ui.element("div").classes("grid-12"):
+        with ui.element("div").classes("grid-12 main-grid"):
             with ui.element("div").classes("col-7"):
                 with ui.column().classes("card gap-3"):
                     with ui.row().classes("w-full items-start justify-between"):
@@ -128,9 +128,9 @@ def live_page(core) -> None:
                             sensor_hello_button = ui.button("查询 HELLO", color="secondary").props("outline no-caps")
                             demo_switch = ui.switch("仿真演示（SIMULATION）", value=False).props("dense")
                             demo_profile_select = ui.select(
-                                ["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2"],
+                                ["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2", "MATRIX_ELECTRODES_12"],
                                 value=state["demo_profile"],
-                            ).props("dense outlined").classes("w-40")
+                            ).props("dense outlined").classes("w-60")
                             source_pill = pill(source_label("SIMULATION"), "teal")
                     chart_holder = ui.column().classes("w-full")
                     with ui.row().classes("w-full items-center gap-4"):
@@ -192,7 +192,7 @@ def live_page(core) -> None:
                     ).classes("card-sub")
                     ui.label("STOP 关闭 PWM 输出；不保证机械爪继续保持夹持，也不是独立硬件急停。").classes("notice notice-amber").style("width:100%")
 
-        with ui.column().classes("card gap-3") as fsr_section:
+        with ui.column().classes("card gap-3 w-full") as fsr_section:
             with ui.row().classes("w-full items-start justify-between"):
                 with ui.column().classes("gap-0"):
                     ui.label("FSR 相对接触").classes("card-title")
@@ -203,7 +203,7 @@ def live_page(core) -> None:
                     baseline_hint = ui.label("基线未采集").classes("card-sub")
                     baseline_button = ui.button("采集空载基线", color="secondary").props("outline no-caps")
                     baseline_clear_button = ui.button("清除基线", color="secondary").props("outline no-caps")
-            with ui.row().classes("w-full gap-3"):
+            with ui.element("div").classes("grid-12"):
                 fsr_cards = []
                 for index in range(2):
                     with ui.column().classes("col-6 gap-1") as card:
@@ -224,17 +224,17 @@ def live_page(core) -> None:
                         pass
                     decision_table = ui.table(
                         columns=[
-                            {"name": "time", "label": "时间", "field": "time", "align": "left"},
-                            {"name": "action", "label": "动作", "field": "action", "align": "left"},
-                            {"name": "stage", "label": "阶段", "field": "stage", "align": "left"},
-                            {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right"},
-                            {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "center"},
-                            {"name": "device", "label": "设备状态", "field": "device", "align": "left"},
-                            {"name": "detail", "label": "说明", "field": "detail", "align": "left"},
+                            {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:14%;white-space:nowrap"},
+                            {"name": "action", "label": "动作", "field": "action", "align": "left", "style": "width:13%"},
+                            {"name": "stage", "label": "阶段", "field": "stage", "align": "left", "style": "width:12%"},
+                            {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right", "style": "width:10%"},
+                            {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "center", "style": "width:14%"},
+                            {"name": "device", "label": "设备状态", "field": "device", "align": "left", "style": "width:11%"},
+                            {"name": "detail", "label": "说明", "field": "detail", "align": "left", "style": "width:26%"},
                         ],
                         rows=[],
                         row_key="id",
-                    ).props('flat dense no-data-label="暂无数据"').classes("w-full")
+                    ).props('flat dense wrap-cells no-data-label="暂无数据"').classes("w-full data-table")
             with ui.element("div").classes("col-4"):
                 with ui.column().classes("card gap-3"):
                     with card_header("实验记录状态", "实验（Trial）生命周期与写入状态"):
@@ -274,18 +274,16 @@ def live_page(core) -> None:
 
     def render_chart(frame: dict, config: dict | None) -> None:
         chart_holder.clear()
-        matrix_ids = []
-        if config:
-            matrix_ids = [
-                channel["channel_id"]
-                for channel in config.get("channels", [])
-                if channel.get("sensor_kind") == "MATRIX_CELL"
-                or (channel.get("matrix_row") is not None and channel.get("matrix_col") is not None)
-            ]
-        has_matrix = bool(matrix_ids) and bool(config and config.get("matrix_rows") and config.get("matrix_cols"))
+        view = matrix_view(config)
         with chart_holder:
-            if has_matrix:
+            if view == "CELLS":
                 ui.echart(heatmap_options(frame, config)).classes("w-full").style("height:310px")
+            elif view == "ELECTRODES":
+                ui.echart(bar_options(frame, config)).classes("w-full").style("height:280px")
+                ui.label(
+                    "MATRIX_ELECTRODES_12：仅显示 12 路行列电极原始 ADC。"
+                    "R/C→ADC/AIN 映射未确认，36 点压力热图不可用；这里不推算压力分布。"
+                ).classes("notice notice-amber").style("width:100%")
             elif config is not None:
                 empty_state(
                     "grid_off",
@@ -342,8 +340,16 @@ def live_page(core) -> None:
             if channel.get("sensor_kind") == "MATRIX_CELL"
             or (channel.get("matrix_row") is not None and channel.get("matrix_col") is not None)
         )
+        electrode_count = sum(
+            1 for channel in (config or {}).get("channels", [])
+            if channel.get("sensor_kind") == "MATRIX_ELECTRODE"
+            or channel.get("electrode_axis") is not None
+        )
+        channel_summary = f"FSR {fsr_count} / 矩阵 {matrix_count}"
+        if electrode_count:
+            channel_summary = f"FSR {fsr_count} / 电极 {electrode_count}（36 点热图不可用）"
         sensor_caption.set_text(
-            f"{profile} · {snapshot['sensor'].get('channel_count') or '—'} 通道 / FSR {fsr_count} / 矩阵 {matrix_count}"
+            f"{profile} · {snapshot['sensor'].get('channel_count') or '—'} 通道 / {channel_summary}"
             + (f" · {sensor_identity.get('port')}@{sensor_identity.get('baudrate')}" if sensor_identity.get("port") else "")
             + f" · 已接收 {snapshot['frames_received']} 帧 · "
             f"{f'{rate:.1f} Hz' if rate else '采样率未知'} · {freshness_text}"

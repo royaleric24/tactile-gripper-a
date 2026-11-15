@@ -34,6 +34,8 @@ frames.csv         动态通道 CSV
 - `write_error`、`video_path`、`operator`、`tags`
 - `conditions`：人工录入，例如 `object`、`cup_type`、`material`、`water_mass_g`、`grasp_target`
 - `parameters`：固件版本、PWM 范围、完整 `gripper_config`、`sensor_config`、环境信息
+  （`sensor_config` 是 HELLO `channel_config` 的副本；`MATRIX_ELECTRODES_12` 时
+  channels 含 `electrode_axis/electrode_index` 且不含 `matrix_row/col`）
 - `counts`：frames/events/invalid/dropped/restarts 等
 - `files`
 
@@ -53,6 +55,9 @@ frames.csv         动态通道 CSV
 `frames.jsonl` 每行包含：
 
 `frame_seq`、`boot_id`、`mcu_time_us`、`host_received_ns`、`host_received_utc`、`source`、`channels`、`valid_mask`、`channel_ids`、`matrix_rows/cols`、`channel_count`、`valid_count`、`contact_score`、`schema_version`、`trial_id`。
+
+12 电极 Trial 仍只有 12 个通道（`channel_ids` 0..11），`contact_score` 为 null；
+不保存 36 点插值或压力推算。通道名称与逻辑轴/序号来自 metadata 的 `sensor_config`。
 
 无效通道保持 null 或占位值 + `valid_mask=false`，不会当零接触。
 

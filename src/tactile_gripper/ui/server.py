@@ -98,7 +98,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--demo", action="store_true", help="仅 SIMULATION 的 Dashboard 演示数据")
     parser.add_argument(
         "--demo-profile",
-        choices=["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2"],
+        choices=["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2", "MATRIX_ELECTRODES_12"],
         default="MATRIX_6X6",
         help="仿真配置档（默认 MATRIX_6X6；仅 --demo 使用）",
     )

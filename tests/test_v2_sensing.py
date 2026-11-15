@@ -24,19 +24,31 @@ from tactile_gripper.control.contact import (
     FsrContactAssessor,
     FsrThresholds,
 )
-from tactile_gripper.devices.sensor import JsonlReplayTransport, ReplaySensorAdapter, SensorAdapter
+from tactile_gripper.devices.sensor import (
+    JsonlReplayTransport,
+    ReplaySensorAdapter,
+    SensorAdapter,
+    SimulatedSensorAdapter,
+)
 from tactile_gripper.devices.sensor_serial import SerialSensorConfig
 from tactile_gripper.errors import ControlDenied, FrameValidationError
 from tactile_gripper.experiments.store import TrialStore
 from tactile_gripper.models import ChannelConfig, ChannelConfiguration, ControlEvent, TactileFrame
-from tactile_gripper.protocol import encode_hello_query, encode_status_query, parse_sample
+from tactile_gripper.protocol import (
+    encode_hello,
+    encode_hello_query,
+    encode_status_query,
+    parse_hello,
+    parse_sample,
+)
 from tactile_gripper.sources import DataSource
-from tactile_gripper.ui.charts import fsr_trend_options, heatmap_options
+from tactile_gripper.ui.charts import bar_options, fsr_trend_options, heatmap_options, matrix_view
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "v2"
 FSR_CONFIG_PATH = ROOT / "config/sensor_channels.fsr_only.demo.json"
 HYBRID_CONFIG_PATH = ROOT / "config/sensor_channels.hybrid.demo.json"
+ELECTRODE_CONFIG_PATH = ROOT / "config/sensor_channels.matrix_electrodes12.demo.json"
 SPAN = 2 ** 23 * 0.05
 
 
@@ -140,6 +152,91 @@ class ProfileTests(unittest.TestCase):
         names = [series["name"] for series in options["series"]]
         self.assertIn("FSR_A 原始 ADC", names)
         self.assertIn("FSR_B 原始 ADC", names)
+
+
+class ElectrodeProfileTests(unittest.TestCase):
+    """12-electrode topology: 12 raw row/column channels, never 36 pressure cells."""
+
+    def test_profile_is_12_raw_electrodes_not_36_cells(self):
+        config = load_config(ELECTRODE_CONFIG_PATH)
+        self.assertEqual(config.sensor_profile, "MATRIX_ELECTRODES_12")
+        self.assertEqual(len(config.channels), 12)
+        self.assertEqual(config.matrix_channels, ())
+        self.assertEqual(config.electrode_channels, config.channels)
+        self.assertIsNone(config.matrix_cells)
+        self.assertEqual(
+            [(channel.electrode_axis, channel.electrode_index, channel.name) for channel in config.electrode_channels],
+            [("ROW", index, f"R{index + 1}") for index in range(6)]
+            + [("COLUMN", index, f"C{index + 1}") for index in range(6)],
+        )
+        self.assertTrue(all(not channel.has_matrix_position for channel in config.electrode_channels))
+
+    def test_electrode_channels_must_not_invent_cell_positions(self):
+        payload = json.loads(ELECTRODE_CONFIG_PATH.read_text())
+        payload["channels"][0]["matrix_row"] = 0
+        payload["channels"][0]["matrix_col"] = 0
+        with self.assertRaises(ValueError):
+            ChannelConfiguration.from_dict(payload)
+
+    def test_electrode_profile_requires_complete_row_and_column_map(self):
+        payload = json.loads(ELECTRODE_CONFIG_PATH.read_text())
+        payload["channels"][0]["electrode_index"] = 3
+        with self.assertRaises(ValueError):
+            ChannelConfiguration.from_dict(payload)
+
+    def test_electrode_profile_chart_is_bars_without_heatmap(self):
+        config = load_config(ELECTRODE_CONFIG_PATH)
+        self.assertEqual(matrix_view(config), "ELECTRODES")
+        self.assertEqual(matrix_view(load_config(HYBRID_CONFIG_PATH)), "CELLS")
+        self.assertEqual(matrix_view(load_config(FSR_CONFIG_PATH)), "NONE")
+        frame = make_frame(config, 1, [1800.0 + index for index in range(12)])
+        self.assertEqual(heatmap_options(frame.to_dict(), config), {})
+        labels = bar_options(frame.to_dict(), config)["xAxis"]["data"]
+        self.assertEqual(labels, ["R1", "R2", "R3", "R4", "R5", "R6", "C1", "C2", "C3", "C4", "C5", "C6"])
+
+    def test_hello_roundtrip_keeps_electrode_metadata(self):
+        config = load_config(ELECTRODE_CONFIG_PATH)
+        hello = parse_hello(json.loads(encode_hello("sensor-electrode-01", "boot-12", config).decode().strip()))
+        self.assertEqual(hello.channel_config.sensor_profile, "MATRIX_ELECTRODES_12")
+        self.assertEqual(len(hello.channel_config.electrode_channels), 12)
+        self.assertEqual(hello.channel_config.electrode_channels[6].name, "C1")
+
+    def test_simulation_emits_12_raw_channels_without_contact_score(self):
+        config = load_config(ELECTRODE_CONFIG_PATH)
+        adapter = SimulatedSensorAdapter(config, period_s=0.0)
+        adapter.connect()
+        try:
+            frame = adapter.read_frame(1.0)
+            self.assertIsNotNone(frame)
+            self.assertEqual(frame.channel_count, 12)
+            self.assertEqual(frame.channel_ids, tuple(range(12)))
+            self.assertIsNone(frame.contact_score)
+            self.assertGreater(len({value for value in frame.channels if value is not None}), 1)
+        finally:
+            adapter.close()
+
+    def test_electrode_trial_keeps_channel_map_and_exports_12_columns(self):
+        config = load_config(ELECTRODE_CONFIG_PATH)
+        frame = make_frame(config, 1, [1800.0 + index for index in range(12)])
+        with tempfile.TemporaryDirectory() as tmp:
+            store = TrialStore(Path(tmp), DataSource.SIMULATION)
+            recorder = store.create_trial(
+                "electrode fixture",
+                mode="MANUAL",
+                parameters={"sensor_config": config.to_dict()},
+            )
+            recorder.start()
+            recorder.record_frame(frame, sensor_profile=config.sensor_profile)
+            recorder.stop("test")
+            metadata = json.loads((recorder.directory / "metadata.json").read_text(encoding="utf-8"))
+            stored = metadata["parameters"]["sensor_config"]
+            self.assertEqual(stored["sensor_profile"], "MATRIX_ELECTRODES_12")
+            self.assertEqual(stored["channels"][6]["electrode_axis"], "COLUMN")
+            self.assertEqual(stored["channels"][6]["name"], "C1")
+            with open(recorder.export_csv(), newline="", encoding="utf-8") as handle:
+                header = next(csv.reader(handle))
+            self.assertIn("ch_11", header)
+            self.assertNotIn("ch_36", header)
 
 
 class ContactTests(unittest.TestCase):

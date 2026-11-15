@@ -38,9 +38,38 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
   --demo-profile FSR_ONLY --data-root /tmp/gripper-fsr-demo --port 8080
 ```
 
+## 2026-11-15 · 12 电极适配与 Dashboard 视觉验收
+
+用户确认的最新接线：R1–R6 分别接 ADS1220 AIN，各自 10 kΩ 下拉到 GND；
+C1–C6 分别接 ADS1220 AIN，各自 1 kΩ 上拉到 3.3 V。这不是 GPIO 逐列激励，
+R/C 到具体 ADC/AIN 的物理映射仍待现场确认，12 个电极不能冒充 36 个压力点。
+
+| 条目 | 状态 | 证据/说明 |
+|---|---|---|
+| `MATRIX_ELECTRODES_12` 配置与校验 | PASS（离线） | 12 个 `MATRIX_ELECTRODE`；row/column 索引各覆盖 0..5；禁止矩阵位置 |
+| 12 路原始 ADC 仿真与图表 | PASS（离线） | 条形图 R1–R6/C1–C6；`heatmap_options` 对电极配置返回空图 |
+| 不合成 36 点热图/接触评分 | PASS（离线） | 仿真不产生 contact_score；Live/Analysis 显示“36 点热图不可用” |
+| FSR_ONLY / HYBRID / Trial / CSV / REPLAY | PASS（离线） | 既有 278 个测试保持通过，新增 7 个电极测试 |
+| Dashboard 三视口 × 三页面视觉验收 | PASS（离线） | `docs/screenshots/p2s-ui-audit/`；console/page error 0 |
+| R/C→ADC/AIN 物理映射 | UNKNOWN | 需硬件组现场确认 |
+| 真实电极测量、串口、PWM、机械动作 | NOT_IMPLEMENTED | 本阶段未连接任何硬件 |
+
+验证命令与结果（2026-11-15）：
+
+```bash
+PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests
+# Ran 285 tests ... OK
+```
+
+UI 验收命令与截图脚本见
+[docs/screenshots/p2s-ui-audit/README.md](screenshots/p2s-ui-audit/README.md) 与
+`scripts/ui_screenshot_audit.mjs`。
+
 ## 下一步
 
-1. 与硬件/集成组确认 `docs/SOFTWARE_V2_P2S_REPORT.md` 第 10 节接口问题。
-2. PR #1 合并后对齐 V2 文档，避免本分支 PROGRESS/ISSUES/HANDOFF 与主线重复。
-3. 获得现场授权后，先做只读双串口识别与 HELLO/STATUS，再做单步 PWM，不直接开 AUTO。
-4. 标定 FSR 基线、极性和饱和，确认电压换算与矩阵方位后，才讨论真实 AUTO。
+1. 现场确认 R/C→ADS1220 AIN 的物理映射、ADS1220 通道/增益/基准与扫描顺序，
+   再决定是否启用真实电极采样。
+2. 与硬件/集成组确认 `docs/SOFTWARE_V2_P2S_REPORT.md` 第 10 节接口问题。
+3. PR #1 合并后对齐 V2 文档，避免本分支 PROGRESS/ISSUES/HANDOFF 与主线重复。
+4. 获得现场授权后，先做只读双串口识别与 HELLO/STATUS，再做单步 PWM，不直接开 AUTO。
+5. 标定 FSR 基线、极性和饱和，确认电压换算与矩阵方位后，才讨论真实 AUTO。

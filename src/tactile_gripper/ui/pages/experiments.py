@@ -75,9 +75,10 @@ def experiments_page(core) -> None:
                             value="UNKNOWN",
                             label="材料",
                         ).props("outlined dense").classes("w-40")
-                        water_mass_input = ui.number("水量/质量（g）", value=None, min=0, step=1).props("outlined dense").classes("flex-1")
-                        operator_input = ui.input("操作人员", placeholder="姓名/缩写").props("outlined dense").classes("w-32")
-                    target_input = ui.input("抓取目标 / 实验条件", placeholder="例如：1500 μs 接近").props("outlined dense").classes("w-full")
+                        operator_input = ui.input("操作人员", placeholder="姓名/缩写").props("outlined dense").classes("flex-1")
+                    with ui.row().classes("w-full gap-2"):
+                        water_mass_input = ui.number("水量/质量（g）", value=None, min=0, step=1).props("outlined dense").classes("w-40")
+                        target_input = ui.input("抓取目标 / 实验条件", placeholder="例如：1500 μs 接近").props("outlined dense").classes("flex-1")
                     video_input = ui.input("视频文件路径", placeholder="/path/to/capture.mov（可选）").props("outlined dense").classes("w-full")
                     notes_input = ui.textarea("备注", placeholder="装配、观察、现场条件等").props("outlined dense").classes("w-full")
                     create_button = ui.button("创建实验", color="primary").props("unelevated no-caps").classes("w-full").style("height:42px")

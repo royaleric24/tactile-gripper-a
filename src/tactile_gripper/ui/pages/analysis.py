@@ -10,7 +10,14 @@ from datetime import datetime
 from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
-from ..charts import bar_options, fsr_trend_options, heatmap_options, line_options, pwm_timeline_options
+from ..charts import (
+    bar_options,
+    fsr_trend_options,
+    heatmap_options,
+    line_options,
+    matrix_view,
+    pwm_timeline_options,
+)
 from ..theme import card_header, empty_state, notice, pill, set_pill, shell, tone_for_state
 from ..text_zh import (
     action_label,
@@ -82,7 +89,7 @@ def analysis_page(core) -> None:
         core,
         SOFTWARE_VERSION,
     ) as refs:
-        with ui.element("div").classes("card gap-3"):
+        with ui.element("div").classes("card gap-3 w-full"):
             with ui.row().classes("w-full items-center gap-3"):
                 ui.label("实验筛选").classes("card-kicker")
                 source_filter = ui.select(
@@ -141,7 +148,7 @@ def analysis_page(core) -> None:
                 ],
                 rows=[],
                 row_key="trial",
-            ).props('flat dense no-data-label="暂无数据"').classes("w-full")
+            ).props('flat dense no-data-label="暂无数据"').classes("w-full data-table")
             comparison_holder.set_visibility(False)
             comparison_table.set_visibility(False)
 
@@ -249,12 +256,7 @@ def analysis_page(core) -> None:
         summary = record.get("summary") or {}
         parameters = metadata.get("parameters") or {}
         sensor_config = parameters.get("sensor_config") or {}
-        matrix_count = sum(
-            1
-            for channel in sensor_config.get("channels", [])
-            if channel.get("sensor_kind") == "MATRIX_CELL"
-            or (channel.get("matrix_row") is not None and channel.get("matrix_col") is not None)
-        )
+        sensor_view = matrix_view(sensor_config)
         integrity = summary.get("integrity") or {}
         status = metadata.get("status", "UNKNOWN")
         if status == "INTERRUPTED":
@@ -336,10 +338,16 @@ def analysis_page(core) -> None:
                         slider = ui.slider(min=0, max=max(0, len(frames) - 1), value=index, step=1).props("label").classes("w-full")
                         chart_holder = ui.column().classes("w-full")
                         with chart_holder:
-                            if matrix_count and frame.get("matrix_rows") and frame.get("matrix_cols"):
+                            if sensor_view == "CELLS" and frame.get("matrix_rows") and frame.get("matrix_cols"):
                                 ui.echart(heatmap_options(frame, sensor_config)).classes("w-full").style("height:300px")
+                            elif sensor_view == "ELECTRODES":
+                                ui.echart(bar_options(frame, sensor_config)).classes("w-full").style("height:300px")
+                                ui.label(
+                                    "MATRIX_ELECTRODES_12：该试次只保存 12 路行列电极原始 ADC。"
+                                    "R/C→ADC/AIN 映射未确认，不能回放为 36 点压力热图。"
+                                ).classes("notice notice-amber").style("width:100%")
                             else:
-                                ui.echart(bar_options(frame)).classes("w-full").style("height:300px")
+                                ui.echart(bar_options(frame, sensor_config)).classes("w-full").style("height:300px")
 
                         def on_frame_change(event) -> None:
                             if event.value is None:
@@ -363,8 +371,8 @@ def analysis_page(core) -> None:
                 if (item.get("contact_assessment") or {}).get("readings")
             ]
             if fsr_history:
-                with ui.element("div").classes("col-5"):
-                    with ui.column().classes("card gap-3"):
+                with ui.element("div").classes("col-5 flex"):
+                    with ui.column().classes("card gap-3 flex-1"):
                         with card_header("FSR 相对接触", "原始 ADC 与相对评分；电压仅在 HELLO 基准完整时记录"):
                             pass
                         latest_fsr = fsr_history[-1]
@@ -391,7 +399,7 @@ def analysis_page(core) -> None:
                         ui.code(
                             json.dumps(value or {}, ensure_ascii=False, indent=2),
                             language="json",
-                        ).classes("w-full").style("max-height:160px;overflow:auto;font-size:11px")
+                        ).classes("w-full analysis-code").style("max-height:160px;overflow:auto;font-size:11px")
 
             with ui.element("div").classes("col-7"):
                 with ui.column().classes("card gap-3"):
@@ -420,17 +428,17 @@ def analysis_page(core) -> None:
                         )
                     ui.table(
                         columns=[
-                            {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:150px;white-space:nowrap"},
-                            {"name": "action", "label": "动作", "field": "action", "align": "left", "style": "width:105px"},
-                            {"name": "stage", "label": "阶段", "field": "stage", "align": "left", "style": "width:115px"},
-                            {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right", "style": "width:80px"},
-                            {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "center", "style": "width:90px"},
-                            {"name": "device", "label": "设备状态", "field": "device", "align": "left", "style": "width:120px"},
+                            {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:20%;white-space:nowrap"},
+                            {"name": "action", "label": "动作", "field": "action", "align": "left", "style": "width:12%"},
+                            {"name": "stage", "label": "阶段", "field": "stage", "align": "left", "style": "width:12%"},
+                            {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right", "style": "width:10%"},
+                            {"name": "ack", "label": "设备确认（ACK）", "field": "ack", "align": "center", "style": "width:12%"},
+                            {"name": "device", "label": "设备状态", "field": "device", "align": "left", "style": "width:12%"},
                             {"name": "detail", "label": "说明", "field": "detail", "align": "left"},
                         ],
                         rows=control_rows,
                         row_key="id",
-                    ).props('flat dense no-data-label="暂无数据"').classes("w-full")
+                    ).props('flat dense no-data-label="暂无数据"').classes("w-full data-table-scroll")
 
             with ui.element("div").classes("col-5"):
                 with ui.column().classes("card gap-3"):
@@ -474,13 +482,13 @@ def analysis_page(core) -> None:
                     if anomaly_rows:
                         ui.table(
                             columns=[
-                                {"name": "time", "label": "时间", "field": "time", "align": "left"},
-                                {"name": "type", "label": "类型", "field": "type", "align": "left"},
-                                {"name": "detail", "label": "说明", "field": "detail", "align": "left"},
+                                {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:24%;white-space:nowrap"},
+                                {"name": "type", "label": "类型", "field": "type", "align": "left", "style": "width:20%"},
+                                {"name": "detail", "label": "说明", "field": "detail", "align": "left", "style": "width:56%"},
                             ],
                             rows=anomaly_rows,
                             row_key="id",
-                        ).props('flat dense no-data-label="暂无数据"').classes("w-full")
+                        ).props('flat dense no-data-label="暂无数据"').classes("w-full data-table")
                     else:
                         ui.label("未记录异常事件。").classes("card-sub")
 
@@ -529,14 +537,14 @@ def analysis_page(core) -> None:
                             )
                         ui.table(
                             columns=[
-                                {"name": "time", "label": "时间", "field": "time", "align": "left"},
-                                {"name": "record_type", "label": "记录类型", "field": "record_type", "align": "left"},
-                                {"name": "type", "label": "类型", "field": "type", "align": "left"},
-                                {"name": "message", "label": "内容", "field": "message", "align": "left"},
+                                {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:18%;white-space:nowrap"},
+                                {"name": "record_type", "label": "记录类型", "field": "record_type", "align": "left", "style": "width:14%"},
+                                {"name": "type", "label": "类型", "field": "type", "align": "left", "style": "width:16%"},
+                                {"name": "message", "label": "内容", "field": "message", "align": "left", "style": "width:52%"},
                             ],
                             rows=rows,
                             row_key="id",
-                        ).props('flat dense no-data-label="暂无数据"').classes("w-full")
+                        ).props('flat dense no-data-label="暂无数据"').classes("w-full data-table")
 
     def step_replay() -> None:
         record = state["record"]

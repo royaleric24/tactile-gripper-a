@@ -28,6 +28,10 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port
 
 触觉分布显示 ADC 原始计数。无效通道会显示为空隙，不会当作零接触；未标定数据不解释为压力、摩擦力或杯子重量。仿真演示会明确显示 **仿真（SIMULATION）**，不会显示为真实设备（LIVE）。
 
+仿真配置档可选 `MATRIX_6X6`、`FSR_ONLY`、`HYBRID_6X6_FSR2`、`MATRIX_ELECTRODES_12`。
+`MATRIX_ELECTRODES_12` 只显示 R1–R6 / C1–C6 共 12 路原始 ADC 条形图，并提示
+“36 点压力热图不可用”；R/C 到 ADS1220 AIN 的物理映射未确认，界面不推算压力分布。
+
 ### 手动 PWM
 
 1. 在 **手动 PWM 控制** 中拖动滑块或直接输入 μs 目标；这仅改变待提交值。
@@ -91,7 +95,14 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port
 - **STOP 不等于机械保持**，也不是独立硬件急停；释放/掉落行为未验证。
 - 真实 PWM 运动、传感器连接、固件烧录和接线仍需逐次授权。
 
-## 6. 常见提示
+## 6. 视觉验收与截图
+
+离线 SIMULATION 的 1440×900、1280×800、1920×1080 截图、修复前后对比和 12 电极
+视图位于 [docs/screenshots/p2s-ui-audit/](screenshots/p2s-ui-audit/README.md)。
+截图由 `scripts/ui_screenshot_audit.mjs` 驱动本机无头 Chrome 生成，只读取本地页面，
+不打开串口、不发送 PWM、不做机械动作。
+
+## 7. 常见提示
 
 | 提示 | 含义 |
 |---|---|

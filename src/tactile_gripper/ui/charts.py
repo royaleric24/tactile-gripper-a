@@ -44,13 +44,29 @@ def _config(value):
         return None
 
 
+def matrix_view(channel_config=None) -> str:
+    """Classify available matrix visualization without inventing 36 cells."""
+    config = _config(channel_config)
+    if config is None:
+        return "NONE"
+    if config.matrix_channels:
+        return "CELLS"
+    if config.electrode_channels:
+        return "ELECTRODES"
+    return "NONE"
+
+
 def heatmap_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
     """Matrix-only heatmap.
 
     Positions come from channel metadata, never from ``divmod(channel_id)``.
     FSR channels are excluded even when their id happens to fit the grid.
+    The reserved 12-electrode profile has no 36-cell positions, so it returns
+    an empty option instead of drawing an invented pressure map.
     """
     config = _config(channel_config)
+    if config is not None and config.electrode_channels and not config.matrix_channels:
+        return {}
     rows = int(frame.get("matrix_rows") or (config.matrix_rows if config else 0) or 0)
     cols = int(frame.get("matrix_cols") or (config.matrix_cols if config else 0) or 0)
     values = _values(frame)
@@ -209,8 +225,13 @@ def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def bar_options(frame: dict[str, Any]) -> dict[str, Any]:
+def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
     values = _values(frame)
+    config = _config(channel_config)
+    labels = {
+        channel.channel_id: channel.name or f"CH{channel.channel_id}"
+        for channel in (config.channels if config is not None else ())
+    }
     valid = [float(value) for _, value, is_valid in values if is_valid and value is not None]
     low, high = _range(valid)
     data = [
@@ -227,7 +248,7 @@ def bar_options(frame: dict[str, Any]) -> dict[str, Any]:
         "tooltip": {"trigger": "axis"},
         "xAxis": {
             "type": "category",
-            "data": [f"CH{channel_id}" for channel_id, _, _ in values],
+            "data": [labels.get(channel_id, f"CH{channel_id}") for channel_id, _, _ in values],
             "axisLine": {"lineStyle": {"color": AXIS}},
             "axisTick": {"show": False},
             "axisLabel": {"color": TEXT, "fontSize": 9, "interval": 0, "rotate": 0},

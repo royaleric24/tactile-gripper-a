@@ -1,0 +1,1768 @@
+{
+  "label": "before",
+  "base": "http://127.0.0.1:8094",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 900,
+      "page": "live",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/live-1440x900.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "scrollWidth": 1440,
+        "scrollHeight": 900,
+        "bodyScrollWidth": 1440,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 274,
+            "h": 121,
+            "title": "控制器状态"
+          },
+          {
+            "i": 1,
+            "x": 558,
+            "y": 99,
+            "w": 274,
+            "h": 121,
+            "title": "传感器状态"
+          },
+          {
+            "i": 2,
+            "x": 847,
+            "y": 99,
+            "w": 274,
+            "h": 108,
+            "title": "控制模式"
+          },
+          {
+            "i": 3,
+            "x": 1137,
+            "y": 99,
+            "w": 274,
+            "h": 108,
+            "title": "当前实验"
+          },
+          {
+            "i": 4,
+            "x": 268,
+            "y": 236,
+            "w": 660,
+            "h": 557,
+            "title": "触觉分布"
+          },
+          {
+            "i": 5,
+            "x": 944,
+            "y": 236,
+            "w": 467,
+            "h": 586,
+            "title": "手动 PWM 控制"
+          },
+          {
+            "i": 6,
+            "x": 268,
+            "y": 838,
+            "w": 911,
+            "h": 516,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 7,
+            "x": 268,
+            "y": 1370,
+            "w": 756,
+            "h": 288,
+            "title": "最近控制事件"
+          },
+          {
+            "i": 8,
+            "x": 1040,
+            "y": 1370,
+            "w": 370,
+            "h": 266,
+            "title": "实验记录状态"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-3",
+            "x": 268,
+            "y": 99,
+            "w": 274,
+            "h": 121
+          },
+          {
+            "cls": "col-3",
+            "x": 558,
+            "y": 99,
+            "w": 274,
+            "h": 121
+          },
+          {
+            "cls": "col-3",
+            "x": 847,
+            "y": 99,
+            "w": 274,
+            "h": 121
+          },
+          {
+            "cls": "col-3",
+            "x": 1137,
+            "y": 99,
+            "w": 274,
+            "h": 121
+          },
+          {
+            "cls": "col-7",
+            "x": 268,
+            "y": 236,
+            "w": 660,
+            "h": 586
+          },
+          {
+            "cls": "col-5",
+            "x": 944,
+            "y": 236,
+            "w": 467,
+            "h": 586
+          },
+          {
+            "cls": "col-8",
+            "x": 268,
+            "y": 1370,
+            "w": 756,
+            "h": 288
+          },
+          {
+            "cls": "col-4",
+            "x": 1040,
+            "y": 1370,
+            "w": 370,
+            "h": 288
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "SPAN",
+            "cls": "q-select__selected-value ellipsis",
+            "right": 626,
+            "clientWidth": 106,
+            "scrollWidth": 127
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 521,
+            "clientWidth": 1,
+            "scrollWidth": 127
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non-selectable",
+            "right": 1187,
+            "clientWidth": 20,
+            "scrollWidth": 32
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit no-pointer-events",
+            "right": 1187,
+            "clientWidth": 20,
+            "scrollWidth": 32
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "right": 1002,
+            "clientWidth": 712,
+            "scrollWidth": 962
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          }
+        ]
+      }
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "page": "experiments",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/experiments-1440x900.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "scrollWidth": 1440,
+        "scrollHeight": 900,
+        "bodyScrollWidth": 1440,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 467,
+            "h": 674,
+            "title": "创建实验"
+          },
+          {
+            "i": 1,
+            "x": 751,
+            "y": 99,
+            "w": 660,
+            "h": 511,
+            "title": "当前实验"
+          },
+          {
+            "i": 2,
+            "x": 268,
+            "y": 788,
+            "w": 1142,
+            "h": 146,
+            "title": "实验历史"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 99,
+            "w": 467,
+            "h": 674
+          },
+          {
+            "cls": "col-7",
+            "x": 751,
+            "y": 99,
+            "w": 660,
+            "h": 674
+          },
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 788,
+            "w": 1142,
+            "h": 146
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 28
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 1174,
+            "clientWidth": 1,
+            "scrollWidth": 28
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          }
+        ]
+      }
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "page": "analysis",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/analysis-1440x900.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "scrollWidth": 1440,
+        "scrollHeight": 900,
+        "bodyScrollWidth": 1440,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 1003,
+            "h": 175,
+            "title": "实验筛选"
+          },
+          {
+            "i": 1,
+            "x": 268,
+            "y": 345,
+            "w": 1142,
+            "h": 185,
+            "title": "帧数"
+          },
+          {
+            "i": 2,
+            "x": 268,
+            "y": 546,
+            "w": 660,
+            "h": 428,
+            "title": "触觉帧检查"
+          },
+          {
+            "i": 3,
+            "x": 944,
+            "y": 546,
+            "w": 467,
+            "h": 346,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 4,
+            "x": 268,
+            "y": 989,
+            "w": 467,
+            "h": 428,
+            "title": "实验参数"
+          },
+          {
+            "i": 5,
+            "x": 751,
+            "y": 989,
+            "w": 660,
+            "h": 174,
+            "title": "控制事件"
+          },
+          {
+            "i": 6,
+            "x": 268,
+            "y": 1433,
+            "w": 467,
+            "h": 384,
+            "title": "PWM 变化曲线"
+          },
+          {
+            "i": 7,
+            "x": 751,
+            "y": 1433,
+            "w": 563,
+            "h": 105,
+            "title": "故障与异常"
+          },
+          {
+            "i": 8,
+            "x": 268,
+            "y": 1833,
+            "w": 563,
+            "h": 390,
+            "title": "触觉趋势"
+          },
+          {
+            "i": 9,
+            "x": 268,
+            "y": 2238,
+            "w": 1142,
+            "h": 203,
+            "title": "实验事件日志"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 345,
+            "w": 1142,
+            "h": 185
+          },
+          {
+            "cls": "col-7",
+            "x": 268,
+            "y": 546,
+            "w": 660,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 944,
+            "y": 546,
+            "w": 467,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 989,
+            "w": 467,
+            "h": 428
+          },
+          {
+            "cls": "col-7",
+            "x": 751,
+            "y": 989,
+            "w": 660,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 1433,
+            "w": 467,
+            "h": 384
+          },
+          {
+            "cls": "col-6",
+            "x": 751,
+            "y": 1433,
+            "w": 563,
+            "h": 384
+          },
+          {
+            "cls": "col-6",
+            "x": 268,
+            "y": 1833,
+            "w": 563,
+            "h": 390
+          },
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 2238,
+            "w": 1142,
+            "h": 203
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 359,
+            "clientWidth": 1,
+            "scrollWidth": 57
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 531,
+            "clientWidth": 1,
+            "scrollWidth": 57
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 688
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non-selectable",
+            "right": 299,
+            "clientWidth": 20,
+            "scrollWidth": 24
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit no-pointer-events",
+            "right": 299,
+            "clientWidth": 20,
+            "scrollWidth": 24
+          },
+          {
+            "tag": "DIV",
+            "cls": "nicegui-markdown",
+            "right": 713,
+            "clientWidth": 423,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "DIV",
+            "cls": "codehilite",
+            "right": 713,
+            "clientWidth": 423,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "PRE",
+            "cls": "",
+            "right": 713,
+            "clientWidth": 423,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "right": 1388,
+            "clientWidth": 616,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TABLE",
+            "cls": "q-table",
+            "right": 1692,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "THEAD",
+            "cls": "",
+            "right": 1692,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1692,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TH",
+            "cls": "text-left",
+            "right": 1692,
+            "clientWidth": 342,
+            "scrollWidth": 342
+          },
+          {
+            "tag": "TBODY",
+            "cls": "",
+            "right": 1692,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1692,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1692,
+            "clientWidth": 342,
+            "scrollWidth": 342
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1692,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1692,
+            "clientWidth": 342,
+            "scrollWidth": 342
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 56
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          }
+        ]
+      }
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "page": "live",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/live-1280x800.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1280,
+        "innerHeight": 800,
+        "scrollWidth": 1280,
+        "scrollHeight": 800,
+        "bodyScrollWidth": 1280,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 234,
+            "h": 121,
+            "title": "控制器状态"
+          },
+          {
+            "i": 1,
+            "x": 518,
+            "y": 99,
+            "w": 234,
+            "h": 136,
+            "title": "传感器状态"
+          },
+          {
+            "i": 2,
+            "x": 767,
+            "y": 99,
+            "w": 234,
+            "h": 134,
+            "title": "控制模式"
+          },
+          {
+            "i": 3,
+            "x": 1017,
+            "y": 99,
+            "w": 234,
+            "h": 134,
+            "title": "当前实验"
+          },
+          {
+            "i": 4,
+            "x": 268,
+            "y": 251,
+            "w": 566,
+            "h": 628,
+            "title": "触觉分布"
+          },
+          {
+            "i": 5,
+            "x": 850,
+            "y": 251,
+            "w": 400,
+            "h": 644,
+            "title": "手动 PWM 控制"
+          },
+          {
+            "i": 6,
+            "x": 268,
+            "y": 911,
+            "w": 911,
+            "h": 516,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 7,
+            "x": 268,
+            "y": 1443,
+            "w": 649,
+            "h": 288,
+            "title": "最近控制事件"
+          },
+          {
+            "i": 8,
+            "x": 933,
+            "y": 1443,
+            "w": 317,
+            "h": 266,
+            "title": "实验记录状态"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-3",
+            "x": 268,
+            "y": 99,
+            "w": 234,
+            "h": 136
+          },
+          {
+            "cls": "col-3",
+            "x": 518,
+            "y": 99,
+            "w": 234,
+            "h": 136
+          },
+          {
+            "cls": "col-3",
+            "x": 767,
+            "y": 99,
+            "w": 234,
+            "h": 136
+          },
+          {
+            "cls": "col-3",
+            "x": 1017,
+            "y": 99,
+            "w": 234,
+            "h": 136
+          },
+          {
+            "cls": "col-7",
+            "x": 268,
+            "y": 251,
+            "w": 566,
+            "h": 644
+          },
+          {
+            "cls": "col-5",
+            "x": 850,
+            "y": 251,
+            "w": 400,
+            "h": 644
+          },
+          {
+            "cls": "col-8",
+            "x": 268,
+            "y": 1443,
+            "w": 649,
+            "h": 288
+          },
+          {
+            "cls": "col-4",
+            "x": 933,
+            "y": 1443,
+            "w": 317,
+            "h": 288
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "SPAN",
+            "cls": "q-select__selected-value ellipsis",
+            "right": 626,
+            "clientWidth": 106,
+            "scrollWidth": 127
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 521,
+            "clientWidth": 1,
+            "scrollWidth": 127
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non-selectable",
+            "right": 1060,
+            "clientWidth": 20,
+            "scrollWidth": 32
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit no-pointer-events",
+            "right": 1060,
+            "clientWidth": 20,
+            "scrollWidth": 32
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "right": 895,
+            "clientWidth": 605,
+            "scrollWidth": 962
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1280,
+            "scrollWidth": 1280
+          }
+        ]
+      }
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "page": "experiments",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/experiments-1280x800.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1280,
+        "innerHeight": 800,
+        "scrollWidth": 1280,
+        "scrollHeight": 800,
+        "bodyScrollWidth": 1280,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 400,
+            "h": 691,
+            "title": "创建实验"
+          },
+          {
+            "i": 1,
+            "x": 684,
+            "y": 99,
+            "w": 566,
+            "h": 568,
+            "title": "当前实验"
+          },
+          {
+            "i": 2,
+            "x": 268,
+            "y": 805,
+            "w": 982,
+            "h": 146,
+            "title": "实验历史"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 99,
+            "w": 400,
+            "h": 691
+          },
+          {
+            "cls": "col-7",
+            "x": 684,
+            "y": 99,
+            "w": 566,
+            "h": 691
+          },
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 805,
+            "w": 982,
+            "h": 146
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 28
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-field__label no-pointer-events absolute ellipsis",
+            "right": 499,
+            "clientWidth": 30,
+            "scrollWidth": 98
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 1014,
+            "clientWidth": 1,
+            "scrollWidth": 28
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "right": 1228,
+            "clientWidth": 938,
+            "scrollWidth": 1008
+          },
+          {
+            "tag": "TABLE",
+            "cls": "q-table",
+            "right": 1298,
+            "clientWidth": 1008,
+            "scrollWidth": 1008
+          },
+          {
+            "tag": "THEAD",
+            "cls": "",
+            "right": 1298,
+            "clientWidth": 1008,
+            "scrollWidth": 1008
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1298,
+            "clientWidth": 1008,
+            "scrollWidth": 1008
+          },
+          {
+            "tag": "TH",
+            "cls": "text-left",
+            "right": 1298,
+            "clientWidth": 114,
+            "scrollWidth": 114
+          },
+          {
+            "tag": "TBODY",
+            "cls": "",
+            "right": 1298,
+            "clientWidth": 1008,
+            "scrollWidth": 1008
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1298,
+            "clientWidth": 1008,
+            "scrollWidth": 1008
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1298,
+            "clientWidth": 114,
+            "scrollWidth": 114
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1280,
+            "scrollWidth": 1280
+          }
+        ]
+      }
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "page": "analysis",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/analysis-1280x800.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1280,
+        "innerHeight": 800,
+        "scrollWidth": 1280,
+        "scrollHeight": 800,
+        "bodyScrollWidth": 1280,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 982,
+            "h": 175,
+            "title": "实验筛选"
+          },
+          {
+            "i": 1,
+            "x": 268,
+            "y": 345,
+            "w": 982,
+            "h": 227,
+            "title": "帧数"
+          },
+          {
+            "i": 2,
+            "x": 268,
+            "y": 587,
+            "w": 566,
+            "h": 428,
+            "title": "触觉帧检查"
+          },
+          {
+            "i": 3,
+            "x": 850,
+            "y": 587,
+            "w": 400,
+            "h": 346,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 4,
+            "x": 268,
+            "y": 1031,
+            "w": 400,
+            "h": 428,
+            "title": "实验参数"
+          },
+          {
+            "i": 5,
+            "x": 684,
+            "y": 1031,
+            "w": 566,
+            "h": 174,
+            "title": "控制事件"
+          },
+          {
+            "i": 6,
+            "x": 268,
+            "y": 1475,
+            "w": 400,
+            "h": 384,
+            "title": "PWM 变化曲线"
+          },
+          {
+            "i": 7,
+            "x": 684,
+            "y": 1475,
+            "w": 483,
+            "h": 105,
+            "title": "故障与异常"
+          },
+          {
+            "i": 8,
+            "x": 268,
+            "y": 1875,
+            "w": 483,
+            "h": 390,
+            "title": "触觉趋势"
+          },
+          {
+            "i": 9,
+            "x": 268,
+            "y": 2280,
+            "w": 982,
+            "h": 203,
+            "title": "实验事件日志"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 345,
+            "w": 982,
+            "h": 227
+          },
+          {
+            "cls": "col-7",
+            "x": 268,
+            "y": 587,
+            "w": 566,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 850,
+            "y": 587,
+            "w": 400,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 1031,
+            "w": 400,
+            "h": 428
+          },
+          {
+            "cls": "col-7",
+            "x": 684,
+            "y": 1031,
+            "w": 566,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 1475,
+            "w": 400,
+            "h": 384
+          },
+          {
+            "cls": "col-6",
+            "x": 684,
+            "y": 1475,
+            "w": 483,
+            "h": 384
+          },
+          {
+            "cls": "col-6",
+            "x": 268,
+            "y": 1875,
+            "w": 483,
+            "h": 390
+          },
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 2280,
+            "w": 982,
+            "h": 203
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 359,
+            "clientWidth": 1,
+            "scrollWidth": 57
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 531,
+            "clientWidth": 1,
+            "scrollWidth": 57
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 688
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non-selectable",
+            "right": 299,
+            "clientWidth": 20,
+            "scrollWidth": 24
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit no-pointer-events",
+            "right": 299,
+            "clientWidth": 20,
+            "scrollWidth": 24
+          },
+          {
+            "tag": "DIV",
+            "cls": "nicegui-markdown",
+            "right": 646,
+            "clientWidth": 356,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "DIV",
+            "cls": "codehilite",
+            "right": 646,
+            "clientWidth": 356,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "PRE",
+            "cls": "",
+            "right": 646,
+            "clientWidth": 356,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "right": 1228,
+            "clientWidth": 522,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TABLE",
+            "cls": "q-table",
+            "right": 1625,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "THEAD",
+            "cls": "",
+            "right": 1625,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1625,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TH",
+            "cls": "text-left",
+            "right": 1283,
+            "clientWidth": 81,
+            "scrollWidth": 81
+          },
+          {
+            "tag": "TH",
+            "cls": "text-left",
+            "right": 1625,
+            "clientWidth": 342,
+            "scrollWidth": 342
+          },
+          {
+            "tag": "TBODY",
+            "cls": "",
+            "right": 1625,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1625,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1283,
+            "clientWidth": 81,
+            "scrollWidth": 81
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1625,
+            "clientWidth": 342,
+            "scrollWidth": 342
+          },
+          {
+            "tag": "TR",
+            "cls": "",
+            "right": 1625,
+            "clientWidth": 919,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1283,
+            "clientWidth": 81,
+            "scrollWidth": 81
+          },
+          {
+            "tag": "TD",
+            "cls": "text-left",
+            "right": 1625,
+            "clientWidth": 342,
+            "scrollWidth": 342
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 56
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1280,
+            "scrollWidth": 1280
+          }
+        ]
+      }
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "page": "live",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/live-1920x1080.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1920,
+        "innerHeight": 1080,
+        "scrollWidth": 1920,
+        "scrollHeight": 1080,
+        "bodyScrollWidth": 1920,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 394,
+            "h": 108,
+            "title": "控制器状态"
+          },
+          {
+            "i": 1,
+            "x": 678,
+            "y": 99,
+            "w": 394,
+            "h": 121,
+            "title": "传感器状态"
+          },
+          {
+            "i": 2,
+            "x": 1087,
+            "y": 99,
+            "w": 394,
+            "h": 108,
+            "title": "控制模式"
+          },
+          {
+            "i": 3,
+            "x": 1497,
+            "y": 99,
+            "w": 394,
+            "h": 108,
+            "title": "当前实验"
+          },
+          {
+            "i": 4,
+            "x": 268,
+            "y": 236,
+            "w": 940,
+            "h": 525,
+            "title": "触觉分布"
+          },
+          {
+            "i": 5,
+            "x": 1224,
+            "y": 236,
+            "w": 667,
+            "h": 543,
+            "title": "手动 PWM 控制"
+          },
+          {
+            "i": 6,
+            "x": 268,
+            "y": 795,
+            "w": 911,
+            "h": 516,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 7,
+            "x": 268,
+            "y": 1327,
+            "w": 1076,
+            "h": 288,
+            "title": "最近控制事件"
+          },
+          {
+            "i": 8,
+            "x": 1360,
+            "y": 1327,
+            "w": 530,
+            "h": 231,
+            "title": "实验记录状态"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-3",
+            "x": 268,
+            "y": 99,
+            "w": 394,
+            "h": 121
+          },
+          {
+            "cls": "col-3",
+            "x": 678,
+            "y": 99,
+            "w": 394,
+            "h": 121
+          },
+          {
+            "cls": "col-3",
+            "x": 1087,
+            "y": 99,
+            "w": 394,
+            "h": 121
+          },
+          {
+            "cls": "col-3",
+            "x": 1497,
+            "y": 99,
+            "w": 394,
+            "h": 121
+          },
+          {
+            "cls": "col-7",
+            "x": 268,
+            "y": 236,
+            "w": 940,
+            "h": 543
+          },
+          {
+            "cls": "col-5",
+            "x": 1224,
+            "y": 236,
+            "w": 667,
+            "h": 543
+          },
+          {
+            "cls": "col-8",
+            "x": 268,
+            "y": 1327,
+            "w": 1076,
+            "h": 288
+          },
+          {
+            "cls": "col-4",
+            "x": 1360,
+            "y": 1327,
+            "w": 530,
+            "h": 288
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "SPAN",
+            "cls": "q-select__selected-value ellipsis",
+            "right": 626,
+            "clientWidth": 106,
+            "scrollWidth": 127
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 521,
+            "clientWidth": 1,
+            "scrollWidth": 127
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non-selectable",
+            "right": 1567,
+            "clientWidth": 20,
+            "scrollWidth": 32
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit no-pointer-events",
+            "right": 1567,
+            "clientWidth": 20,
+            "scrollWidth": 32
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1920,
+            "scrollWidth": 1920
+          }
+        ]
+      }
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "page": "experiments",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/experiments-1920x1080.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1920,
+        "innerHeight": 1080,
+        "scrollWidth": 1920,
+        "scrollHeight": 1080,
+        "bodyScrollWidth": 1920,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 667,
+            "h": 640,
+            "title": "创建实验"
+          },
+          {
+            "i": 1,
+            "x": 951,
+            "y": 99,
+            "w": 940,
+            "h": 511,
+            "title": "当前实验"
+          },
+          {
+            "i": 2,
+            "x": 268,
+            "y": 754,
+            "w": 1622,
+            "h": 146,
+            "title": "实验历史"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 99,
+            "w": 667,
+            "h": 640
+          },
+          {
+            "cls": "col-7",
+            "x": 951,
+            "y": 99,
+            "w": 940,
+            "h": 640
+          },
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 754,
+            "w": 1622,
+            "h": 146
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 28
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 1654,
+            "clientWidth": 1,
+            "scrollWidth": 28
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1920,
+            "scrollWidth": 1920
+          }
+        ]
+      }
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "page": "analysis",
+      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/analysis-1920x1080.png",
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "metrics": {
+        "innerWidth": 1920,
+        "innerHeight": 1080,
+        "scrollWidth": 1920,
+        "scrollHeight": 1080,
+        "bodyScrollWidth": 1920,
+        "cards": [
+          {
+            "i": 0,
+            "x": 268,
+            "y": 99,
+            "w": 1003,
+            "h": 175,
+            "title": "实验筛选"
+          },
+          {
+            "i": 1,
+            "x": 268,
+            "y": 345,
+            "w": 1622,
+            "h": 185,
+            "title": "帧数"
+          },
+          {
+            "i": 2,
+            "x": 268,
+            "y": 546,
+            "w": 940,
+            "h": 428,
+            "title": "触觉帧检查"
+          },
+          {
+            "i": 3,
+            "x": 1224,
+            "y": 546,
+            "w": 667,
+            "h": 346,
+            "title": "FSR 相对接触"
+          },
+          {
+            "i": 4,
+            "x": 268,
+            "y": 989,
+            "w": 667,
+            "h": 428,
+            "title": "实验参数"
+          },
+          {
+            "i": 5,
+            "x": 951,
+            "y": 989,
+            "w": 940,
+            "h": 174,
+            "title": "控制事件"
+          },
+          {
+            "i": 6,
+            "x": 268,
+            "y": 1433,
+            "w": 667,
+            "h": 367,
+            "title": "PWM 变化曲线"
+          },
+          {
+            "i": 7,
+            "x": 951,
+            "y": 1433,
+            "w": 803,
+            "h": 105,
+            "title": "故障与异常"
+          },
+          {
+            "i": 8,
+            "x": 268,
+            "y": 1816,
+            "w": 803,
+            "h": 390,
+            "title": "触觉趋势"
+          },
+          {
+            "i": 9,
+            "x": 268,
+            "y": 2221,
+            "w": 1622,
+            "h": 203,
+            "title": "实验事件日志"
+          }
+        ],
+        "columns": [
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 345,
+            "w": 1622,
+            "h": 185
+          },
+          {
+            "cls": "col-7",
+            "x": 268,
+            "y": 546,
+            "w": 940,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 1224,
+            "y": 546,
+            "w": 667,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 989,
+            "w": 667,
+            "h": 428
+          },
+          {
+            "cls": "col-7",
+            "x": 951,
+            "y": 989,
+            "w": 940,
+            "h": 428
+          },
+          {
+            "cls": "col-5",
+            "x": 268,
+            "y": 1433,
+            "w": 667,
+            "h": 367
+          },
+          {
+            "cls": "col-6",
+            "x": 951,
+            "y": 1433,
+            "w": 803,
+            "h": 367
+          },
+          {
+            "cls": "col-6",
+            "x": 268,
+            "y": 1816,
+            "w": 803,
+            "h": 390
+          },
+          {
+            "cls": "col-12",
+            "x": 268,
+            "y": 2221,
+            "w": 1622,
+            "h": 203
+          }
+        ],
+        "overflowers": [
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 359,
+            "clientWidth": 1,
+            "scrollWidth": 57
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 531,
+            "clientWidth": 1,
+            "scrollWidth": 57
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 688
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non-selectable",
+            "right": 299,
+            "clientWidth": 20,
+            "scrollWidth": 24
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit no-pointer-events",
+            "right": 299,
+            "clientWidth": 20,
+            "scrollWidth": 24
+          },
+          {
+            "tag": "DIV",
+            "cls": "nicegui-markdown",
+            "right": 913,
+            "clientWidth": 623,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "DIV",
+            "cls": "codehilite",
+            "right": 913,
+            "clientWidth": 623,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "PRE",
+            "cls": "",
+            "right": 913,
+            "clientWidth": 623,
+            "scrollWidth": 796
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-table__middle scroll",
+            "right": 1868,
+            "clientWidth": 896,
+            "scrollWidth": 919
+          },
+          {
+            "tag": "INPUT",
+            "cls": "q-select__focus-target",
+            "right": 302,
+            "clientWidth": 1,
+            "scrollWidth": 56
+          },
+          {
+            "tag": "DIV",
+            "cls": "q-loading-bar q-loading-bar--top bg-primary",
+            "right": 0,
+            "clientWidth": 1920,
+            "scrollWidth": 1920
+          }
+        ]
+      }
+    }
+  ],
+  "console": [],
+  "pageErrors": []
+}

@@ -2,14 +2,20 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
-## 最近状态（P2-S 软件，2026-11-14）
+## 最近状态（P2-S 软件，2026-11-15）
 
 `sw/fsr-live-v2` 已完成 FSR_ONLY / HYBRID_6X6_FSR2 离线适配、两路 FSR 相对接触评估、
-矩阵/FSR 分流、双设备身份与 Trial/CSV/REPLAY 扩展；全套 278 个离线测试通过。
+矩阵/FSR 分流、双设备身份与 Trial/CSV/REPLAY 扩展。2026-11-15 追加
+`MATRIX_ELECTRODES_12`（R1–R6 / C1–C6 各接 ADS1220 AIN）离线适配：只显示 12 路
+原始 ADC，不合成 36 点压力热图；FSR_ONLY 与既有 Trial/CSV/REPLAY 保持。全套
+**285 个离线测试通过**。Dashboard 已在 1440×900、1280×800、1920×1080 完成
+Live/Experiments/Analysis 截图验收，见
+[docs/screenshots/p2s-ui-audit/](docs/screenshots/p2s-ui-audit/README.md)。
+
 真实 AUTO 仍硬关闭（`AUTO_REAL_ENABLED=False`），显式 commissioning 入口当前必定
-拒绝。未打开真实串口、未烧录、未发 PWM、未做机械动作；协议仍为 PROPOSED。
-详见 [P2-S 报告](docs/SOFTWARE_V2_P2S_REPORT.md)、[进度](docs/PROGRESS.md)、
-[问题](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+拒绝。R/C→ADC/AIN 物理映射尚未现场确认；未打开真实串口、未烧录、未发 PWM、未做
+机械动作；协议仍为 PROPOSED。详见 [P2-S 报告](docs/SOFTWARE_V2_P2S_REPORT.md)、
+[进度](docs/PROGRESS.md)、[问题](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
 
 ## 所有权与入口
 

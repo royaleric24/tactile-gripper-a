@@ -85,6 +85,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI"
 .grid-12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; width: 100%; }
 .col-3 { grid-column: span 3; } .col-4 { grid-column: span 4; } .col-5 { grid-column: span 5; } .col-6 { grid-column: span 6; }
 .col-7 { grid-column: span 7; } .col-8 { grid-column: span 8; } .col-12 { grid-column: span 12; }
+.metric-grid > .col-3 { display: flex; }
+.metric-grid > .col-3 > .metric-card { flex: 1 1 auto; }
+.main-grid { align-items: stretch; }
+.main-grid > .col-7, .main-grid > .col-5 { display: flex; }
+.main-grid > .col-7 > .card, .main-grid > .col-5 > .card { flex: 1 1 auto; }
+.data-table { overflow: hidden; }
+.data-table .q-table { width: 100%; }
+.data-table .q-table__middle { overflow-x: auto; }
+.data-table .q-table th, .data-table .q-table td { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.data-table-scroll { overflow: hidden; }
+.data-table-scroll .q-table { min-width: 760px; }
+.data-table-scroll .q-table__middle { overflow-x: auto; }
+.data-table-scroll .q-table th, .data-table-scroll .q-table td { white-space: nowrap; }
+.analysis-code pre { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: break-word; }
 @media (max-width: 1100px) {
   .col-3, .col-4, .col-5, .col-6, .col-7, .col-8 { grid-column: span 12; }
   .sidebar { width: 210px; min-width: 210px; }

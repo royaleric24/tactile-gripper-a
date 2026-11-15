@@ -320,6 +320,11 @@ class SensorAdapter:
                 if self.channel_config is not None
                 else []
             ),
+            "electrode_channel_ids": (
+                [channel.channel_id for channel in self.channel_config.electrode_channels]
+                if self.channel_config is not None
+                else []
+            ),
             "device_identity": self.identity(),
             "last_status": self.last_status.to_dict() if self.last_status is not None else None,
             "reconnect_count": self.reconnect_count,
@@ -537,13 +542,23 @@ class SimulatedSensorTransport:
                 wave = baseline + 420_000 * ramp + 18_000 * math.sin(seq * 0.31 + fsr_index)
                 fsr_index += 1
                 valid = not (seq % 29 == 0 and fsr_index == 1)
+            elif kind == "MATRIX_ELECTRODE":
+                # 12 raw row/column electrode channels only.  No 36-cell
+                # pressure estimate is synthesized from them.
+                electrode = channel.electrode_index or 0
+                wave = 1800 + 260 * math.sin(seq * 0.27 + electrode * 0.9)
+                valid = not (index == 7 and seq % 23 == 0)
             else:
                 wave = 2048 + 240 * math.sin(seq * 0.35 + index * 0.7) + 60 * math.cos(row + col)
                 valid = not (index == 2 and seq % 17 == 0)
             channels.append(round(wave) if valid else None)
             mask.append(valid)
         contact = None
-        if not self.channel_config.fsr_channels and seq > 8:
+        if (
+            not self.channel_config.fsr_channels
+            and not self.channel_config.electrode_channels
+            and seq > 8
+        ):
             contact = min(1.0, (seq - 8) / 40.0)
         return TactileFrame(
             protocol_version=PROTOCOL_VERSION,
@@ -614,6 +629,7 @@ def demo_config_for_profile(
         "MATRIX_6X6": "sensor_channels.demo.json",
         "FSR_ONLY": "sensor_channels.fsr_only.demo.json",
         "HYBRID_6X6_FSR2": "sensor_channels.hybrid.demo.json",
+        "MATRIX_ELECTRODES_12": "sensor_channels.matrix_electrodes12.demo.json",
     }
     try:
         name = names[profile.upper()]
@@ -634,4 +650,5 @@ def describe_config(config: ChannelConfiguration | None) -> dict:
         "sensor_profile": config.sensor_profile,
         "fsr_channel_ids": [channel.channel_id for channel in config.fsr_channels],
         "matrix_channel_count": len(config.matrix_channels),
+        "electrode_channel_count": len(config.electrode_channels),
     }
