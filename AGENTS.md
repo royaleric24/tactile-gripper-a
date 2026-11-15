@@ -30,9 +30,11 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，未提交、未合并，
 不再作为空杯前置条件。
 
-**2026-11-16 第二次空杯 MANUAL（真实 PWM）**：1500/1450 均 ACK，操作者观察 1450 附近机械爪
-不再运动；准备输入 1400 时 heartbeat seq 31 的 ACK 出现 **7 个 NUL**，主机
-`corrupt_response` 后 3 s `response_timeout`。**1400 未发送**（日志无 1400 COMMAND）；
+**2026-11-16 第二次空杯 MANUAL（真实 PWM）**：1500 时舵机确实运动；1450 ACK 后舵机突然停止，
+之后不再运动；准备输入 1400 时 heartbeat seq 31 的 ACK 出现 **7 个 NUL**，主机
+`corrupt_response` 后 3 s `response_timeout`。1450 的停止比主机超时早约 11 s、比 S3 5 s
+通信超时早约 13 s，**不是通信超时/PWM off 造成的**；最可能是目标到位/机械限位，舵机供电/
+连接失稳不能排除。**1400 未发送**（日志无 1400 COMMAND）；
 会话内 `boot_id=ba1412…` 未变、无 ESP-ROM、无设备 FAULT；1450 控制侧已接受
 （ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED，无输出 API 错误），未运动最可能是
 机械限位/堵转（精确限位 UNKNOWN）。无 PWM 64/64 验证应答 0 NUL，本轮唯一新增因素是舵机
