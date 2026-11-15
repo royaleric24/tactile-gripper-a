@@ -152,7 +152,7 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py --no-console
 
 ```bash
 PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests     # 全套
-PYTHONPATH=src:. .venv/bin/python -m unittest tests.test_log_follow   # 新增 28 项
+PYTHONPATH=src:. .venv/bin/python -m unittest tests.test_log_follow tests.test_live_launcher
 ```
 
 新增覆盖：正常会话、ACK-less、STOP 未确认、重复应答、心跳不产生 PWM 事件、陈旧 ACK、
@@ -161,7 +161,17 @@ Dashboard 启动（真实 HTTP 200，无 Traceback）。
 
 离线验证（不提交真实数据）：用 P3-B1 私有真实日志跑适配器，`d499e640` 解析出
 8 条 PWM 事件（1500…1040）全部 ACK、0 NUL、最终 `OUTPUT_OFF`；旧 FSR capture 解析出
-1,719 帧、末帧 −996 counts、flag `0x04`，与原始记录一致。
+1,719 帧、末帧负 counts、flag `0x04`，与原始记录一致。
+
+## 8.1 P3-B4 联调前加固（2026-11-16）
+
+- **FSR 门控**：启动器等待 HELLO；超时或采集进程退出时退出码 3，不启动 Dashboard/console；
+  Dashboard 就绪后二次检查；会话中 FSR 退出只警告。`--no-fsr` 显式例外。
+- **Drain-before-export**：`finish_log_follow_trial()` 先 drain 尾部 JSONL，再 stop + 导出；
+  启动器先停 console、再停 FSR、最后停 Dashboard，Dashboard 独立 session 避免 Ctrl+C 抢先。
+- **本会话 Trial 路径**：`<session>/trial.json` 记录 trial_id/CSV/REPLAY；启动器只读它，
+  不再使用全局最新 CSV。
+- 全部离线测试 420 OK（skipped=1）；未操作硬件。
 
 ## 9. 明确未做
 

@@ -104,7 +104,7 @@
 | 资产 | 路径 | 用途 | SHA-256（源码） |
 |---|---|---|---|
 | FSR 采集脚本 | `scripts/capture_fsr_live.py` | 独占 FSR 串口，写 `fsr_stream.jsonl`（host UTC + monotonic + raw/message） | `fa9862879dc584d6b37dbe1ade095d48b4215aece6f4a7abd34fa89d0263a589` |
-| 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR 采集 + 只读 Dashboard + 当前终端 console；会话收尾/CSV 提示 | `716e69a7bc02bbf5483a43d0908996fdd70d87679efd35019daf3df9d7acdf35` |
+| 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR 采集 + 只读 Dashboard + 当前终端 console；FSR 门控、drain 后导出、本会话 Trial sidecar | `e092de7877ea37b0562f966a47cd54216cb348023e37fd4c0575ac2a078b0547` |
 | 只读适配器 | `src/tactile_gripper/devices/log_follow.py` | JSONL tail、PWM 命令/ACK 状态机、FSR 严格解析接入 | 随 Git 提交 |
 | 会话目录 | `logs/real/sessions/session_<UTC>_<id>/` | `session.json`、`transport.jsonl`、`fsr/fsr_stream.jsonl`、两份 `.log` | 本地（`logs/` 已 gitignore） |
 | 测试 | `tests/test_log_follow.py` | 正常/无 ACK/STOP/陈旧/轮转/半行/截断/NUL/0x04/CSV/回放 | 随 Git 提交 |

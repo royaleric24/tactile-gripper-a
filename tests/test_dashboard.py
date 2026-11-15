@@ -162,6 +162,63 @@ class DashboardServerTests(unittest.TestCase):
                     proc.kill()
 
 
+    def test_follow_record_writes_trial_sidecar_for_this_session(self):
+        import json
+
+        fixtures = ROOT / "tests" / "fixtures" / "fsr2"
+        hello = json.loads((fixtures / "hello_fsr1.json").read_text(encoding="utf-8"))
+        sample = json.loads((fixtures / "sample_fsr1_valid.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            session = Path(tmp) / "session"
+            (session / "fsr").mkdir(parents=True)
+            base = time.monotonic_ns() - 1_000_000_000
+            now = datetime.fromtimestamp(base / 1e9).isoformat()
+            records = [
+                {"host_time_utc": now, "host_monotonic_ns": base, "direction": "RX", "message": hello},
+                {"host_time_utc": now, "host_monotonic_ns": base + 16_000_000, "direction": "RX", "message": sample},
+            ]
+            (session / "fsr" / "fsr_stream.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in records), encoding="utf-8"
+            )
+            console = [
+                {"timestamp_utc": now, "monotonic_ns": base, "event": "COMMAND",
+                 "request": {"protocol_version": 1, "request_id": "h1", "command": "BENCH_HOLD", "sequence": 1, "pulse_us": 1500}},
+                {"timestamp_utc": now, "monotonic_ns": base + 1_000_000, "event": "MATCHED",
+                 "response": {"protocol_version": 1, "type": "ACK", "request_id": "h1",
+                              "firmware_version": "gripper-control-s3-0.9b26.0", "state": "ACTIVE",
+                              "output_state": "PWM_COMMANDED_UNMEASURED", "commanded_pulse_us": 1500,
+                              "fault_reason": "TARGET_COMMANDED", "boot_id": "b1", "bench_active": True}},
+            ]
+            (session / "transport.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in console), encoding="utf-8"
+            )
+            proc, port = self._run_server(
+                "--source", "LIVE", "--follow-session", str(session),
+                "--follow-record", "--data-root", tmp,
+            )
+            base_url = f"http://127.0.0.1:{port}"
+            try:
+                wait_for(base_url + "/")
+                time.sleep(1.5)
+                log = self._stop(proc)
+                self.assertNotIn("Traceback", log)
+                sidecar = json.loads((session / "trial.json").read_text(encoding="utf-8"))
+                self.assertEqual(sidecar["status"], "COMPLETED")
+                trial_id = sidecar["trial_id"]
+                self.assertTrue(trial_id)
+                csv_path = Path(sidecar["csv"])
+                replay_path = Path(sidecar["replay"])
+                self.assertTrue(csv_path.is_file())
+                self.assertTrue(replay_path.is_file())
+                self.assertIn(trial_id, str(csv_path))
+                rows = csv_path.read_text(encoding="utf-8").splitlines()
+                self.assertGreaterEqual(len(rows), 2)
+                self.assertIn("frame_seq", rows[0])
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+
+
 class DashboardDisplayTests(unittest.TestCase):
     def test_bar_chart_shows_units_and_electrode_counts(self):
         frame = {"channels": [1500.0, None], "valid_mask": [True, False], "channel_ids": [0, 1]}

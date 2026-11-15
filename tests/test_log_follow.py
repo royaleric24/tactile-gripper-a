@@ -589,6 +589,67 @@ class CoreLogFollowTests(unittest.TestCase):
             core.tick()
             self.assertGreaterEqual(core.snapshot()["frames_received"], 4)
 
+    def test_finish_drains_trailing_jsonl_before_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pwm, fsr = self._session(tmp)
+            core = build_core(source=DataSource.LIVE, root=tmp, follow_pwm_log=pwm, follow_fsr_log=fsr)
+            self.addCleanup(core.shutdown)
+            core.create_trial("drain check", conditions={"source_kind": "LIVE_LOG_FOLLOW"})
+            core.start_trial()
+            core.tick()
+            before = core.snapshot()["frames_received"]
+            self.assertGreaterEqual(before, 4)
+
+            now = time.monotonic_ns()
+            trailing = fsr_records([5], ns_base=now)[1]
+            trailing["message"].update(
+                {
+                    "timestamp_us": 260_000,
+                    "mcu_time_us": 260_000,
+                    "sample_timestamp_us": [260_000],
+                }
+            )
+            write_jsonl(fsr, [trailing], mode="a")
+            write_jsonl(
+                pwm,
+                [
+                    console_command(7, "BENCH_HOLD", "h9", now, 1300),
+                    console_response("h9", now + 1_000_000, pulse=1300),
+                ],
+                mode="a",
+            )
+
+            result = core.finish_log_follow_trial("shutdown test")
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "COMPLETED")
+            self.assertIsNone(core.trial)
+            csv_path = Path(result["csv"])
+            replay_path = Path(result["replay"])
+            self.assertTrue(csv_path.is_file())
+            self.assertTrue(replay_path.is_file())
+            frames = [
+                json.loads(line)
+                for line in (Path(result["directory"]) / "frames.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(frames[-1]["frame_seq"], 5)
+            self.assertEqual(frames[-1]["pwm_target_us"], 1300)
+            self.assertTrue(frames[-1]["pwm_ack"])
+            control = [
+                json.loads(line)
+                for line in (Path(result["directory"]) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                if json.loads(line).get("record_type") == "CONTROL_EVENT"
+            ]
+            self.assertIn(("SET_PWM", 1300), [(item.get("action"), item.get("commanded_pwm_us")) for item in control])
+            rows = csv_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(rows), len(frames) + 1)
+
+    def test_finish_without_recording_trial_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pwm, fsr = self._session(tmp)
+            core = build_core(source=DataSource.LIVE, root=tmp, follow_pwm_log=pwm, follow_fsr_log=fsr)
+            self.addCleanup(core.shutdown)
+            self.assertIsNone(core.finish_log_follow_trial("nothing"))
+
     def test_partial_jsonl_line_waits_for_completion(self):
         with tempfile.TemporaryDirectory() as tmp:
             pwm, fsr = self._session(tmp)

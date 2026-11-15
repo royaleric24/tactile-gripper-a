@@ -21,6 +21,12 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
   然后在当前终端进入 `pwm_console`；console 里照常输入 `1500`、`1040`、`stop`、`quit`。
 - 退出 console 后自动结束 Trial，并打印 CSV 与 REPLAY 路径。
 - 只观察、不控制：加 `--no-console`。
+- **FSR 未就绪会直接终止**：HELLO 超时（默认 15 s）或采集进程退出时，启动器以退出码 3
+  中止，不启动 Dashboard，也不进入 PWM Console；先看 `<session>/fsr_capture.log`。
+  只有显式 `--no-fsr` 才允许只跟 console。
+- 退出时先停 console/FSR，Dashboard 再读完最后 JSONL 并结束 Trial；终端会打印**本次**
+  Trial 的 CSV/REPLAY（来自 `<session>/trial.json`），不会拿别的会话最新 CSV 顶替。
+
 - 不开 FSR：`--no-fsr`；不开 Trial 记录：`--no-record`。
 
 页面上的只读 PWM 面板会显示：

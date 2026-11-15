@@ -48,7 +48,19 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
 ```
 
 它启动 FSR 采集 → 等 HELLO → 启动只读 Dashboard（`--follow-session` +
-`--follow-record`）→ 在当前终端运行 console。常用选项：
+`--follow-record`）→ 在当前终端运行 console。
+
+**启动门控（P3-B4）**：HELLO 超时（`--fsr-timeout`，默认 15 s）或 FSR 采集进程退出时，
+启动器以 **退出码 3** 中止，不启动 Dashboard，也**不会启动 PWM Console**；`session.json`
+记录 `aborted`。Dashboard 就绪后还会再检查一次 FSR 进程。会话中 FSR 退出只打印警告，
+PWM Console 不会自动停止（由操作者 `stop`/`quit`）。`--no-fsr` 是显式跳过 FSR 的门控例外。
+
+**退出顺序**：console → FSR（SIGINT，采集写 summary）→ Dashboard。Dashboard 先 drain
+尾部 JSONL，再结束 Trial 并导出 CSV/REPLAY；它运行在独立 session，终端 Ctrl+C 不会抢先
+结束导出。结束时会打印 `<session>/trial.json` 记录的**本会话** Trial CSV/REPLAY，不会
+使用全局最新 CSV。
+
+常用选项：
 
 ```bash
 --pwm-port /dev/cu.usbserial-A5069RR4   # S3

@@ -8,6 +8,7 @@ gripper adapter or open another serial port.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import threading
 from pathlib import Path
@@ -17,11 +18,20 @@ from nicegui import app, ui
 from ..constants import SOFTWARE_VERSION
 from ..control import build_core
 from ..devices.firmware_fixture import FIXTURE_STREAMS
+from ..models import utc_now_iso
 from ..paths import PROJECT_ROOT
 from ..protocol import CURRENT_SENSOR_PROFILES
 from ..sources import DataSource, parse_source
 from .pages import analysis_page, experiments_page, live_page
 from .pages.demo_grid import demo_grid_page
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Write a sidecar atomically so a reader never sees half JSON."""
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def start_ticker(core, interval_s: float = 0.25) -> threading.Event:
@@ -184,6 +194,8 @@ def main(argv: list[str] | None = None) -> None:
         follow_fsr_log=follow_fsr if follow_mode else None,
     )
     follow_trial_id = None
+    trial_sidecar = None
+    session_dir = args.follow_session if follow_mode else None
     if follow_mode and args.follow_record:
         name = "LIVE 双日志 · " + (args.follow_session.name if args.follow_session else "monitor")
         metadata = core.create_trial(
@@ -201,6 +213,20 @@ def main(argv: list[str] | None = None) -> None:
         follow_trial_id = metadata["trial_id"]
         core.start_trial()
         print(f"[follow] Trial 记录中：{follow_trial_id}", flush=True)
+        if session_dir is not None:
+            trial_sidecar = session_dir / "trial.json"
+            _write_json_atomic(
+                trial_sidecar,
+                {
+                    "trial_id": follow_trial_id,
+                    "directory": str(core.trial.directory) if core.trial is not None else None,
+                    "status": "RECORDING",
+                    "csv": None,
+                    "replay": None,
+                    "started_utc": utc_now_iso(),
+                    "updated_utc": utc_now_iso(),
+                },
+            )
     if args.demo:
         _demo_setup(core, args.demo_profile)
     if args.firmware_fixture:
@@ -221,18 +247,63 @@ def main(argv: list[str] | None = None) -> None:
             print(f"SIMULATION Trial: {trial_id}; REPLAY: {replay}", flush=True)
     stop = start_ticker(core)
 
+    def _export_follow_trial() -> dict | None:
+        """Drain JSONL, stop the Trial, then export CSV + REPLAY.
+
+        The drain happens inside ``finish_log_follow_trial`` before the Trial
+        is stopped, so records flushed by the collectors at exit are included.
+        If the operator already stopped the Trial in the UI, the same Trial id
+        is re-exported instead of guessing a different one.
+        """
+        if follow_trial_id is None:
+            return None
+        try:
+            if core.trial is not None and core.trial.recording:
+                result = core.finish_log_follow_trial("monitor shutdown")
+                if result is not None:
+                    return result
+            record = core.trial_store.load(follow_trial_id)
+            csv_path = core.trial_store.export_csv(follow_trial_id)
+            replay_path = core.trial_store.export_replay_jsonl(follow_trial_id)
+            return {
+                "trial_id": follow_trial_id,
+                "directory": str(record.directory),
+                "csv": str(csv_path),
+                "replay": str(replay_path),
+                "status": "COMPLETED",
+            }
+        except Exception as exc:  # pragma: no cover - shutdown best effort
+            print(
+                f"[follow] Trial 保存失败：{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return {"trial_id": follow_trial_id, "status": "ERROR", "error": str(exc)}
+
     def shutdown() -> None:
         stop.set()
-        if follow_trial_id is not None and core.trial is not None and core.trial.recording:
-            try:
-                core.stop_trial("monitor shutdown")
-                csv_path = core.trial_store.export_csv(follow_trial_id)
-                replay = core.trial_store.export_replay_jsonl(follow_trial_id)
-                print(f"[follow] Trial 已保存：{follow_trial_id}", flush=True)
-                print(f"[follow] CSV: {csv_path}", flush=True)
-                print(f"[follow] REPLAY: {replay}", flush=True)
-            except Exception as exc:  # pragma: no cover - shutdown best effort
-                print(f"[follow] Trial 保存失败：{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        if follow_mode:
+            result = _export_follow_trial()
+            if trial_sidecar is not None and follow_trial_id is not None:
+                payload = {
+                    "trial_id": follow_trial_id,
+                    "status": "UNKNOWN",
+                    "csv": None,
+                    "replay": None,
+                    "updated_utc": utc_now_iso(),
+                }
+                if result is not None:
+                    payload.update(result)
+                try:
+                    _write_json_atomic(trial_sidecar, payload)
+                except OSError as exc:
+                    print(f"[follow] trial.json 写入失败：{exc}", file=sys.stderr, flush=True)
+            if result is not None:
+                print(f"[follow] Trial 已保存：{result.get('trial_id')}", flush=True)
+                if result.get("csv"):
+                    print(f"[follow] CSV: {result['csv']}", flush=True)
+                if result.get("replay"):
+                    print(f"[follow] REPLAY: {result['replay']}", flush=True)
         try:
             core.shutdown()
         except Exception as exc:  # pragma: no cover - shutdown best effort

@@ -1,5 +1,29 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B4 联调前修复：FSR 门控、退出 drain、本会话 Trial 路径｜sw/p3b-live-monitor
+
+- **① FSR 未就绪不启动 PWM Console**：`run_live_monitor.py` 的 `wait_for_fsr_hello()` 返回
+  `(ready, reason)`；HELLO 超时或采集进程退出（含写 HELLO 后立即退出）→ 退出码 3，
+  不启动 Dashboard/console；`session.json` 记录 `aborted`；Dashboard 就绪后再检查一次
+  FSR 进程，若已退出仍不启动 console；会话中 FSR 退出只打印警告，不自动停 PWM。
+  `--no-fsr` 是显式只跟 console 的路径，跳过门控。
+- **② 退出先 drain 再结束 Trial**：`ApplicationCore.drain_log_follow()` 连续两轮无新增才停
+  （上限 3 s）；`finish_log_follow_trial()` 先 drain、再 `stop_trial`、再导出 CSV/REPLAY。
+  Dashboard 退出回调走该路径；启动器顺序改为 console → FSR（SIGINT，写 summary）→
+  Dashboard，且 Dashboard 以 `start_new_session=True` 启动，避免终端 Ctrl+C 抢先结束导出。
+- **③ 只打印本次 Trial 路径**：Dashboard 在 `<session>/trial.json` 原子写入
+  `trial_id/directory/status/csv/replay/counts`；启动器只读该 sidecar，删除全局最新 CSV
+  逻辑；无 sidecar 时明确提示，不用其它会话代替。
+- **验证**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` →
+  **420 tests OK（skipped=1）**。新增 `tests/test_live_launcher.py` 8 项（HELLO/进程退出/
+  超时/只读 sidecar/启动中止集成）、`test_log_follow.py` drain-before-export 2 项、
+  Dashboard `--follow-record` sidecar 端到端 1 项。手工 smoke：launcher 以
+  `/dev/cu.p3b-does-not-exist` 退出 3 且无 `dashboard.log`/`transport.jsonl`；正常
+  `--no-fsr --no-console` 会话打印本会话 `T-…` 的 CSV/REPLAY。
+- **未执行**：未打开真实串口、未发 PWM、未重烧、未改 PWM 范围、未启用 AUTO。
+- **文档**：更新 AGENTS/PROGRESS/ISSUES（I-222）/HANDOFF/QUICKSTART/RUNBOOK/
+  P3B2_LIVE_MONITOR/ASSET_MANIFEST。
+
 ## 2026-11-16｜P3-B 双日志实时监控（真实 FSR + 真实 PWM，只读）｜sw/p3b-live-monitor
 
 - **分支/worktree**：`sw/p3b-live-monitor`，独立 worktree `tactile-gripper-v2-p3b-monitor`，

@@ -81,31 +81,67 @@ def child_env() -> dict:
     return env
 
 
-def wait_for_fsr_hello(path: Path, timeout_s: float = 12.0) -> bool:
-    """Wait until the FSR capture has written a HELLO line."""
-    deadline = time.monotonic() + timeout_s
+def wait_for_fsr_hello(
+    path: Path,
+    *,
+    timeout_s: float = 15.0,
+    process: subprocess.Popen | None = None,
+) -> tuple[bool, str]:
+    """Wait for the FSR capture HELLO.
+
+    Returns ``(ready, reason)``.  ``ready`` is False when the HELLO is missing
+    before the timeout **or** the capture process exits first; the caller must
+    then abort without starting the PWM console.  A short grace after HELLO
+    catches a capture that wrote the handshake and died immediately.
+    """
+    deadline = time.monotonic() + max(0.1, timeout_s)
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            return False, f"fsr_exited:{process.returncode}"
         try:
             with path.open("r", encoding="utf-8", errors="replace") as handle:
                 for line in handle:
                     if '"type":"HELLO"' in line or '"type": "HELLO"' in line:
-                        return True
+                        time.sleep(0.3)
+                        if process is not None and process.poll() is not None:
+                            return False, f"fsr_exited:{process.returncode}"
+                        return True, "hello"
         except OSError:
             pass
         time.sleep(0.25)
-    return False
+    return False, "hello_timeout"
 
 
-def stop_process(proc: subprocess.Popen | None, *, name: str, interrupt_first: bool) -> None:
+def read_trial_artifacts(session: Path) -> dict | None:
+    """Read this session's Trial sidecar written by the Dashboard.
+
+    Never falls back to a global "newest CSV": that could print a different
+    session's recording.
+    """
+    try:
+        payload = json.loads((session / "trial.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def stop_process(
+    proc: subprocess.Popen | None,
+    *,
+    name: str,
+    interrupt_first: bool,
+    timeout: float | None = None,
+) -> None:
     if proc is None or proc.poll() is not None:
         return
+    wait_s = timeout if timeout is not None else (6.0 if interrupt_first else 12.0)
     try:
         if interrupt_first:
             proc.send_signal(signal.SIGINT)  # let the capture send STREAM stop
-            proc.wait(timeout=6)
+            proc.wait(timeout=wait_s)
         else:
             proc.terminate()
-            proc.wait(timeout=12)
+            proc.wait(timeout=wait_s)
     except subprocess.TimeoutExpired:
         print(f"[launcher] {name} did not stop; killing", flush=True)
         proc.kill()
@@ -116,6 +152,16 @@ def stop_process(proc: subprocess.Popen | None, *, name: str, interrupt_first: b
 
 
 def main() -> int:
+    def _terminate(signum, _frame):
+        # Convert SIGTERM into SystemExit so the finally block still stops the
+        # collectors, lets the Dashboard drain/export, and writes session.json.
+        raise SystemExit(128 + signum)
+
+    try:
+        signal.signal(signal.SIGTERM, _terminate)
+    except (ValueError, OSError):  # not in the main thread (tests)
+        pass
+
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pwm-port", default=DEFAULT_PWM_PORT, help="ESP32-S3 control port (pwm_console)")
     parser.add_argument("--fsr-port", default=DEFAULT_FSR_PORT, help="ESP32 FSR acquisition port")
@@ -128,10 +174,18 @@ def main() -> int:
     parser.add_argument("--no-record", action="store_true", help="do not create a Trial automatically")
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT, help="Trial data root")
     parser.add_argument("--fsr-baud", type=int, help="override FSR baud (default from config)")
+    parser.add_argument(
+        "--fsr-timeout",
+        type=float,
+        default=15.0,
+        help="seconds to wait for the FSR HELLO; on failure the console is NOT started",
+    )
     args = parser.parse_args()
 
     if not args.no_fsr and args.fsr_port == args.pwm_port:
         parser.error("--fsr-port and --pwm-port must differ (two independent devices)")
+    if not args.no_console and not sys.stdin.isatty():
+        parser.error("pwm_console 需要交互式终端；请在 Terminal 运行，或加 --no-console 只观察")
 
     session = args.session or (PROJECT_ROOT / "logs" / "real" / "sessions" / session_name())
     session = session.resolve()
@@ -162,6 +216,7 @@ def main() -> int:
     fsr_proc = None
     dashboard_proc = None
     console_proc = None
+    abort_reason = None
     try:
         if not args.no_fsr:
             fsr_cmd = [
@@ -187,14 +242,31 @@ def main() -> int:
                 text=True,
             )
             print(f"[launcher] FSR capture started (pid {fsr_proc.pid}) -> {fsr_stream}", flush=True)
-            if wait_for_fsr_hello(fsr_stream):
-                print("[launcher] FSR HELLO 已收到，启动 Dashboard。", flush=True)
-            else:
+            try:
+                ready, reason = wait_for_fsr_hello(
+                    fsr_stream,
+                    timeout_s=args.fsr_timeout,
+                    process=fsr_proc,
+                )
+            except KeyboardInterrupt:
+                abort_reason = "interrupted"
+                print("[launcher] 用户中断：未启动 Dashboard 或 PWM Console。", flush=True)
+                raise SystemExit(130)
+            if not ready:
+                abort_reason = reason
                 print(
-                    "[launcher] 警告：12s 内未见 FSR HELLO；Dashboard 仍会启动，"
-                    "传感器可能显示等待/离线，请查看 fsr_capture.log。",
+                    f"[launcher] 停止：FSR 未就绪（{reason}）。"
+                    "不会启动 Dashboard，也不会启动 PWM Console。",
                     flush=True,
                 )
+                try:
+                    tail = (session / "fsr_capture.log").read_text(encoding="utf-8", errors="replace")[-1500:]
+                except OSError:
+                    tail = ""
+                if tail:
+                    print(f"[launcher] fsr_capture.log 末尾：\n{tail}", flush=True)
+                raise SystemExit(3)
+            print("[launcher] FSR HELLO 已收到，启动 Dashboard。", flush=True)
 
         dash_cmd = [
             sys.executable,
@@ -224,6 +296,10 @@ def main() -> int:
             stdout=dash_log,
             stderr=subprocess.STDOUT,
             text=True,
+            # Keep the Dashboard out of the terminal's Ctrl+C process group so
+            # it survives until the FSR capture has flushed and the launcher
+            # can stop it *after* the writers (drain-before-export order).
+            start_new_session=True,
         )
         url = f"http://{args.host}:{web_port}/"
         if not wait_http(url, 40):
@@ -233,10 +309,24 @@ def main() -> int:
         print(f"[launcher] Dashboard: {url}", flush=True)
         print(f"[launcher] Session:   {session}", flush=True)
 
+        # Re-check the capture after the Dashboard startup delay: a process
+        # that died between HELLO and this point must not lead to a PWM console
+        # session with no FSR data.
+        if not args.no_fsr and fsr_proc.poll() is not None:
+            abort_reason = f"fsr_exited:{fsr_proc.returncode}"
+            print(
+                f"[launcher] 停止：FSR 采集在启动 PWM Console 前退出"
+                f"（{abort_reason}）。不会启动 PWM Console。",
+                flush=True,
+            )
+            raise SystemExit(3)
+
         if args.no_console:
-            if not sys.stdin.isatty():
-                raise SystemExit("--no-console 需要可交互终端；请直接 Ctrl+C 结束")
-            print("[launcher] --no-console：Ctrl+C 结束会话。", flush=True)
+            print(
+                "[launcher] --no-console：Ctrl+C 或 SIGTERM 结束会话；"
+                "结束后仍会 drain 并导出本会话 Trial。",
+                flush=True,
+            )
             try:
                 while dashboard_proc.poll() is None:
                     time.sleep(0.5)
@@ -265,32 +355,70 @@ def main() -> int:
                 str(session),
             ]
             console_proc = subprocess.Popen(console_cmd, cwd=PROJECT_ROOT, env=child_env())
+            fsr_warned = False
             try:
-                console_proc.wait()
+                while console_proc.poll() is None:
+                    if (
+                        not args.no_fsr
+                        and not fsr_warned
+                        and fsr_proc.poll() is not None
+                    ):
+                        print(
+                            f"[launcher] 警告：FSR 采集已退出"
+                            f"（code {fsr_proc.returncode}）；Dashboard 将显示 STALE。"
+                            " PWM Console 不会自动停止，请手动 stop/quit。",
+                            flush=True,
+                        )
+                        fsr_warned = True
+                    time.sleep(0.5)
             except KeyboardInterrupt:
                 console_proc.wait(timeout=30)
     finally:
-        stop_process(console_proc, name="pwm_console", interrupt_first=False)
-        stop_process(dashboard_proc, name="dashboard", interrupt_first=False)
-        stop_process(fsr_proc, name="fsr_capture", interrupt_first=True)
+        # Stop the writers first so the Dashboard can read their last flushed
+        # JSONL lines before it stops the Trial.  Reversing this order drops
+        # trailing frames/ACKs from CSV and REPLAY.
+        stop_process(console_proc, name="pwm_console", interrupt_first=False, timeout=15)
+        stop_process(fsr_proc, name="fsr_capture", interrupt_first=True, timeout=10)
+        time.sleep(0.3)
+        stop_process(dashboard_proc, name="dashboard", interrupt_first=False, timeout=30)
         stopped = utc_now()
         try:
             payload = json.loads((session / "session.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             payload = {}
         payload["finished_utc"] = stopped
+        if abort_reason:
+            payload["aborted"] = abort_reason
         (session / "session.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         print(f"\n[launcher] 会话结束：{session}", flush=True)
         print(f"[launcher] Dashboard 日志：{session / 'dashboard.log'}", flush=True)
-        trials = sorted(
-            (Path(args.data_root) / "data" / "real" / "trials").glob("*/frames.csv"),
-            key=lambda item: item.stat().st_mtime,
-            reverse=True,
-        )
-        if trials:
-            print(f"[launcher] 最新 CSV：{trials[0]}", flush=True)
+        if abort_reason:
+            print("[launcher] 本次未生成 Trial：FSR 未就绪，Dashboard 未启动。", flush=True)
+        elif args.no_record:
+            print("[launcher] 未启用 Trial 记录（--no-record）。", flush=True)
         else:
-            print("[launcher] 未找到 Trial CSV（可能未启用 --follow-record 或没有帧）。", flush=True)
+            artifacts = read_trial_artifacts(session)
+            if artifacts and artifacts.get("csv"):
+                print(
+                    f"[launcher] 本次 Trial：{artifacts.get('trial_id')}"
+                    f"（{artifacts.get('status') or 'UNKNOWN'}）",
+                    flush=True,
+                )
+                print(f"[launcher] CSV：{artifacts['csv']}", flush=True)
+                if artifacts.get("replay"):
+                    print(f"[launcher] REPLAY：{artifacts['replay']}", flush=True)
+            elif artifacts:
+                print(
+                    f"[launcher] Trial {artifacts.get('trial_id')} 未导出"
+                    f"（status={artifacts.get('status')}）；查看 {session / 'dashboard.log'}",
+                    flush=True,
+                )
+            else:
+                print(
+                    "[launcher] 本次会话没有 trial.json（Dashboard 未启动或未启用 --follow-record）；"
+                    "不使用全局最新 CSV 代替。",
+                    flush=True,
+                )
     return 0
 
 

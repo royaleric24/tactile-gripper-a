@@ -2,6 +2,21 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-B4 联调前修复，2026-11-16）
+
+分支 `sw/p3b-live-monitor`（PR #8 DRAFT，栈在 P3-B1 `622ef97` 上）。完成联调前三项安全修复：
+① **FSR 未就绪不启动 PWM Console**：启动器等待 HELLO，超时或采集进程退出时以退出码 3
+中止，既不启动 Dashboard 也不启动 console；Dashboard 启动后还会二次检查 FSR 进程；
+会话中 FSR 退出只警告、不自动停 PWM。② **先 drain 再结束 Trial**：Dashboard 退出时先
+`drain_log_follow()` 读完采集器最后 flush 的 JSONL，再 `stop_trial` + CSV/REPLAY；
+启动器先停 console → 再停 FSR（SIGINT 让采集写 summary）→ 最后停 Dashboard（独立 session，
+不受终端 Ctrl+C 影响），保证尾部帧/ACK 进入导出。③ **Trial 路径只认本会话**：
+Dashboard 在 `<session>/trial.json` 写本会话 trial_id/CSV/REPLAY，启动器只读该 sidecar，
+不再用全局最新 CSV。离线测试 **420 tests OK（skipped=1）**，新增 FSR 门控、
+drain-before-export、session sidecar 测试。未操作硬件、未重烧、PWM 范围未变、
+`AUTO_REAL_ENABLED=False`。详见 [P3B2 报告](docs/P3B2_LIVE_MONITOR.md)、
+[进度](docs/PROGRESS.md)、[问题 I-222](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
 ## 最近状态（P3-B 双日志实时监控，2026-11-16）
 
 分支 `sw/p3b-live-monitor`（独立 worktree `tactile-gripper-v2-p3b-monitor`，基线 P3-B1 `622ef97`）。

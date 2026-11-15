@@ -1,3 +1,25 @@
+# 当前交接｜P3-B4 联调前修复（2026-11-16）
+
+- **分支/worktree/HEAD**：`sw/p3b-live-monitor`，worktree
+  `~/Developer/research/tactile-gripper-v2-p3b-monitor`；PR #8 DRAFT（base
+  `hw/p3b1-fsr-real`）。本阶段 HEAD 以提交后 `git rev-parse HEAD` 为准。
+- **本轮修复**：
+  1. FSR HELLO 超时或采集进程退出 → 启动器退出码 3，**不启动 Dashboard、不启动 PWM Console**；
+     Dashboard 就绪后再次检查 FSR；会话中 FSR 退出只警告。`--no-fsr` 才允许只跟 console。
+  2. 退出顺序：console → FSR（SIGINT 写 summary）→ Dashboard；Dashboard 先
+     `drain_log_follow()` 读完尾部 JSONL，再 `stop_trial` + CSV/REPLAY。Dashboard 以
+     独立 session 启动，避免终端 Ctrl+C 抢先结束导出。
+  3. 启动器只读 `<session>/trial.json`（本会话 trial_id/CSV/REPLAY），删除全局最新 CSV。
+- **测试**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` → **420 OK
+  （skipped=1）**；新增 `tests/test_live_launcher.py` 8 项、drain 2 项、sidecar 端到端 1 项。
+  手工 smoke：伪造缺失 FSR 端口 → 退出 3、无 dashboard/transport；`--no-fsr --no-console`
+  正常结束打印本会话 `T-…` CSV/REPLAY。
+- **未执行**：未打开真实串口、未发 PWM、未重烧、未改 PWM 范围、未启用 AUTO。
+- **下一步（现场授权后）**：no-PWM 会话确认门控与双日志 → 1500-only → 1040+FSR；
+  FSR 未就绪时启动器现在会直接拒绝进入 console，不再“带病联调”。
+- **文档**：[P3B2_LIVE_MONITOR.md](P3B2_LIVE_MONITOR.md)、[快速开始](DASHBOARD_QUICKSTART_ZH.md)、
+  [运行手册](SOFTWARE_RUNBOOK.md)、[问题 I-222](ISSUES.md)。
+
 # 当前交接｜P3-B 双日志实时监控（2026-11-16）
 
 - **分支/worktree/HEAD**：`sw/p3b-live-monitor`，独立 worktree

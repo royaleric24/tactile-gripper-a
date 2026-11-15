@@ -1081,6 +1081,80 @@ class ApplicationCore:
             self._system("TRIAL_STOP", f"trial {metadata.trial_id} stopped: {reason}")
             return self.last_trial
 
+    def drain_log_follow(
+        self,
+        *,
+        quiet_rounds: int = 2,
+        max_seconds: float = 3.0,
+        sleep_s: float = 0.05,
+    ) -> int:
+        """Read JSONL lines that were written before shutdown, then stop.
+
+        The console/FSR collectors flush their last lines just before exiting.
+        Stopping the Trial immediately would leave those frames or PWM events
+        out of ``frames.jsonl``/``events.jsonl`` and therefore out of the CSV
+        and REPLAY exports.  This drains until two consecutive rounds add
+        nothing, bounded by ``max_seconds`` so shutdown cannot hang.
+        """
+        if not self.log_follow:
+            return 0
+        deadline = time.monotonic() + max(0.0, max_seconds)
+        stable = 0
+        rounds = 0
+        while time.monotonic() < deadline:
+            before = (
+                self.frames_received,
+                len(self.events),
+                self.event_overflow_count,
+                self.trial.frame_count if self.trial is not None else -1,
+                self.trial.event_count if self.trial is not None else -1,
+            )
+            try:
+                self.tick()
+            except Exception as exc:  # shutdown must still export what it has
+                self.last_sensor_error = f"shutdown drain failed: {exc}"
+                break
+            after = (
+                self.frames_received,
+                len(self.events),
+                self.event_overflow_count,
+                self.trial.frame_count if self.trial is not None else -1,
+                self.trial.event_count if self.trial is not None else -1,
+            )
+            rounds += 1
+            if after == before:
+                stable += 1
+            else:
+                stable = 0
+            if stable >= max(1, quiet_rounds):
+                break
+            time.sleep(max(0.0, sleep_s))
+        return rounds
+
+    def finish_log_follow_trial(self, reason: str = "monitor shutdown") -> dict[str, Any] | None:
+        """Drain remaining log lines, then stop and export the recording Trial.
+
+        Returns ``None`` when no Trial is recording.  Export happens only after
+        the drain, so the CSV/REPLAY include the final console/FSR records.
+        """
+        with self._lock:
+            if self.trial is None or not self.trial.recording:
+                return None
+            self.drain_log_follow()
+            directory = str(self.trial.directory)
+            metadata = self.stop_trial(reason)
+            trial_id = metadata["trial_id"]
+            csv_path = self.trial_store.export_csv(trial_id)
+            replay_path = self.trial_store.export_replay_jsonl(trial_id)
+            return {
+                "trial_id": trial_id,
+                "directory": directory,
+                "csv": str(csv_path),
+                "replay": str(replay_path),
+                "counts": metadata.get("counts") or {},
+                "status": "COMPLETED",
+            }
+
     def set_trial_video(self, path: str | None) -> dict[str, Any]:
         with self._lock:
             if self.trial is None:
@@ -1125,6 +1199,15 @@ class ApplicationCore:
 
     def tick(self) -> None:
         with self._lock:
+            # In log-follow mode, read the console log BEFORE the FSR log so a
+            # frame is attributed to a PWM command that was written earlier in
+            # the same tick window.  (A serial poll still happens at the end.)
+            if self.log_follow and self.gripper is not None and self.gripper.connected:
+                try:
+                    self.gripper.poll()
+                except Exception as exc:
+                    self.mode = Mode.FAULT
+                    self.fault_reason = f"console log read failed: {exc}"
             # A log-follow monitor turns console outcomes into normal control
             # events so the same Trial recorder, CSV and replay paths apply.
             if self.gripper is not None and hasattr(self.gripper, "drain_control_events"):
