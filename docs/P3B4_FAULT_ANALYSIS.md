@@ -7,6 +7,68 @@
 - `logs/real/sessions/session_20261116T032328_a804`
 状态：**OFFLINE_ANALYZED**；未打开真实串口、未发 PWM、未烧录。
 
+## 0. 2026-11-16 03:43/03:44 新会话补充与生命周期修复
+
+本节优先于下文较早的 `0fce/a804` 分析。数据源：
+`session_20261116T034325_f7e4` 与 `session_20261116T034413_94b4`。
+
+### 0.1 证据分级
+
+| 结论 | 状态 | 证据 |
+|---|---|---|
+| 两条最后指令均完整发送 | **VERIFIED_REAL** | A 26 COMMAND=26 TX；B 8 COMMAND=8 TX；raw TX 可解码为对应 JSONL |
+| A 的 STOP 已进入固件处理并关闭输出控制 | **VERIFIED_REAL** | 同 request_id ACK 的未损坏字段为 `DISARMED / STOP / DISABLED_UNMEASURED` |
+| B 的 1500 已进入固件处理并建立目标 | **VERIFIED_REAL** | 同 request_id ACK 的未损坏字段为 `ACTIVE / TARGET_COMMANDED / PWM_COMMANDED_UNMEASURED / 1500` |
+| 实际机械位置、杯子状态 | **UNKNOWN** | ACK/日志没有位置反馈；`actual_angle_deg`/`actual_opening` 为空 |
+| 监控故障隔离与 Trial 状态修复 | **OFFLINE_VERIFIED** | 全套 443 tests OK；真实日志只读回放通过；未进行新硬件会话 |
+| NUL 的电气物理根因 | **UNKNOWN** | 日志证明字节替换，无法区分供电、地弹、线束、EMI、USB-UART 等现场因素 |
+
+### 0.2 会话 A：STOP ACK 损坏
+
+- 最后命令：`STOP` seq26，request_id `550e186d930b441f94e5506a9f50d761`；COMMAND 与 TX 完整。
+- 此前 `BENCH_HOLD 1500` seq8 已 ACK；HEARTBEAT seq18/20 分别出现 13/7 NUL，均由一次有界重试恢复。
+- STOP 后约 98 ms 收到 934 B 响应，46 个 NUL，位置为
+  `346–348, 508–526, 703–706, 713–721, 729, 894–903`。
+- 未损坏字段包含正确 request_id、`type=ACK` 的尾部、`state=DISARMED`、`fault_reason=STOP`、
+  同一 boot_id `f4dcfe43…`、`output_state=DISABLED_UNMEASURED`、`commanded_pulse_us=null`。
+- `last_sequence=25` 与 STOP seq26 不矛盾：`SafetyCore::command()` 的 STOP/DISARM 分支不更新
+  `sequence`，STATUS/ACK 报告的是上一条受序列门控命令。该行为由当前固件源码核对。
+- 主机正确拒绝坏 JSON，3 s 后 `response_timeout`，控制输出按主机视角记为 UNKNOWN。结论：STOP
+  已执行到固件控制状态；机械爪实际位置 UNKNOWN。
+
+### 0.3 会话 B：PWM ACK 损坏
+
+- 最后命令：`BENCH_HOLD 1500` seq8，request_id `cb028f57bb3e45d68d79f73a1eb649a5`；
+  COMMAND 与 TX 完整。
+- 约 127 ms 后收到 955 B 响应，offset 244–245 两字节被 NUL 替换，破坏
+  `flash_size_bytes` 字段名；去 NUL 后成为 `fsh_size_bytes`，不能作为完整合法 ACK 接受。
+- 其余字段保留正确 request_id、`type=ACK`、`state=ACTIVE`、`fault_reason=TARGET_COMMANDED`、
+  boot_id `7c4035ea…`、`last_sequence=8`、`output_state=PWM_COMMANDED_UNMEASURED`、
+  `commanded_pulse_us=1500`。无设备 ERROR/FAULT/重启。
+- 结论：固件接受了 1500 目标；ACK 传输损坏使主机无法确认；实际 PWM 波形和机械位置 UNKNOWN。
+
+### 0.4 生命周期修复
+
+- `pwm_console`：正常退出 0；连接/会话通信故障退出 2，并写 `CONSOLE_EXIT`。
+- `run_live_monitor`：console 非零退出后不再结束整个会话；禁止新的 PWM，不重连、不重发；FSR 与
+  Dashboard 继续运行，直到操作者 Ctrl+C。最终按 console→FSR→Dashboard 清理。
+- log-follow：锁存 `COMMUNICATION_ERROR / FAULT / UNKNOWN`；故障时间之后的 FSR 帧不附带旧 PWM
+  上下文；Dashboard 不把旧目标显示为实际输出。
+- Trial：正常结束 `COMPLETED`；控制通信故障 `INTERRUPTED`；写入失败 `ERROR`。结束前 drain
+  JSONL，再导出 CSV/REPLAY。两份历史 sidecar 的 `COMPLETED` 是旧缺陷产物，作为原始证据保留。
+- 重试：仅 `CommunicationError` 且错误为 `corrupt_response`/`response_timeout` 时，允许既有
+  HEARTBEAT/无目标 mode 有界重试。设备 ERROR、boot_id 改变不重试。
+
+### 0.5 FSR 与现场判断
+
+A 保存 1900 SAMPLE（1–1900），B 保存 656 SAMPLE（1–656）；均 0 丢帧、0 device ERROR、100%
+有效。旧 launcher 在 console 结束后立即停止采集，因此这两份真实会话不能证明故障后持续采集；新行为目前为
+**OFFLINE_VERIFIED**。
+
+本轮无需改固件或重烧。主机软件能够隔离故障、保留数据、阻止后续命令，但不能修复 UART 字节被替换的
+物理链路。现场先测舵机 5V 动态压降、S3 与舵机地电位差、电流、共地和线束；随后做“舵机上电但无 PWM”
+60 s A/B。若该条件复现 NUL，再用示波器同时观察 S3 TX 与地参考。该测试优先于新固件开发。
+
 ## 1. 结论摘要
 
 1. 两次 `response_timeout` 的直接原因都是 **S3 的 ACK 在传输中被 0x00 字节替换了字段中间的一段**，JSON 解析失败，

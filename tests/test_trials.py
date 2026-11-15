@@ -177,6 +177,19 @@ class TrialStoreTests(unittest.TestCase):
         self.assertEqual(self.store.recover_interrupted(), [])
         self.assertEqual(self.store.load(recorder.metadata.trial_id).metadata.status, "COMPLETED")
 
+    def test_explicit_interruption_is_saved_without_becoming_completed(self):
+        recorder = self.store.create_trial("communication fault", mode="MANUAL")
+        recorder.start()
+        recorder.record_frame(frame(seq=1, source=DataSource.SIMULATION))
+        metadata = recorder.stop("controller communication failed", interrupted=True)
+        self.assertEqual(metadata.status, "INTERRUPTED")
+        record = self.store.load(metadata.trial_id)
+        self.assertEqual(record.metadata.status, "INTERRUPTED")
+        self.assertTrue(
+            any(item.get("event_type") == "TRIAL_INTERRUPTED" for item in record.events)
+        )
+        self.assertTrue((record.directory / "frames.csv").is_file())
+
     def test_active_recording_is_not_marked_interrupted(self):
         recorder = self.store.create_trial("active", mode="MANUAL")
         recorder.start()

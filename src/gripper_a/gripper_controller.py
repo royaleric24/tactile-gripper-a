@@ -1,6 +1,11 @@
 """Offline hardware abstraction. No real transport is implemented."""
 from typing import Protocol
 
+from .serial_client import CommunicationError
+
+
+RETRYABLE_COMMUNICATION_ERRORS = frozenset(("corrupt_response", "response_timeout"))
+
 class Gripper(Protocol):
     def set_target(self, target): ...
     def inhibit_closing(self, reason): ...
@@ -112,7 +117,11 @@ class GripperController:
                 if self.boot_id is not None and response.get('boot_id')!=self.boot_id:raise RuntimeError('device_restarted')
                 break
             except Exception as exc:
-                if attempt<attempts-1:
+                recoverable = (
+                    isinstance(exc, CommunicationError)
+                    and str(exc) in RETRYABLE_COMMUNICATION_ERRORS
+                )
+                if attempt<attempts-1 and recoverable:
                     self.log('COMMAND_RETRY',command=command,attempt=attempt+1,request_id=rid,reason=str(exc),delay_ms=delay_ms)
                     time.sleep(delay_ms/1000.0)
                     continue

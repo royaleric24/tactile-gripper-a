@@ -447,7 +447,8 @@ def live_page(core) -> None:
             )
 
         monitor_device.set_text(
-            f"控制器：{firmware_state_label(monitor.get('device_state') or 'LOG_WAITING')} · "
+            f"控制器：{firmware_state_label(monitor.get('monitor_state') or monitor.get('device_state') or 'LOG_WAITING')} · "
+            f"固件状态 {firmware_state_label(monitor.get('device_state') or 'UNKNOWN')} · "
             f"固件 {monitor.get('firmware_version') or '未知'} · boot {monitor.get('boot_id') or '—'}"
         )
         monitor_output.set_text(
@@ -461,7 +462,8 @@ def live_page(core) -> None:
         unconfirmed = sum(1 for item in commands if item.get("result") in ("SENT", "TIMEOUT", "CORRUPT_RESPONSE"))
         failed = sum(1 for item in commands if item.get("result") == "FAILED")
         monitor_comm.set_text(
-            f"通信：已 ACK 命令 {counts.get('acked', 0)} · 未确认 {unconfirmed} · 失败 {failed} · "
+            f"通信：{'COMMUNICATION_ERROR / FAULT / UNKNOWN · ' if monitor.get('communication_failed') or monitor.get('fault_latched') else ''}"
+            f"已 ACK 命令 {counts.get('acked', 0)} · 未确认 {unconfirmed} · 失败 {failed} · "
             f"应答损坏 {counts.get('corrupt_responses', 0)} · NUL {counts.get('nul_bytes', 0)} · "
             f"超时 {counts.get('timeouts', 0)}"
         )

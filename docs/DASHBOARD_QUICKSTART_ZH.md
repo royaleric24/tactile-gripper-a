@@ -19,7 +19,10 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
   `--pwm-port` / `--fsr-port` 指定。
 - 会创建 `logs/real/sessions/session_<UTC>_<id>/`，后台启动 FSR 采集和 Dashboard，
   然后在当前终端进入 `pwm_console`；console 里照常输入 `1500`、`1040`、`stop`、`quit`。
-- 退出 console 后自动结束 Trial，并打印 CSV 与 REPLAY 路径。
+- console 正常退出后自动结束 Trial，并打印 CSV 与 REPLAY 路径。
+- console 通信故障时退出码为 2；启动器禁止新的 PWM，不重连、不重发，并保持 FSR 与 Dashboard。
+  页面显示 `COMMUNICATION_ERROR / FAULT / UNKNOWN`。完成观察后按 Ctrl+C 结束整个监控；Trial
+  保存为 `INTERRUPTED`，并继续导出 CSV/REPLAY。
 - 只观察、不控制：加 `--no-console`。
 - **FSR 未就绪会直接终止**：HELLO 超时（默认 15 s）或采集进程退出时，启动器以退出码 3
   中止，不启动 Dashboard，也不进入 PWM Console；先看 `<session>/fsr_capture.log`。
@@ -28,7 +31,8 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
   Trial 的 CSV/REPLAY（来自 `<session>/trial.json`），不会拿别的会话最新 CSV 顶替。
 - **S3 心跳重试**：HEARTBEAT 与“尚无目标时的模式选择”允许一次有界重试（默认共 2 次、间隔 200 ms，
   可在 `config/gripper_s3.json` 的 `serial.heartbeat_retry_attempts` / `heartbeat_retry_delay_ms` 调整）；
-  PWM/STOP/DISARM 不会自动重发。重试耗尽仍进入 FAULT/UNKNOWN 并关闭。
+  只重试 `corrupt_response`/`response_timeout`；设备 ERROR、boot_id 改变不重试；
+  PWM/STOP/DISARM/BEGIN_BENCH 不会自动重发。重试耗尽仍进入 FAULT/UNKNOWN 并关闭。
 - **等待 PWM 日志**：Dashboard 先启动、console 后创建 `<session>/transport.jsonl` 时，页面显示“等待
   pwm_console 创建 transport.jsonl”，文件出现后自动接入；不会因此打开串口。
 - **FSR 平滑**：FSR 区有“短窗平滑（仅显示）”开关（默认关）；原始曲线变淡、叠加 5 帧中值平滑；

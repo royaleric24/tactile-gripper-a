@@ -309,6 +309,10 @@ class LogFollowGripper:
         self.last_response_utc: str | None = None
         self.last_response_ns: int | None = None
         self.closed = False
+        self.communication_failed = False
+        self.fault_latched = False
+        self.console_exit_status: str | None = None
+        self.output_unknown_ns: int | None = None
         self.session_restarts = 0
         self.closed_at_utc: str | None = None
         self.final_output_state: str | None = None
@@ -446,6 +450,10 @@ class LogFollowGripper:
             self._on_ignored(record, ts_utc, ts_ns)
         elif event == "COMMUNICATION_ERROR":
             self._on_communication_error(record, ts_utc, ts_ns)
+        elif event == "FAULT":
+            self._on_fault(record, ts_utc, ts_ns)
+        elif event == "CONSOLE_EXIT":
+            self._on_console_exit(record, ts_utc, ts_ns)
         elif event == "BENCH_ACTION":
             self._on_bench_action(record)
         elif event == "BENCH_MODE":
@@ -461,7 +469,10 @@ class LogFollowGripper:
             self.closed = True
             self.closed_at_utc = ts_utc
             self.session_active = False
-            if isinstance(record.get("output_state"), str):
+            if self.communication_failed or self.fault_latched:
+                self.final_output_state = "UNKNOWN"
+                self.output_state = "UNKNOWN"
+            elif isinstance(record.get("output_state"), str):
                 self.final_output_state = record["output_state"]
                 self.output_state = self.final_output_state
             if event == "CLOSED":
@@ -492,6 +503,10 @@ class LogFollowGripper:
             self.fault_reason = None
             self.closed_at_utc = None
             self.final_output_state = None
+            self.communication_failed = False
+            self.fault_latched = False
+            self.console_exit_status = None
+            self.output_unknown_ns = None
             self.counts = {key: 0 for key in self.counts}
 
     def _on_command(self, record: dict[str, Any], ts_utc, ts_ns) -> None:
@@ -613,6 +628,10 @@ class LogFollowGripper:
     def _on_communication_error(self, record: dict[str, Any], ts_utc, ts_ns) -> None:
         error = str(record.get("error") or "communication error")
         self.last_error = error
+        self.communication_failed = True
+        self.output_state = "UNKNOWN"
+        if type(ts_ns) is int:
+            self.output_unknown_ns = ts_ns
         self._comm_errors.append({"utc": ts_utc, "reason": "COMMUNICATION_ERROR", "error": error, "nul_count": 0})
         if "timeout" in error:
             self.counts["timeouts"] += 1
@@ -624,7 +643,43 @@ class LogFollowGripper:
                     self._emit_outcome(row)
         self._pending.clear()
         self.session_active = False
-        self.state = "FAULT" if self.device_state == "FAULT" else self._derived_state()
+        self.state = self._derived_state()
+        self._refresh_target()
+
+    def _on_fault(self, record: dict[str, Any], ts_utc, ts_ns) -> None:
+        reason = str(record.get("reason") or "host_controller_fault")
+        self.fault_latched = True
+        self.session_active = False
+        self.output_state = str(record.get("output_state") or "UNKNOWN")
+        if type(ts_ns) is int:
+            self.output_unknown_ns = ts_ns
+        self.fault_reason = reason
+        self.last_error = self.last_error or reason
+        self._comm_errors.append(
+            {"utc": ts_utc, "reason": "FAULT", "error": reason, "nul_count": 0}
+        )
+        self.state = self._derived_state()
+        self._refresh_target()
+
+    def _on_console_exit(self, record: dict[str, Any], ts_utc, ts_ns) -> None:
+        status = str(record.get("status") or "UNKNOWN")
+        self.console_exit_status = status
+        if status != "NORMAL":
+            self.fault_latched = True
+            self.session_active = False
+            self.output_state = "UNKNOWN"
+            if type(ts_ns) is int:
+                self.output_unknown_ns = ts_ns
+            self.last_error = self.last_error or "pwm_console_abnormal_exit"
+            self._comm_errors.append(
+                {
+                    "utc": ts_utc,
+                    "reason": "CONSOLE_EXIT",
+                    "error": status,
+                    "nul_count": 0,
+                }
+            )
+        self.state = self._derived_state()
         self._refresh_target()
 
     def _on_bench_action(self, record: dict[str, Any]) -> None:
@@ -716,6 +771,10 @@ class LogFollowGripper:
     # -- derived state -----------------------------------------------------
 
     def _derived_state(self) -> str:
+        if self.fault_latched:
+            return "FAULT"
+        if self.communication_failed:
+            return "COMMUNICATION_ERROR"
         if self.closed:
             return "OFFLINE"
         if self.device_state:
@@ -776,6 +835,8 @@ class LogFollowGripper:
         back-filled frame is attributed to the command that preceded it.
         """
         with self._lock:
+            if self.output_unknown_ns is not None and host_ns >= self.output_unknown_ns:
+                return None
             best = None
             for row in self._commands:
                 sent = row.get("sent_ns")
@@ -843,11 +904,17 @@ class LogFollowGripper:
                 "session_restarts": self.session_restarts,
                 "closed_at_utc": self.closed_at_utc,
                 "final_output_state": self.final_output_state,
+                "monitor_state": self._derived_state(),
+                "communication_failed": self.communication_failed,
+                "fault_latched": self.fault_latched,
+                "console_exit_status": self.console_exit_status,
                 "session_active": self.session_active,
                 "session_mode": self.session_mode,
                 "device_state": self.device_state,
                 "output_state": self.output_state,
                 "fault_reason": self.fault_reason,
+                "last_error": self.last_error,
+                "output_unknown_ns": self.output_unknown_ns,
                 "firmware_version": self.firmware_version,
                 "boot_id": self.boot_id,
                 "data_stale": self._data_stale(),
@@ -884,7 +951,7 @@ class LogFollowGripper:
             self._refresh_target()
             stale = self._data_stale()
             state = self._derived_state()
-            if stale and state not in ("FAULT", "OFFLINE"):
+            if stale and state not in ("FAULT", "OFFLINE", "COMMUNICATION_ERROR"):
                 state = "STALE"
             detail = {
                 "monitor": "LOG_FOLLOW",
@@ -905,6 +972,10 @@ class LogFollowGripper:
                 "output_state": self.output_state,
                 "firmware_state": self.device_state,
                 "fault_reason": self.fault_reason,
+                "communication_failed": self.communication_failed,
+                "fault_latched": self.fault_latched,
+                "console_exit_status": self.console_exit_status,
+                "output_unknown_ns": self.output_unknown_ns,
                 "last_pwm_us": self.last_pwm_us,
                 "current_target_us": self.current_target_us,
                 "current_target": (

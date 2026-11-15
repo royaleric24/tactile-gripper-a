@@ -123,6 +123,18 @@ class ControllerTests(unittest.TestCase):
   self.assertEqual(len(transport.calls),1)
   self.assertTrue(transport.closed)
 
+ def test_stop_command_is_not_retried(self):
+  from gripper_a.serial_client import CommunicationError
+  from pathlib import Path
+  c=dict(self.c);c['serial']={'heartbeat_retry_attempts':3,'heartbeat_retry_delay_ms':0}
+  transport=RetryTransport([CommunicationError('response_timeout')])
+  g=GripperController(c,dry_run=False,hardware_permission=True,transport=transport,log_path=Path(self.tmp.name)/'stop_no_retry.jsonl')
+  self.addCleanup(g.close)
+  g.connected=True;g.state='ACTIVE';g.boot_id='b1'
+  with self.assertRaises(CommunicationError):g.stop()
+  self.assertEqual(len(transport.calls),1)
+  self.assertTrue(transport.closed)
+
  def test_mode_selection_retries_before_any_target(self):
   from gripper_a.serial_client import CommunicationError
   from pathlib import Path
@@ -179,3 +191,27 @@ class ControllerTests(unittest.TestCase):
   g=self.make(True,dry_run=False,hardware_permission=True);g.connected=True;g.boot_id='old';g.transport=Mock();g.transport.exchange.return_value={'type':'STATUS','boot_id':'new','state':'DISARMED'}
   with self.assertRaises(RuntimeError):g.get_status()
   self.assertFalse(g.connected);self.assertEqual(g.output_state,'UNKNOWN')
+
+ def test_heartbeat_device_error_is_not_retried(self):
+  from pathlib import Path
+  c=dict(self.c);c['serial']={'heartbeat_retry_attempts':3,'heartbeat_retry_delay_ms':0}
+  response=ack();response.update(type='ERROR',error='OUTPUT_UNKNOWN')
+  transport=RetryTransport([response])
+  g=GripperController(c,dry_run=False,hardware_permission=True,transport=transport,log_path=Path(self.tmp.name)/'device_error_no_retry.jsonl')
+  self.addCleanup(g.close)
+  g.connected=True;g.state='ACTIVE';g.boot_id='b1'
+  with self.assertRaisesRegex(RuntimeError,'OUTPUT_UNKNOWN'):g.heartbeat()
+  self.assertEqual(len(transport.calls),1)
+  self.assertTrue(transport.closed)
+
+ def test_heartbeat_boot_change_is_not_retried(self):
+  from pathlib import Path
+  c=dict(self.c);c['serial']={'heartbeat_retry_attempts':3,'heartbeat_retry_delay_ms':0}
+  response=ack(boot='new')
+  transport=RetryTransport([response])
+  g=GripperController(c,dry_run=False,hardware_permission=True,transport=transport,log_path=Path(self.tmp.name)/'boot_change_no_retry.jsonl')
+  self.addCleanup(g.close)
+  g.connected=True;g.state='ACTIVE';g.boot_id='old'
+  with self.assertRaisesRegex(RuntimeError,'device_restarted'):g.heartbeat()
+  self.assertEqual(len(transport.calls),1)
+  self.assertTrue(transport.closed)

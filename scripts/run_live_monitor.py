@@ -125,6 +125,62 @@ def read_trial_artifacts(session: Path) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
+def update_session_metadata(session: Path, **fields) -> None:
+    """Merge lifecycle fields into this session's metadata sidecar."""
+    try:
+        payload = json.loads((session / "session.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        payload = {}
+    payload.update(fields)
+    (session / "session.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def wait_after_console_failure(
+    dashboard_proc: subprocess.Popen,
+    fsr_proc: subprocess.Popen | None,
+    *,
+    fsr_enabled: bool,
+    sleeper=time.sleep,
+) -> str:
+    """Keep passive monitoring alive until the operator ends it.
+
+    The S3 console is intentionally not restarted and no command is replayed.
+    FSR and Dashboard remain independent; if FSR later exits, the Dashboard
+    stays up and reports stale data until the operator presses Ctrl+C.
+    """
+    print(
+        "[launcher] PWM Console 通信故障：已禁止新的 PWM 命令；不会自动重连或重发。",
+        flush=True,
+    )
+    print(
+        "[launcher] FSR 采集与 Dashboard 将继续运行。检查/记录完成后按 Ctrl+C 结束整个监控。",
+        flush=True,
+    )
+    fsr_warned = False
+    try:
+        while dashboard_proc.poll() is None:
+            if (
+                fsr_enabled
+                and fsr_proc is not None
+                and not fsr_warned
+                and fsr_proc.poll() is not None
+            ):
+                print(
+                    f"[launcher] 警告：FSR 采集也已退出（code {fsr_proc.returncode}）；"
+                    "Dashboard 保持运行并显示 STALE，按 Ctrl+C 结束。",
+                    flush=True,
+                )
+                fsr_warned = True
+            sleeper(0.5)
+    except KeyboardInterrupt:
+        print("\n[launcher] 操作者结束故障后监控…", flush=True)
+        return "operator_interrupt"
+    return "dashboard_exit"
+
+
 def stop_process(
     proc: subprocess.Popen | None,
     *,
@@ -217,6 +273,9 @@ def main() -> int:
     dashboard_proc = None
     console_proc = None
     abort_reason = None
+    console_exit_code = None
+    console_exit_status = "NOT_STARTED"
+    continued_after_console_error = False
     try:
         if not args.no_fsr:
             fsr_cmd = [
@@ -373,6 +432,27 @@ def main() -> int:
                     time.sleep(0.5)
             except KeyboardInterrupt:
                 console_proc.wait(timeout=30)
+            console_exit_code = console_proc.poll()
+            console_exit_status = (
+                "NORMAL" if console_exit_code == 0 else "COMMUNICATION_ERROR"
+            )
+            update_session_metadata(
+                session,
+                console_exit_code=console_exit_code,
+                console_exit_status=console_exit_status,
+                console_finished_utc=utc_now(),
+            )
+            if console_exit_code != 0:
+                continued_after_console_error = True
+                update_session_metadata(
+                    session,
+                    monitor_continued_after_console_error=True,
+                )
+                wait_after_console_failure(
+                    dashboard_proc,
+                    fsr_proc,
+                    fsr_enabled=not args.no_fsr,
+                )
     finally:
         # Stop the writers first so the Dashboard can read their last flushed
         # JSONL lines before it stops the Trial.  Reversing this order drops
@@ -382,14 +462,15 @@ def main() -> int:
         time.sleep(0.3)
         stop_process(dashboard_proc, name="dashboard", interrupt_first=False, timeout=30)
         stopped = utc_now()
-        try:
-            payload = json.loads((session / "session.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            payload = {}
-        payload["finished_utc"] = stopped
+        fields = {
+            "finished_utc": stopped,
+            "console_exit_code": console_exit_code,
+            "console_exit_status": console_exit_status,
+            "monitor_continued_after_console_error": continued_after_console_error,
+        }
         if abort_reason:
-            payload["aborted"] = abort_reason
-        (session / "session.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+            fields["aborted"] = abort_reason
+        update_session_metadata(session, **fields)
         print(f"\n[launcher] 会话结束：{session}", flush=True)
         print(f"[launcher] Dashboard 日志：{session / 'dashboard.log'}", flush=True)
         if abort_reason:

@@ -49,6 +49,10 @@ class FakeProcess:
         return self.returncode
 
 
+class MutableProcess(FakeProcess):
+    pass
+
+
 def write_hello(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -130,6 +134,28 @@ class TrialArtifactTests(unittest.TestCase):
             newer.mkdir(parents=True)
             (newer / "frames.csv").write_text("frame_seq\n", encoding="utf-8")
             self.assertIsNone(LAUNCHER.read_trial_artifacts(session))
+
+
+class ConsoleFailureLifecycleTests(unittest.TestCase):
+    def test_abnormal_console_exit_keeps_dashboard_and_fsr_alive(self):
+        dashboard = MutableProcess(None)
+        fsr = MutableProcess(None)
+        sleeps = []
+
+        def sleeper(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 3:
+                dashboard.returncode = 0
+
+        result = LAUNCHER.wait_after_console_failure(
+            dashboard,
+            fsr,
+            fsr_enabled=True,
+            sleeper=sleeper,
+        )
+        self.assertEqual(result, "dashboard_exit")
+        self.assertEqual(len(sleeps), 3)
+        self.assertIsNone(fsr.returncode)
 
     def test_invalid_sidecar_is_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:

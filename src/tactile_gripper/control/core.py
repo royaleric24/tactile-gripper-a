@@ -1062,13 +1062,23 @@ class ApplicationCore:
             self._system("TRIAL_START", f"recording {self.trial.metadata.trial_id}")
             return self.trial.metadata.to_dict()
 
-    def stop_trial(self, reason: str = "manual", *, aborted: bool = False) -> dict[str, Any]:
+    def stop_trial(
+        self,
+        reason: str = "manual",
+        *,
+        aborted: bool = False,
+        interrupted: bool = False,
+    ) -> dict[str, Any]:
         with self._lock:
             if self.trial is None or not self.trial.recording:
                 raise ControlDenied("no trial recording")
             directory = str(self.trial.directory)
             try:
-                metadata = self.trial.stop(reason, aborted=aborted)
+                metadata = self.trial.stop(
+                    reason,
+                    aborted=aborted,
+                    interrupted=interrupted,
+                )
             except TrialWriteError as exc:
                 self._note_trial_write_error(exc)
                 metadata = self.trial.metadata
@@ -1142,7 +1152,22 @@ class ApplicationCore:
                 return None
             self.drain_log_follow()
             directory = str(self.trial.directory)
-            metadata = self.stop_trial(reason)
+            monitor = {}
+            if self.gripper is not None and hasattr(self.gripper, "monitor_snapshot"):
+                try:
+                    monitor = self.gripper.monitor_snapshot()
+                except Exception:
+                    monitor = {}
+            abnormal = bool(
+                monitor.get("communication_failed")
+                or monitor.get("fault_latched")
+                or monitor.get("monitor_state") in ("COMMUNICATION_ERROR", "FAULT")
+            )
+            stop_reason = reason
+            if abnormal:
+                detail = monitor.get("last_error") or monitor.get("fault_reason") or "controller fault"
+                stop_reason = f"{reason}; interrupted by {detail}"
+            metadata = self.stop_trial(stop_reason, interrupted=abnormal)
             trial_id = metadata["trial_id"]
             csv_path = self.trial_store.export_csv(trial_id)
             replay_path = self.trial_store.export_replay_jsonl(trial_id)
@@ -1152,7 +1177,7 @@ class ApplicationCore:
                 "csv": str(csv_path),
                 "replay": str(replay_path),
                 "counts": metadata.get("counts") or {},
-                "status": "COMPLETED",
+                "status": metadata.get("status") or ("INTERRUPTED" if abnormal else "COMPLETED"),
             }
 
     def set_trial_video(self, path: str | None) -> dict[str, Any]:

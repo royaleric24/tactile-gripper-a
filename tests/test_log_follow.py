@@ -121,6 +121,26 @@ def console_controller_closed(ns: int, output_state: str) -> dict:
     }
 
 
+def console_fault(ns: int, reason: str = "response_timeout") -> dict:
+    return {
+        "timestamp_utc": iso(ns),
+        "monotonic_ns": ns,
+        "event": "FAULT",
+        "reason": reason,
+        "output_state": "UNKNOWN",
+    }
+
+
+def console_exit(ns: int, status: str = "COMMUNICATION_ERROR", exit_code: int = 2) -> dict:
+    return {
+        "timestamp_utc": iso(ns),
+        "monotonic_ns": ns,
+        "event": "CONSOLE_EXIT",
+        "status": status,
+        "exit_code": exit_code,
+    }
+
+
 class FakeClock:
     def __init__(self, seconds: float = 0.0):
         self.seconds = seconds
@@ -286,6 +306,33 @@ class LogFollowGripperTests(unittest.TestCase):
             self.assertFalse(pwm_events[0].device_ack)
             self.assertEqual(pwm_events[0].stage, "FAILED")
             self.assertIsNone(pwm_events[0].actual_pwm_us)
+            self.assertTrue(snapshot["communication_failed"])
+            self.assertEqual(snapshot["monitor_state"], "COMMUNICATION_ERROR")
+            self.assertEqual(snapshot["output_state"], "UNKNOWN")
+            self.assertEqual(gripper.status().state, "COMMUNICATION_ERROR")
+
+    def test_fault_and_abnormal_console_exit_are_latched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records = [
+                console_command(1, "BENCH_HOLD", "h1", 2_000_000, 1500),
+                console_response("h1", 2_100_000, pulse=1500),
+                console_error(3_000_000),
+                console_fault(3_100_000),
+                console_exit(3_200_000),
+                console_closed(3_300_000),
+                console_controller_closed(3_300_000, "UNKNOWN"),
+            ]
+            gripper, _ = self._build(tmp, records, clock_seconds=4.0)
+            self.addCleanup(gripper.close)
+            gripper.connect()
+            gripper.poll()
+            snapshot = gripper.monitor_snapshot()
+            self.assertEqual(snapshot["monitor_state"], "FAULT")
+            self.assertTrue(snapshot["fault_latched"])
+            self.assertEqual(snapshot["console_exit_status"], "COMMUNICATION_ERROR")
+            self.assertEqual(snapshot["output_state"], "UNKNOWN")
+            self.assertEqual(gripper.status().state, "FAULT")
+            self.assertIsNone(gripper.pwm_context_at(3_500_000))
 
     def test_stop_without_ack_hides_old_target(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -665,6 +712,44 @@ class CoreLogFollowTests(unittest.TestCase):
             self.assertIn(("SET_PWM", 1300), [(item.get("action"), item.get("commanded_pwm_us")) for item in control])
             rows = csv_path.read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(rows), len(frames) + 1)
+
+    def test_console_fault_interrupts_trial_but_fsr_keeps_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pwm, fsr = self._session(tmp)
+            core = build_core(source=DataSource.LIVE, root=tmp, follow_pwm_log=pwm, follow_fsr_log=fsr)
+            self.addCleanup(core.shutdown)
+            core.create_trial("fault continuation", conditions={"source_kind": "LIVE_LOG_FOLLOW"})
+            core.start_trial()
+            core.tick()
+            before = core.snapshot()["frames_received"]
+            now = time.monotonic_ns()
+            write_jsonl(
+                pwm,
+                [
+                    console_error(now, "response_timeout"),
+                    console_fault(now + 1_000_000),
+                    console_exit(now + 2_000_000),
+                    console_closed(now + 3_000_000),
+                    console_controller_closed(now + 3_000_000, "UNKNOWN"),
+                ],
+                mode="a",
+            )
+            trailing = fsr_records([5], ns_base=now + 10_000_000)[1]
+            trailing["message"].update(
+                {"timestamp_us": 260_000, "mcu_time_us": 260_000, "sample_timestamp_us": [260_000]}
+            )
+            write_jsonl(fsr, [trailing], mode="a")
+            core.tick()
+            self.assertGreater(core.snapshot()["frames_received"], before)
+            result = core.finish_log_follow_trial("operator ended monitor")
+            self.assertEqual(result["status"], "INTERRUPTED")
+            frames = [
+                json.loads(line)
+                for line in (Path(result["directory"]) / "frames.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(frames[-1]["frame_seq"], 5)
+            self.assertIsNone(frames[-1]["pwm_target_us"])
+            self.assertFalse(frames[-1]["pwm_ack"])
 
     def test_finish_without_recording_trial_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:

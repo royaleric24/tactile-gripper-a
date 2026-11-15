@@ -106,8 +106,14 @@ PYTHONPATH=src .venv/bin/python scripts/pwm_console.py \
 
 **S3 心跳重试（P3-B4）**：`HEARTBEAT` 与“尚无目标时的 `BENCH_HOLD_MODE`/`BENCH_PULSE_MODE`”
 允许有界重试（默认共 2 次、200 ms；`serial.heartbeat_retry_attempts`/`heartbeat_retry_delay_ms`）。
+只对 `corrupt_response`/`response_timeout` 重试；设备 ERROR、boot_id 改变及其它异常不重试。
 长帧 NUL 损坏会立即失败并重试；**PWM/STOP/DISARM/BEGIN_BENCH 永不自动重发**。重试耗尽后
 FAULT/UNKNOWN 并关闭。日志含 `COMMAND_RETRY`，用于与 `transport.jsonl` 对齐。
+
+**退出状态（P3-B4）**：正常退出为 0；连接或会话通信故障为 2，并在日志写
+`CONSOLE_EXIT status=COMMUNICATION_ERROR`。由 `run_live_monitor.py` 启动时，退出码 2 不会结束
+FSR/Dashboard；launcher 禁止后续 PWM，等待操作者 Ctrl+C。独立运行 console 时，调用者也应把 2
+视为故障，不自动重新启动或重放最后目标。
 
 **P3-B 双日志监控**：与只读 Dashboard 同用时，把 console 日志固定到会话目录，Dashboard 只 tail 该文件：
 

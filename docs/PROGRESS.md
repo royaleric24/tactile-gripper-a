@@ -1,5 +1,33 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B4 控制台故障隔离与持续监控｜sw/p3b-live-monitor
+
+- **真实日志定责（VERIFIED_REAL）**：`034325_f7e4` 最后为 `STOP` seq26 / `550e186d…`，
+  26 COMMAND=26 TX；返回 934 B / 46 NUL 的同 request_id ACK，未损坏字段为
+  `DISARMED / STOP / DISABLED_UNMEASURED`。`034413_94b4` 最后为 `BENCH_HOLD 1500`
+  seq8 / `cb028f57…`，8 COMMAND=8 TX；返回 955 B / 2 NUL 的同 request_id ACK，未损坏字段为
+  `ACTIVE / TARGET_COMMANDED / PWM_COMMANDED_UNMEASURED / 1500`。两会话 boot_id 各自稳定，
+  无设备 ERROR、FAULT 或重启。控制状态已改变；ACK 损坏；机械位置 UNKNOWN。
+- **旧生命周期缺陷**：console 将通信故障以退出码 0 结束，launcher 随即停止 FSR/Dashboard；自动
+  follow Trial 因此错误保存为 `COMPLETED`。两份历史 sidecar 保留原始证据，不回写；验收解释为异常中断。
+- **修复（OFFLINE_VERIFIED）**：console 以 0/2 区分正常/通信故障并写 `CONSOLE_EXIT`；launcher
+  检测非零后禁止新 PWM，保持 FSR + Dashboard，等待操作者 Ctrl+C；不自动重连或重发。最终仍按
+  console→FSR→Dashboard 顺序清理，无孤儿进程。
+- **Dashboard / Trial**：log-follow 锁存 `COMMUNICATION_ERROR / FAULT / UNKNOWN`；故障时间之后
+  清除 PWM 帧上下文，不把旧目标当输出；FSR 继续进入同一 Trial；结束时 drain 尾部 JSONL，导出
+  CSV/REPLAY，状态为 `INTERRUPTED`。正常结束仍为 `COMPLETED`，写入失败为 `ERROR`。
+- **重试审核**：只对 HEARTBEAT/无目标 mode 的 `corrupt_response` 与 `response_timeout` 有界重试；
+  设备 ERROR、boot_id 改变、非通信异常不重试；PWM/STOP/DISARM/BEGIN_BENCH 不重试。
+- **FSR 完整性**：A 1900 SAMPLE（1–1900，0 丢帧），B 656 SAMPLE（1–656，0 丢帧）；均 100%
+  有效、0 device ERROR。旧 launcher 在 console 退出后立即结束采集，故这两次不能验证“故障后继续采集”；
+  新行为已由离线生命周期测试验证。
+- **测试**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` → **443 tests OK**。
+  覆盖 PWM/STOP ACK 损坏、HEARTBEAT 恢复/耗尽、设备 ERROR/boot 变化不重试、console 非零退出、
+  launcher 持续监控、故障后 FSR 继续入 Trial、`INTERRUPTED`、尾部 drain、无旧 PWM 上下文。
+- **未执行**：未打开真实串口、未发 PWM、未上电/断电、未烧录、未改接线、未启用 AUTO。
+- **现场下一步**：先测 5V/地/电流/线束，再做舵机通电无 PWM 60 s A/B；链路稳定后才做
+  1500-only，再考虑 1040 夹杯。详见 [P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)。
+
 ## 2026-11-16｜P3-B4 真实会话故障分析：ACK NUL 替换、FSR 波动、最小重试｜sw/p3b-live-monitor
 
 - **真实会话**：0fce（54.6 s，3080 FSR，无 PWM）、a804（24.9 s，1247 FSR，1500 保持）。

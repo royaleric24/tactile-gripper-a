@@ -63,8 +63,8 @@
 
 | 资产 | 路径 | 用途 | SHA-256 | 独立备份 |
 |---|---|---|---|---|
-| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；2026-11-16 仅新增可选 `--log-dir`（不传时行为不变） | `759e013b5664b6f4abccffdbc3c7faba6dbc9eb3e51ffc77818f6e8df31d7363` | 是 |
-| Console 文档 | `docs/PWM_CONSOLE.md` | 使用与安全约束 | `afa44a8a851e1bd990c61f1e0c415cadd9f3954f45529fea606ba0a834d4c2b6` | 是 |
+| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；支持 `--log-dir`；正常/通信故障退出码 0/2 + `CONSOLE_EXIT` | `ffc69ef0263a7accfce0481179270c35514db5d4aca84b66d2fd6da949824baa` | 是 |
+| Console 文档 | `docs/PWM_CONSOLE.md` | 使用、安全约束、重试边界与退出状态 | `4402f574875cd0973c8f4954f2b2a213e19eec31e05c941bd260248696f1d152` | 是 |
 | Bench 适配 | `src/gripper_a/bench.py` | Console 的设备端交互与日志 | `c70e6e93e176e8455cf621477ec12871373c08d49d23272685b8cf4604c2e755` | 是 |
 | 串口客户端 | `src/gripper_a/serial_client.py` | JSONL/超时/日志传输 | `c26c7a225131d2b7af9db0b7f07293b6d338497d7ce7662264277e8af7b04367` | 是 |
 | 固件构建脚本 | `scripts/build_firmware.py` | `esp32`/`s3` 独立构建目标 | `af31cd1cc9fc1a0345a0f24edb2ea64f0d7186cb467e7cfa7599c4288358d5c9` | 是 |
@@ -104,16 +104,17 @@
 | 资产 | 路径 | 用途 | SHA-256（源码） |
 |---|---|---|---|
 | FSR 采集脚本 | `scripts/capture_fsr_live.py` | 独占 FSR 串口，写 `fsr_stream.jsonl`（host UTC + monotonic + raw/message） | `fa9862879dc584d6b37dbe1ade095d48b4215aece6f4a7abd34fa89d0263a589` |
-| 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR 采集 + 只读 Dashboard + 当前终端 console；FSR 门控、drain 后导出、本会话 Trial sidecar | `e092de7877ea37b0562f966a47cd54216cb348023e37fd4c0575ac2a078b0547` |
-| 只读适配器 | `src/tactile_gripper/devices/log_follow.py` | JSONL tail、PWM 命令/ACK 状态机、FSR 严格解析接入 | 随 Git 提交 |
-| S3 通信重试 | `src/gripper_a/serial_client.py` / `src/gripper_a/gripper_controller.py` | 快速失败 + 有界 HEARTBEAT/mode 重试；PWM 不重发 | `3119b26862b076688762d0a74d9151776ec039e015a701abbda9048f09c81d06` / `81bfbe2bacaa272889143d3beb9d655cc73198810fbec42e1ea21830eb730057` |
+| 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR + 只读 Dashboard + console；console 故障后保持监控到人工 Ctrl+C；最终有序清理 | `b6bfe0b1ed99df486a8bad7cfe8ee5a62366df3c2d1ed056ae0daad1f9f8e31b` |
+| 只读适配器 | `src/tactile_gripper/devices/log_follow.py` | JSONL tail、故障锁存、UNKNOWN 输出、故障后 PWM 上下文清除、FSR 严格解析 | `456831d88de1d1ac32709aad1d6c705cdbdd85f0648ef01d18eae5533de0ac81` |
+| Trial 生命周期 | `src/tactile_gripper/control/core.py` / `src/tactile_gripper/experiments/store.py` | 故障 Trial=`INTERRUPTED`；drain 后导出 CSV/REPLAY | `52060c746abcd389efb642042cb9579f622ccd9e7b50042b9457c468c22da4ae` / `d22e84285c06de64b5ccc83dd18e58fd6e486bc16f0c86de2646214cb2021ff8` |
+| S3 通信重试 | `src/gripper_a/serial_client.py` / `src/gripper_a/gripper_controller.py` | 仅明确通信错误有界重试；设备 ERROR/boot 变化/PWM/STOP 不重试 | `3119b26862b076688762d0a74d9151776ec039e015a701abbda9048f09c81d06` / `5938e474d01fc1d2dbaf6fa58bc27555d5affb39150ae398b75302608b63c988` |
 
 | 会话目录 | `logs/real/sessions/session_<UTC>_<id>/` | `session.json`、`transport.jsonl`、`fsr/fsr_stream.jsonl`、两份 `.log` | 本地（`logs/` 已 gitignore） |
 | 测试 | `tests/test_log_follow.py` | 正常/无 ACK/STOP/陈旧/轮转/半行/截断/NUL/0x04/CSV/回放 | 随 Git 提交 |
 
 FSR 流字段：`host_time_utc`、`host_monotonic_ns`、`direction`、`raw`、`message`；
 `MARKER` 记录标记 `CAPTURE_START/END`。PWM 流沿用既有 `transport.jsonl` 事件
-（`COMMAND/TX/RX/IGNORED/MATCHED/RESPONSE/COMMUNICATION_ERROR/BENCH_ACTION/CLOSED`）。
+（`COMMAND/TX/RX/IGNORED/MATCHED/RESPONSE/COMMUNICATION_ERROR/FAULT/CONSOLE_EXIT/BENCH_ACTION/CLOSED`）。
 真实会话日志不得提交到公开仓库。
 
 ## 9. 未改动与未执行声明

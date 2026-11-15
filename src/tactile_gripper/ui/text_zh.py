@@ -29,6 +29,7 @@ STATUS_LABELS = {
     "STREAMING": "数据正常",
     "STALE": "数据已过期",
     "DEVICE_ERROR": "设备错误",
+    "COMMUNICATION_ERROR": "通信错误（COMMUNICATION_ERROR）",
     "REPLAY": "只读回放（REPLAY）",
     "SIMULATED": "仿真（SIMULATION）",
     "SIMULATION": "仿真（SIMULATION）",
@@ -159,6 +160,7 @@ FIRMWARE_STATE_LABELS = {
     "ARMED": "已授权（ARMED）",
     "ACTIVE": "输出中（ACTIVE）",
     "FAULT": "固件故障（FAULT）",
+    "COMMUNICATION_ERROR": "通信错误（COMMUNICATION_ERROR）",
     "SIMULATED_ACTIVE": "仿真输出中",
     "UNKNOWN": "未知",
 }

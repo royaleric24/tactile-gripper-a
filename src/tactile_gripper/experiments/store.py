@@ -295,15 +295,36 @@ class TrialRecorder:
                 raise TrialWriteError(f"could not start recording: {exc}") from exc
             return self.metadata
 
-    def stop(self, reason: str = "manual", *, aborted: bool = False) -> TrialMetadata:
+    def stop(
+        self,
+        reason: str = "manual",
+        *,
+        aborted: bool = False,
+        interrupted: bool = False,
+    ) -> TrialMetadata:
         with self._lock:
             if self.metadata.status != STATUS_RECORDING:
                 raise RuntimeError(f"trial is not recording (status {self.metadata.status})")
+            if aborted and interrupted:
+                raise ValueError("trial cannot be both aborted and interrupted")
             if self.write_error:
                 raise TrialWriteError(f"trial has a write error: {self.write_error}")
             try:
-                self._append_event(TrialEvent("TRIAL_STOP", reason, {"aborted": aborted}))
-                self.metadata.status = STATUS_ABORTED if aborted else STATUS_COMPLETED
+                event_type = "TRIAL_INTERRUPTED" if interrupted else "TRIAL_STOP"
+                self._append_event(
+                    TrialEvent(
+                        event_type,
+                        reason,
+                        {"aborted": aborted, "interrupted": interrupted},
+                    )
+                )
+                self.metadata.status = (
+                    STATUS_INTERRUPTED
+                    if interrupted
+                    else STATUS_ABORTED
+                    if aborted
+                    else STATUS_COMPLETED
+                )
                 self.metadata.ended_at = utc_now_iso()
                 self._close_files()
                 self._write_metadata()

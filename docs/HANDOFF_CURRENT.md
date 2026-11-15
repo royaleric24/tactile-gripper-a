@@ -1,5 +1,29 @@
 # 当前交接｜P3-B4 真实故障分析（2026-11-16）
 
+## 置顶更新｜034325/034413 故障隔离已完成（2026-11-16）
+
+- **工作区**：`~/Developer/research/tactile-gripper-v2-p3b-monitor`，分支 `sw/p3b-live-monitor`，
+  PR #8 DRAFT；禁止合并。提交后以 `git rev-parse HEAD` 为准。
+- **真实结论**：A 的 `STOP` 与 B 的 `BENCH_HOLD 1500` 均有完整 COMMAND/TX 和同 request_id、
+  同 boot_id 的损坏 ACK。A 剩余字段证明固件已到 `DISARMED/STOP/DISABLED_UNMEASURED`；B 剩余
+  字段证明固件已到 `ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED/1500`。ACK 不是位置反馈，
+  所以机械状态仍 UNKNOWN。无设备 ERROR/FAULT/重启。
+- **当前软件行为**：console 通信故障退出 2；launcher 不再随 console 故障结束，而是保持 FSR 和
+  Dashboard 到操作者 Ctrl+C；不重连、不重发。Dashboard 显示 `COMMUNICATION_ERROR / FAULT /
+  UNKNOWN`，清除故障后的 PWM 帧上下文；Trial drain 后保存 `INTERRUPTED` + CSV/REPLAY。
+- **重试边界**：仅 HEARTBEAT/无目标 mode 且错误为 `corrupt_response`/`response_timeout` 时有界重试；
+  设备 ERROR、boot_id 改变不重试；PWM/STOP/DISARM/BEGIN_BENCH 永不自动重发。
+- **验证**：全套 **443 tests OK**；用两份真实日志只读回放，新解析结果分别为
+  `FAULT + STOP_UNCONFIRMED + UNKNOWN` 与 `FAULT + PWM TIMEOUT + UNKNOWN`。
+- **固件**：本轮无需修改或重烧。电气根因仍 UNKNOWN；最小现场检查见故障报告 §7。
+- **下次命令**：
+  ```bash
+  cd ~/Developer/research/tactile-gripper-v2-p3b-monitor
+  PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+  ```
+  先只选机械模式并保持无 PWM 60 s；出现故障后不要再输入 PWM，继续观察 FSR/Dashboard，按 Ctrl+C
+  结束并核对 `trial.json` 为 `INTERRUPTED`。链路稳定后另开新会话做 1500-only。
+
 - **分支/worktree**：`sw/p3b-live-monitor`，`~/Developer/research/tactile-gripper-v2-p3b-monitor`；
   PR #8 DRAFT（base `hw/p3b1-fsr-real`）。HEAD 以提交后 `git rev-parse HEAD` 为准。
 - **S3 结论**：`0fce`/`a804` 均为 ACK 被 0x00 替换字段中间字节（953 B/13 NUL；957 B/4 NUL），

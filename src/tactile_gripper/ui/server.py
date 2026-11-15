@@ -280,7 +280,7 @@ def main(argv: list[str] | None = None) -> None:
                 "directory": str(record.directory),
                 "csv": str(csv_path),
                 "replay": str(replay_path),
-                "status": "COMPLETED",
+                "status": record.metadata.status,
             }
         except Exception as exc:  # pragma: no cover - shutdown best effort
             print(

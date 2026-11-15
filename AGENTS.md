@@ -2,6 +2,24 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-B4 监控生命周期修复，2026-11-16）
+
+真实会话 `session_20261116T034325_f7e4` / `session_20261116T034413_94b4` 已逐字节分析。
+前者最后 `STOP` seq26（request_id `550e186d…`）收到 934 B / 46 NUL 的损坏 ACK；未损坏字段显示
+`DISARMED / STOP / DISABLED_UNMEASURED`。后者 `BENCH_HOLD 1500` seq8（`cb028f57…`）收到
+955 B / 2 NUL 的损坏 ACK；未损坏字段显示 `ACTIVE / TARGET_COMMANDED /
+PWM_COMMANDED_UNMEASURED / 1500`。两者 TX 完整、request_id/boot_id 匹配、无设备 ERROR/FAULT/
+重启。结论：命令已进入固件处理并改变控制状态；ACK 受损导致主机无法确认；机械位置仍 UNKNOWN。
+
+生命周期已修复：`pwm_console` 正常退出 0、通信故障退出 2 并写 `CONSOLE_EXIT`；launcher 遇到
+非零退出后禁止新 PWM，不重连、不重发，FSR + Dashboard 继续到操作者 Ctrl+C。Dashboard 锁存
+`COMMUNICATION_ERROR / FAULT / UNKNOWN`，故障后的 FSR 帧不沿用旧 PWM 上下文；最终 drain 后导出，
+故障 Trial 标 `INTERRUPTED`。重试只接受 `CommunicationError(corrupt_response/response_timeout)`；
+设备 ERROR、boot_id 改变不重试；PWM/STOP/DISARM/BEGIN_BENCH 仍永不自动重发。全套离线测试
+**443 tests OK**。未打开串口、未发 PWM、未改固件、未重烧；真实生命周期行为待下次现场验证。
+详见 [P3B4 故障分析](docs/P3B4_FAULT_ANALYSIS.md)、[进度](docs/PROGRESS.md)、
+[问题 I-219/I-225](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
 ## 最近状态（P3-B4 真实故障分析，2026-11-16）
 
 两个真实会话 `session_20261116T032219_0fce` / `session_20261116T032328_a804` 均 `response_timeout`。
