@@ -36,6 +36,8 @@ EMITTERS = [
     ("test_fsr2_sampler", "fsr"),
     ("test_fsr2_sampler_electrodes", "electrodes_unmapped"),
     ("test_fsr2_sampler_mapped", "electrodes_mapped"),
+    ("test_fsr2_sampler_fsr1", "fsr1"),
+    ("test_fsr2_sampler_electrodes_fsr1", "electrodes_fsr1"),
 ]
 
 FIXTURE_NAMES = {
@@ -51,6 +53,14 @@ FIXTURE_NAMES = {
     ("electrodes_mapped", 1): "sample_electrodes12_mapped_synthetic.json",
     ("electrodes_mapped", 2): "sample_electrodes12_mapped_adc_absent.json",
     ("electrodes_mapped", 3): "status_electrodes12_mapped_adc_absent.json",
+    ("fsr1", 0): "hello_fsr1.json",
+    ("fsr1", 1): "sample_fsr1_valid.json",
+    ("fsr1", 2): "sample_fsr1_no_adc4.json",
+    ("fsr1", 3): "status_fsr1_no_adc4.json",
+    ("electrodes_fsr1", 0): "hello_electrodes12_fsr1_unmapped.json",
+    ("electrodes_fsr1", 1): "sample_electrodes12_fsr1_unmapped.json",
+    ("electrodes_fsr1", 2): "sample_electrodes12_fsr1_no_adc4.json",
+    ("electrodes_fsr1", 3): "status_electrodes12_fsr1_no_adc4.json",
 }
 RETIRED_FIXTURES = (
     "hello_hybrid.json",
@@ -183,10 +193,30 @@ def validate_electrodes_mapped(frames: list) -> None:
     check(degraded.valid[4], "electrodes on other converters stay valid")
 
 
+def validate_fsr1(frames: list, electrode_count: int) -> None:
+    hello, sample, degraded = frames
+    count = electrode_count + 1
+    check(hello["channel_count"] == sample.channel_count == degraded.channel_count == count,
+          f"single FSR profile and both samples have {count} channels")
+    check(hello["fsr_layout"]["channels"] == [{
+        "channel_id": electrode_count, "name": "FSR_A", "adc_input": 0, "mux_channel": 8
+    }] and hello["fsr_layout"]["adc_id"] == 4, "FSR_A is the sole ADC4 AIN0/MUX8 input")
+    check(sample.valid == [False] * electrode_count + [True] and sample.fsr_values["FSR_A"] > 0,
+          "only FSR_A has a valid reading")
+    check(degraded.channels == [None] * count and degraded.channel_flags == [proto.FLAG_NO_DATA] * count
+          and degraded.adc_status[3]["state"] != "OK", "ADC4 fault remains null/NO_DATA")
+    if electrode_count:
+        check(hello["electrode_layout"]["mapping_status"] == "PENDING_REAL_WIRING"
+              and sample.channels[:electrode_count] == [None] * electrode_count,
+              "all twelve pending electrodes remain null")
+
+
 VALIDATORS = {
     "fsr": validate_fsr_only,
     "electrodes_unmapped": validate_electrodes_unmapped,
     "electrodes_mapped": validate_electrodes_mapped,
+    "fsr1": lambda frames: validate_fsr1(frames, 0),
+    "electrodes_fsr1": lambda frames: validate_fsr1(frames, 12),
 }
 
 

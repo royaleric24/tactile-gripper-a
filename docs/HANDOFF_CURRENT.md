@@ -4,15 +4,19 @@
 已核对 GitHub 基线：main `633e570623d90777aa204142c269ebe69eb59ac2`、
 硬件 `08275363736aace39ca893b4fb64660df95a7b8b`、
 软件 `2c5a996aacc86d9e100018ce3c4cb8fa77b16aee`。
+增量以首轮 P3-A 提交 `7e6c425` 为起点，在同一 [PR #5](https://github.com/royaleric24/tactile-gripper-a/pull/5) 待审。
+当前 FSR_A 接 ADC4 AIN0/MUX8，FSR_B 已损坏。现行固件 `fsr1`、`electrodes12_fsr1` 对应 1/13 通道，
+`electrodes12` 仍为 12 通道。旧双 FSR 构建只作离线兼容；「36 格仿真」入口为 `/demo-6x6`。[接线确认](https://github.com/royaleric24/tactile-gripper-a/pull/5#issuecomment-6895547216)
+
 旧工作区、WIP 与原始记录未改动。工作区采用锁定依赖，测试 Python 3.13，CI Python 3.11。
 
 接手先查 [验收报告](P3A_ACCEPTANCE.md)、[中文启动指南](DASHBOARD_QUICKSTART_ZH.md)、
 [现行接口](INTERFACE_CONTRACT.md)、[问题台账](ISSUES.md)。完整本地日志、浏览器审计、仿真 CSV/JSONL
-保留在集成工作区 `evidence/p3-a/`；公开分支只保留审查后的证据摘要和截图。
+增量证据保留在集成工作区 `evidence/p3-a-followup/`，首轮证据仍在 `evidence/p3-a/`；公开分支只保留审查后的证据摘要和截图。
 
 **下一步：总负责人审阅集成 PR → main，P3-A 执行人不合并。**
 真实串口、烧录、真实采样、上电、PWM、真实 AUTO 全部未执行且保持暂停。
-P3-B 要求项目所有者单独授权；先核对实际接线表，避免把合成 R/C 映射写入现场配置。
+P3-B 要求项目所有者单独授权。现场先核对 AIN1 上的损坏器件是否已电气隔离、3.3 V 与 10 kΩ 分压，再核对 R/C→ADC/AIN 接线表。
 `AUTO_REAL_ENABLED=False`；保留原工作区和物理记录。
 
 ## P0/P1 文档组交接快照（历史）

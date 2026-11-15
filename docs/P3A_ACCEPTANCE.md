@@ -1,5 +1,56 @@
 # P3-A｜V2 Dashboard 离线集成验收（2026-11-15）
 
+## PR #5 复核增量（2026-11-15）
+
+当前目标为 `FSR_ONLY` 单通道和 `MATRIX_ELECTRODES_12` 的 12/13 通道。FSR_A 确认接 ADC4 AIN0、MUX 8。它在单通道布局的 ID 为 0，在组合布局的 ID 为 12。ADC4 使用 CS32、MISO33，四颗 ADS1220 共用 SCLK18/MOSI23。FSR_A 的 10 kΩ 下拉和 AVDD_AVSS 参考属于现行设计，FSR_B 已损坏，AIN1 的电气隔离尚待现场核对。[总控确认](https://github.com/royaleric24/tactile-gripper-a/pull/5#issuecomment-6895547216)
+
+- 现行配置、生成头文件、Arduino 默认构建和主机适配器使用单 FSR。原 2/14 通道固件仍可离线编译，旧 fixtures 保持字节一致，Trial 保留原 FSR_B 与通道 ID。LIVE 拒绝旧双 FSR 布局及历史 HYBRID；2/14 通道仿真和回放仍可运行。
+- 固件生成的 HELLO、SAMPLE、STATUS 原帧实际进入 Dashboard、Trial、CSV、REPLAY。1 通道 CSV 只有 `ch_0`；13 通道的 `ch_12` 为 FSR_A，电极映射待确认时 `ch_0` 至 `ch_11` 留空。ADC4 故障时 FSR_A 也以 `null/NO_DATA` 保存。
+- 单 FSR 的分数仅由 FSR_A 相对空载基线计算，组合布局的电极不进入该评分或单 FSR 的离线步进判据。无基线时等待，坏帧、FSR_A 无效/饱和、ADC4 异常、过期或失联时停止进一步步进，待 ACK 时等待。测试验证了允许计算的离线步进决策且无命令下发。`AUTO_REAL_ENABLED=False`。
+- 6×6 热力图位于独立 `/demo-6x6`，醒目标注 SIMULATION ONLY，使用 36 个分别生成的合成格值。浏览器实际点击了「下一仿真帧」。该视图没有执行器或 Trial 入口，REPLAY 下该地址返回 404；12 电极继续显示 R1–R6 / C1–C6 原始 ADC 条形图。
+
+| 浏览器实测 | 观察 | 截图 |
+| --- | --- | --- |
+| 单 FSR | 1/1，FSR_A 762601 ADC counts | [单 FSR](screenshots/p3a-followup/fsr1.png) |
+| 12 电极 + 单 FSR | 1/13，FSR_A 2287802 ADC counts，其余待映射 | [13 通道](screenshots/p3a-followup/electrodes12-fsr1.png) |
+| 36 格仿真 | 第 2 帧，36/36 格合成值 | [6×6 演示](screenshots/p3a-followup/demo-6x6.png) |
+| 12 电极 | 12/12，明确标注合成映射 | [12 电极原始 ADC](screenshots/p3a-followup/electrodes12.png) |
+| 单 FSR ADC4 故障 | Trial 分析步进到第 2/2 帧，0/1，成功导出 CSV | [故障和 CSV](screenshots/p3a-followup/fsr1-fault-trial.png) |
+| 13 通道回放 | 1/13，只读控制禁用，无新增 Trial | [只读 REPLAY](screenshots/p3a-followup/electrodes12-fsr1-replay.png) |
+
+| 验证 | 结果 | 本地证据（`evidence/p3-a-followup/`） |
+| --- | --- | --- |
+| 所有 Python 套件 | 500 项通过，应用 378，工具 9 + 40 + 40 + 14 + 19 | `test-*.log` |
+| C++ 主机测试与输出帧 | 6 套通过，20 个确定性 JSONL fixtures，原 12 个不变 | `firmware-host.log`、`fixture-generation.log`、`frames/frames_check.json` |
+| ESP32 离线编译 | 现行 1/12/13 和历史 2/14 共 5 个通过 | `build-*.log`、`build-receipts/` |
+| 浏览器 | 34 个视图，10 个固件仿真 Trial、15 帧、两个只读回放、两个 6×6 视图 | `browser.log`、`browser/summary.json`、[公开摘要](screenshots/p3a-followup/browser-summary.json) |
+| Git 与发布 | 空白字符检查和敏感扫描通过，最终 SHA、PR 状态、CI 见交付记录 | `preflight.log`、`release-receipt.json` |
+
+在集成工作区根目录复现：
+
+```bash
+export PYTHONPATH=src:.
+for suite in tests tools/*/tests; do
+  if test -d "$suite"; then
+    .venv/bin/python -m unittest discover -s "$suite" || exit 1
+  fi
+done
+.venv/bin/python scripts/run_fsr2_host_tests.py --evidence-dir evidence/p3-a-followup/host
+.venv/bin/python scripts/check_fsr2_frames.py --evidence-dir evidence/p3-a-followup/frames
+for profile in fsr1 electrodes12 electrodes12_fsr1 fsr electrodes12_fsr2; do
+  .venv/bin/python scripts/build_sensor_fsr2_firmware.py --profile "$profile" \
+    --build-dir "evidence/p3-a-followup/build-$profile" \
+    --evidence-dir evidence/p3-a-followup/build-receipts || exit 1
+done
+.venv/bin/python scripts/p3a_verify_dashboard.py --out evidence/p3-a-followup/browser-reproduction
+```
+
+首轮日志保留了旧 demo 的双通道断言、固件样例自动基线和一次测试文件缩进错误；调整后重新执行了完整套件。记录见 `initial-python.log` 与 `initial-test-indent.log`。
+
+证据等级为 **OFFLINE_VERIFIED**。实测串口、烧录、采样、上电、PWM、真实 AUTO 为 **NOT_TESTED**。P3-B 仍需确认 AIN1 电气隔离、AVDD 与分压、R/C→ADC/AIN 映射，以及单 FSR 对接触和滑移的实际响应。分支保留在 PR #5 待总控审核。
+
+## 首轮验收记录（历史基线 `7e6c425`）
+
 [Issue #3](https://github.com/royaleric24/tactile-gripper-a/issues/3) 的软件、固件帧和 Dashboard 离线验收通过。证据等级为 **OFFLINE_VERIFIED**。发布分支为 `integrate/hybrid-demo-v2`，目标分支为 `main`，由总控评审后决定是否合并。
 
 ## 工作区与来源

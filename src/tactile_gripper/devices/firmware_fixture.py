@@ -6,6 +6,11 @@ from ..sources import DataSource
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "fsr2"
 
 FIXTURE_STREAMS = {
+    "fsr1": ("hello_fsr1", "sample_fsr1_valid"),
+    "fsr1-adc4-fault": ("hello_fsr1", "sample_fsr1_valid", "sample_fsr1_no_adc4", "status_fsr1_no_adc4"),
+    "electrodes12-fsr1": ("hello_electrodes12_fsr1_unmapped", "sample_electrodes12_fsr1_unmapped"),
+    "electrodes12-fsr1-adc4-fault": ("hello_electrodes12_fsr1_unmapped", "sample_electrodes12_fsr1_unmapped",
+                                   "sample_electrodes12_fsr1_no_adc4", "status_electrodes12_fsr1_no_adc4"),
     "fsr": ("hello_fsr_only", "sample_fsr_only_valid"),
     "fsr-adc4-fault": ("hello_fsr_only", "sample_fsr_only_valid",
                        "sample_fsr_only_no_adc4", "status_fsr_only_no_adc4"),

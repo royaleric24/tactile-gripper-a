@@ -347,6 +347,8 @@ def live_page(core) -> None:
             if channel.get("sensor_kind") == "MATRIX_CELL"
             or (channel.get("matrix_row") is not None and channel.get("matrix_col") is not None)
         )
+        if fsr_count == 2 and not matrix_count:
+            profile = f"{profile} · 历史双 FSR"
         electrode_count = sum(
             1 for channel in (config or {}).get("channels", [])
             if channel.get("sensor_kind") == "MATRIX_ELECTRODE"

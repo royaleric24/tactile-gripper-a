@@ -6,8 +6,9 @@
 
 在独立 `integrate/hybrid-demo-v2` 合入 main `633e570`、硬件 `0827536` 与软件 `2c5a996`。
 P3-A 已按 [Issue #3](https://github.com/royaleric24/tactile-gripper-a/issues/3) 完成离线实现与验证，
-集成 PR 由总负责人评审。V2 采集只接受 `FSR_ONLY`（2）与 `MATRIX_ELECTRODES_12`（12/14）；
-`HYBRID_6X6_FSR2` 仅用于标为 HISTORICAL 的旧记录。Dashboard 样例必须经过真实适配/记录链路。
+集成 PR 由总负责人评审。PR #5 按总控复核更新当前目标：`FSR_ONLY`（1）与 `MATRIX_ELECTRODES_12`（12/13），唯一 FSR_A 为 ADC4 AIN0，MUX 8。
+旧 2/14 通道供仿真和历史回放；`HYBRID_6X6_FSR2` 只用于标为 HISTORICAL 的旧记录。
+Dashboard 的固件样例经过实际适配/记录链路。独立的「36 格仿真」只使用合成格值，无控制或记录入口。
 看 [验收](docs/P3A_ACCEPTANCE.md)、[交接](docs/HANDOFF_CURRENT.md) 和 [问题](docs/ISSUES.md)。
 真实操作仍暂停；`AUTO_REAL_ENABLED=False`。日志、真实原件和工具缓存只留本地。
 
@@ -76,9 +77,9 @@ ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO
 
 - 真实压敏布是 **12 根电极**：R1–R6 各接自己的 ADS1220 AIN 并各有一颗 **10 kΩ 下拉到 GND**；C1–C6 各接自己的 ADS1220 AIN 并各有一颗 **1 kΩ 上拉到 3.3 V**。
 - **没有 ESP32 GPIO 列激励、没有 HI_Z、没有 36 点扫描**。原 GPIO4/13/14/25/27/19 “逐列驱动 + 未选中列 HI_Z + 拼 36 点”方案已被 2026-11-15 修正取代（HISTORICAL），不得再用于施工、固件或演示。
-- 12 个电极电压 = **12 个测量值，不是 36 个压力点**；不得绘制 36 点热图、不得命名为 RrCc 交点、不得宣称 6×6 扫描可用。
+- 12 个电极电压 = **12 个测量值，不是 36 个压力点**；真实电极图只用 12 路 ADC 条形图。36 格热力图仅在独立 SIMULATION 演示或 HISTORICAL 回放中出现。
 - **电极 → ADC/AIN 映射 PENDING_REAL_WIRING**：必须由真实焊接/台架记录填写 `docs/WIRING_FREEZE_V2.md` §4.1 空白表；填表前不得写任何 ADC/AIN 编号或“示例映射”，不得假设行优先。
-- 协议侧支持 `FSR_ONLY`（2 通道）及 `MATRIX_ELECTRODES_12`（12 电极，可选 FSR_A/B 合计 14 通道）；仅完成离线验证，现场映射保持 `validated=false`。
+- 协议侧当前支持 `FSR_ONLY`（1 通道）及 `MATRIX_ELECTRODES_12`（12 电极，可选 FSR_A 合计 13 通道）；仅完成离线验证，现场映射保持 `validated=false`。
 - 所有真实串口、烧录、采样、PWM 与 AUTO 工作**暂停**，等待项目所有者明确授权与真实接线记录。
 
 ## 每个开发进展的强制文档同步

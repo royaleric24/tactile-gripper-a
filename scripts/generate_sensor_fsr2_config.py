@@ -16,9 +16,9 @@ Board facts fixed by the 2026-11-15 wiring correction:
 
 Supported profiles:
 
-  FSR_ONLY            two channels, ADC4 AIN0/AIN1 (the FSR dividers)
+  FSR_ONLY             FSR_A on ADC4 AIN0; two channels for historical builds
   MATRIX_ELECTRODES_12  twelve electrode channels, optionally followed by the
-                      two FSR channels (14 logical channels)
+                       FSR_A (13 channels) or the historical pair (14 channels)
 
 ``HYBRID_6X6_FSR2`` is withdrawn: it modelled 36 scanned cells that the real
 cloth does not have.  It is kept only in git history and the generator refuses
@@ -33,7 +33,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULT_OUTPUT = ROOT / "firmware" / "sensor_fsr2" / "fsr2_config.h"
+DEFAULT_OUTPUT = ROOT / "firmware" / "sensor_fsr2" / "fsr2_config_fsr1.h"
+BOARD_HEADERS = {
+    "sensor_esp32_fsr1.json": "fsr2_config_fsr1.h",
+    "sensor_esp32_electrodes12_fsr1.json": "fsr2_config_electrodes12_fsr1.h",
+    "sensor_esp32_electrodes12.json": "fsr2_config_electrodes12.h",
+    "sensor_esp32_fsr2.json": "fsr2_config.h",
+    "sensor_esp32_electrodes12_fsr2.json": "fsr2_config_electrodes12_fsr2.h",
+}
 
 FLASH_PINS = {6, 7, 8, 9, 10, 11}
 INPUT_ONLY_PINS = set(range(34, 40))
@@ -231,7 +238,7 @@ def validate_ads1220(ads, profile):
     }
 
 
-def validate_electrodes(electrodes, adc_count, has_fsr):
+def validate_electrodes(electrodes, adc_count):
     """Validate the twelve-electrode block and return (channels, mapping_status).
 
     An empty ``map`` means the physical harness is not documented yet.  That is
@@ -377,7 +384,7 @@ def validate_stream(stream):
     }
 
 
-def validate_fsr(fsr, pins, adc_count, channel_count):
+def validate_fsr(fsr, pins, adc_count, electrode_count):
     if not isinstance(fsr, dict):
         raise SystemExit("fsr must be an object or null")
     adc_id = require_int(fsr.get("adc_id"), "fsr.adc_id", 1, adc_count)
@@ -398,8 +405,8 @@ def validate_fsr(fsr, pins, adc_count, channel_count):
         )
 
     channels = fsr.get("channels")
-    if not isinstance(channels, list) or len(channels) != 2:
-        raise SystemExit("fsr.channels must describe exactly the two FSR dividers")
+    if not isinstance(channels, list) or len(channels) not in (1, 2):
+        raise SystemExit("fsr.channels must describe the current FSR_A or the historical FSR pair")
     entries = []
     for index, entry in enumerate(channels):
         if not isinstance(entry, dict):
@@ -422,7 +429,7 @@ def validate_fsr(fsr, pins, adc_count, channel_count):
             }
         )
     entries.sort(key=lambda item: item["channel_id"])
-    expected_ids = list(range(channel_count - len(entries), channel_count))
+    expected_ids = list(range(electrode_count, electrode_count + len(entries)))
     actual_ids = [item["channel_id"] for item in entries]
     if actual_ids != expected_ids:
         raise SystemExit(
@@ -433,6 +440,8 @@ def validate_fsr(fsr, pins, adc_count, channel_count):
         raise SystemExit("the two FSR channels must use different ADC4 inputs")
     if len({item["name"] for item in entries}) != len(entries):
         raise SystemExit("the two FSR channels must have different names")
+    if len(entries) == 1 and (entries[0]["name"], entries[0]["adc_input"]) != ("FSR_A", 0):
+        raise SystemExit("the current single FSR must explicitly be FSR_A on ADC4 AIN0 (MUX 8)")
 
     divider_ohm = require_int(
         fsr.get("divider_resistor_ohm"), "fsr.divider_resistor_ohm", 100, 1000000
@@ -509,7 +518,9 @@ def render_header(config, config_path, profile, ads, pins, fsr, electrodes, stre
     column_bias = COLUMN_BIAS
     divider_ohm = fsr["divider_ohm"] if fsr else 0
     excitation_mv = fsr["excitation_mv"] if fsr else 0
-    scan_mode = config.get("scan_mode") or ("OFFLINE_ELECTRODE_READ" if electrodes else "FSR_ONLY_2CH")
+    scan_mode = config.get("scan_mode") or (
+        "OFFLINE_ELECTRODE_READ" if electrodes else "FSR_ONLY_%dCH" % len(fsr_ids)
+    )
 
     lines = []
     lines.append("// AUTO-GENERATED FILE - do not edit by hand.")
@@ -647,18 +658,14 @@ def generate(config_path, output_path):
     else:
         if fsr_config is not None and not isinstance(fsr_config, dict):
             raise SystemExit("fsr must be an object or null")
-        electrodes = validate_electrodes(config.get("electrodes"), adc_count, fsr_config is not None)
+        electrodes = validate_electrodes(config.get("electrodes"), adc_count)
         electrode_count = len(electrodes[0])
 
     fsr = None
-    channel_count = electrode_count
     if fsr_config is not None:
-        channel_count += 2
-        fsr = validate_fsr(fsr_config, pins, adc_count, channel_count)
+        fsr = validate_fsr(fsr_config, pins, adc_count, electrode_count)
 
     channels = build_channels(electrodes[0] if electrodes else [], fsr)
-    if len(channels) != channel_count:  # pragma: no cover - defensive
-        raise SystemExit("internal channel count mismatch")
 
     text = render_header(
         config, config_path, profile, ads, pins, fsr, electrodes, stream, channels
@@ -667,7 +674,7 @@ def generate(config_path, output_path):
     output_path.write_text(text, encoding="utf-8")
     return {
         "profile": profile,
-        "channel_count": channel_count,
+        "channel_count": len(channels),
         "mapping_status": electrodes[1] if electrodes else "NOT_APPLICABLE",
         "output": str(output_path),
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -678,16 +685,22 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config",
-        default=str(ROOT / "config" / "sensor_esp32_fsr2.json"),
-        help="board configuration JSON (default: config/sensor_esp32_fsr2.json)",
+        default=str(ROOT / "config" / "sensor_esp32_fsr1.json"),
+        help="board configuration JSON (default: config/sensor_esp32_fsr1.json)",
     )
     parser.add_argument(
         "--output",
-        default=str(DEFAULT_OUTPUT),
-        help="generated C++ header (default: firmware/sensor_fsr2/fsr2_config.h)",
+        help="generated C++ header (inferred for repository board configurations)",
     )
     args = parser.parse_args(argv)
-    result = generate(Path(args.config).resolve(), Path(args.output).resolve())
+    config_path = Path(args.config).resolve()
+    if args.output:
+        output_path = Path(args.output).resolve()
+    elif config_path.parent == ROOT / "config" and config_path.name in BOARD_HEADERS:
+        output_path = DEFAULT_OUTPUT.parent / BOARD_HEADERS[config_path.name]
+    else:
+        parser.error("--output is required for custom board configurations")
+    result = generate(config_path, output_path)
     print(
         "wrote %s (%s profile, %d channels, mapping %s, header sha256 %s)"
         % (

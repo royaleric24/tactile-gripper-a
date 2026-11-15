@@ -12,7 +12,7 @@ PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080
 
 # 固件 JSONL → Dashboard → 仿真 Trial / CSV / REPLAY
 PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080 \
-  --firmware-fixture electrodes12-fsr2 --record-fixture --data-root /tmp/gripper-v2-demo
+  --firmware-fixture electrodes12-fsr1 --record-fixture --data-root /tmp/gripper-v2-demo
 ```
 
 浏览器打开 `http://127.0.0.1:8080/`。页面：**实时监控**、**实验管理**、**分析与诊断**。
@@ -28,10 +28,13 @@ PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080
 
 触觉分布显示 ADC 原始计数。无效通道会显示为空隙，不会当作零接触；未标定数据不解释为压力、摩擦力或杯子重量。仿真演示会明确显示 **仿真（SIMULATION）**，不会显示为真实设备（LIVE）。
 
-固件样例可选 `fsr`、`electrodes12`、`electrodes12-fsr2` 及相应故障场景
-（见 [运行手册](SOFTWARE_RUNBOOK.md)）。12 路电极图只显示 R1–R6 / C1–C6，14 通道中的两路 FSR
-在单独卡片显示。空映射为 `PENDING_REAL_WIRING`，合成映射会明确标注。当前仿真和 LIVE
-只有 `FSR_ONLY` / `MATRIX_ELECTRODES_12`。历史矩阵图只在标为 HISTORICAL 的旧记录里使用。
+固件样例可选 `fsr1`、`electrodes12`、`electrodes12-fsr1` 及相应故障场景。
+电极条形图显示 R1–R6 / C1–C6 原始 ADC 计数，13 通道的 FSR_A 在独立卡片显示。空映射为
+`PENDING_REAL_WIRING`，合成映射单独标注。双 FSR 的 2/14 通道样例和历史 Trial 仍可离线查看。
+固件样例默认显示未标定；相对接触评分需要新鲜、有效的空载基线。[运行手册](SOFTWARE_RUNBOOK.md)
+
+在 SIMULATION 的左侧导航点「36 格仿真」，可打开独立热力图。点击「下一仿真帧」更新合成格值。
+控制、Trial 记录和真实传感器数据都不接入此页。历史矩阵 Trial 仍按 HISTORICAL 标记回放。
 
 ### 手动 PWM
 

@@ -21,6 +21,7 @@ from ..paths import PROJECT_ROOT
 from ..protocol import CURRENT_SENSOR_PROFILES
 from ..sources import DataSource, parse_source
 from .pages import analysis_page, experiments_page, live_page
+from .pages.demo_grid import demo_grid_page
 
 
 def start_ticker(core, interval_s: float = 0.25) -> threading.Event:
@@ -50,6 +51,11 @@ def create_ui(core) -> None:
     @ui.page("/analysis", title="分析与诊断 · 触觉闭环机械爪 A")
     def analysis() -> None:
         analysis_page(core)
+
+    if core.source is DataSource.SIMULATION:
+        @ui.page("/demo-6x6", title="36 格仿真 · 触觉闭环机械爪 A")
+        def demo_grid() -> None:
+            demo_grid_page(core)
 
 
 def _demo_setup(core, profile: str = "FSR_ONLY") -> None:

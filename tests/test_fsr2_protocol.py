@@ -31,6 +31,28 @@ def line(payload: dict) -> str:
 
 
 class FixtureParseTests(unittest.TestCase):
+    def test_current_single_fsr_hello_and_status_reject_wrong_or_phantom_input(self) -> None:
+        for filename in ("hello_fsr1.json", "status_electrodes12_fsr1_no_adc4.json"):
+            with self.subTest(filename=filename):
+                raw = load(filename)
+                parsed = protocol.parse_message(line(raw))
+                self.assertEqual([entry["name"] for entry in parsed["fsr_layout"]["channels"]], ["FSR_A"])
+                wrong_input = copy.deepcopy(raw)
+                wrong_input["fsr_layout"]["channels"][0].update(adc_input=1, mux_channel=9)
+                wrong_input["channel_config"]["channels"][-1].update(adc_input=1, mux_channel=9)
+                with self.assertRaises(protocol.FrameValidationError) as failure:
+                    protocol.parse_message(line(wrong_input))
+                self.assertEqual(failure.exception.code, "FSR_LAYOUT")
+                phantom = copy.deepcopy(raw)
+                phantom["fsr_layout"]["channels"].append({"name": "FSR_B"})
+                with self.assertRaises(protocol.FrameValidationError):
+                    protocol.parse_message(line(phantom))
+        for filename in ("status_fsr_only_no_adc4.json", "status_electrodes12_fsr2_fsr_absent.json"):
+            with self.subTest(archived=filename):
+                status = load(filename)
+                del status["fsr_layout"]
+                self.assertEqual(protocol.parse_message(line(status))["type"], "STATUS")
+
     def test_hello_fsr_only(self) -> None:
         hello = protocol.parse_message(line(load("hello_fsr_only.json")))
         self.assertEqual(hello["type"], "HELLO")

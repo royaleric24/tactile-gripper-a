@@ -58,8 +58,9 @@ REFERENCE_MODES_ALLOWED = ("AVDD_AVSS", "INTERNAL_2V048")
 
 # Electrode-only and electrode+FSR variants are both valid for the same profile:
 # the declared channel_count selects 12 or 14 and is cross-checked below.
-PROFILE_CHANNEL_COUNTS = {"FSR_ONLY": 2, "MATRIX_ELECTRODES_12": 12}
-PROFILE_OPTIONAL_FSR_COUNTS = {"MATRIX_ELECTRODES_12": (12, 14)}
+PROFILE_CHANNEL_COUNTS = {"FSR_ONLY": 1, "MATRIX_ELECTRODES_12": 12}
+PROFILE_OPTIONAL_FSR_COUNTS = {"FSR_ONLY": (1, 2), "MATRIX_ELECTRODES_12": (12, 13, 14)}
+FSR_NAMES = ("FSR_A", "FSR_B")
 HISTORICAL_PROFILES = ("HYBRID_6X6_FSR2",)
 PROFILE_MATRIX = {"FSR_ONLY": None, "MATRIX_ELECTRODES_12": None}
 
@@ -195,6 +196,10 @@ def channel_count_of(message: Dict[str, Any], profile: str) -> int:
     return expected_channel_count(profile, declared)
 
 
+def fsr_channel_count(profile: str, channel_count: int) -> int:
+    return channel_count - 12 if profile == "MATRIX_ELECTRODES_12" else channel_count
+
+
 @dataclass(frozen=True)
 class ChannelLayout:
     channel_id: int
@@ -208,20 +213,17 @@ class ChannelLayout:
 def expected_layout(profile: str, channel_count: int) -> List[ChannelLayout]:
     """Return kind/role/position for each channel; the ADC map is checked separately."""
     if profile == "FSR_ONLY":
-        layout = [ChannelLayout(0, "FSR", "NONE", 0), ChannelLayout(1, "FSR", "NONE", 0)]
+        layout = []
     elif profile == "MATRIX_ELECTRODES_12":
         layout = []
         for channel in range(12):
             role = "ROW" if channel < 6 else "COLUMN"
             position = channel % 6 + 1
             layout.append(ChannelLayout(channel, "ELECTRODE", role, position))
-        if channel_count == 14:
-            layout.append(ChannelLayout(12, "FSR", "NONE", 0))
-            layout.append(ChannelLayout(13, "FSR", "NONE", 0))
     else:
         raise FrameValidationError("UNKNOWN_PROFILE", "unknown sensor_profile %r" % (profile,))
-    if len(layout) != channel_count:
-        raise FrameValidationError("CHANNEL_COUNT_MISMATCH", "layout size does not match channel_count")
+    expected_channel_count(profile, channel_count)
+    layout.extend(ChannelLayout(index, "FSR", "NONE", 0) for index in range(len(layout), channel_count))
     return layout
 
 
@@ -289,11 +291,8 @@ class SampleFrame:
 
     @property
     def fsr_values(self) -> Dict[str, Optional[int]]:
-        if self.profile == "FSR_ONLY":
-            return {"FSR_A": self.channels[0], "FSR_B": self.channels[1]}
-        if self.profile == "MATRIX_ELECTRODES_12" and self.channel_count == 14:
-            return {"FSR_A": self.channels[12], "FSR_B": self.channels[13]}
-        return {}
+        count = fsr_channel_count(self.profile, self.channel_count)
+        return dict(zip(FSR_NAMES, self.channels[self.channel_count - count:]))
 
     def flags_for(self, channel_id: int) -> List[str]:
         value = self.channel_flags[channel_id]
@@ -465,6 +464,8 @@ def parse_channel_config(message: Dict[str, Any], profile: str, count: int) -> L
         if want.kind == "FSR":
             if ads1220_id != ADC_COUNT:
                 raise FrameValidationError("FSR_ADC", "FSR channel %d must live on ADC%d" % (index, ADC_COUNT))
+            if fsr_channel_count(profile, count) == 1 and adc_input != 0:
+                raise FrameValidationError("FSR_LAYOUT", "the current single FSR uses ADC4 AIN0")
         elif ads1220_id >= ADC_COUNT:
             raise FrameValidationError(
                 "ADC_INDEX", "electrode %d must not use ADC%d (reserved for the FSR dividers)" % (index, ADC_COUNT)
@@ -529,6 +530,38 @@ def parse_electrode_layout(message: Dict[str, Any], count: int) -> List[Dict[str
     return entries
 
 
+def parse_fsr_layout(message: Dict[str, Any], profile: str, count: int) -> None:
+    fsr_count = fsr_channel_count(profile, count)
+    if fsr_count:
+        fsr_layout = _require(message, "fsr_layout")
+        if not isinstance(fsr_layout, dict):
+            raise FrameValidationError("INVALID_TYPE", "fsr_layout must be an object")
+        if fsr_layout.get("adc_id") != ADC_COUNT:
+            raise FrameValidationError("FSR_ADC", "FSR channels must live on ADC4")
+        if fsr_layout.get("independent_pulldowns") is not True:
+            raise FrameValidationError(
+                "FSR_PULLDOWNS", "each FSR node needs its own 10 kOhm pulldown to GND"
+            )
+        if fsr_layout.get("validated") is not False:
+            raise FrameValidationError(
+                "FSR_VALIDATED",
+                "fsr_layout.validated must stay false until a real bench session is recorded",
+            )
+        fsr_channels = _require_list(fsr_layout, "channels", fsr_count)
+        for index, entry in enumerate(fsr_channels):
+            if not isinstance(entry, dict):
+                raise FrameValidationError("INVALID_TYPE", "fsr_layout.channels entries must be objects")
+            for key in ("channel_id", "name", "adc_input", "mux_channel"):
+                _require(entry, key)
+            channel_id = count - fsr_count + index
+            configured = message["channel_config"]["channels"][channel_id]
+            if (entry["channel_id"] != channel_id or entry["name"] != FSR_NAMES[index]
+                    or any(entry[key] != configured.get(key) for key in ("adc_input", "mux_channel"))):
+                raise FrameValidationError("FSR_LAYOUT", "FSR layout and channel_config disagree")
+    elif message.get("fsr_layout") is not None:
+        raise FrameValidationError("FSR_LAYOUT", "electrode-only frames have no FSR layout")
+
+
 def parse_hello(message: Dict[str, Any]) -> Dict[str, Any]:
     if message.get("type") != "HELLO":
         raise FrameValidationError("WRONG_TYPE", "expected HELLO")
@@ -558,33 +591,7 @@ def parse_hello(message: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(pin, int) or isinstance(pin, bool) or pin < 0 or pin > 39:
                 raise FrameValidationError("PIN_RANGE", "%s contains an invalid pin" % (name,))
     parse_channel_config(message, profile, count)
-    has_fsr = profile == "FSR_ONLY" or count == 14
-    if has_fsr:
-        fsr_layout = _require(message, "fsr_layout")
-        if not isinstance(fsr_layout, dict):
-            raise FrameValidationError("INVALID_TYPE", "fsr_layout must be an object")
-        if fsr_layout.get("adc_id") != ADC_COUNT:
-            raise FrameValidationError("FSR_ADC", "FSR channels must live on ADC4")
-        if fsr_layout.get("independent_pulldowns") is not True:
-            raise FrameValidationError(
-                "FSR_PULLDOWNS", "each FSR node needs its own 10 kOhm pulldown to GND"
-            )
-        if fsr_layout.get("validated") is not False:
-            raise FrameValidationError(
-                "FSR_VALIDATED",
-                "fsr_layout.validated must stay false until a real bench session is recorded",
-            )
-        fsr_channels = _require_list(fsr_layout, "channels", 2)
-        for index, entry in enumerate(fsr_channels):
-            if not isinstance(entry, dict):
-                raise FrameValidationError("INVALID_TYPE", "fsr_layout.channels entries must be objects")
-            for key in ("channel_id", "name", "adc_input", "mux_channel"):
-                _require(entry, key)
-            channel_id = count - 2 + index
-            configured = message["channel_config"]["channels"][channel_id]
-            if (entry["channel_id"] != channel_id or entry["name"] != ("FSR_A", "FSR_B")[index]
-                    or any(entry[key] != configured.get(key) for key in ("adc_input", "mux_channel"))):
-                raise FrameValidationError("FSR_LAYOUT", "FSR layout and channel_config disagree")
+    parse_fsr_layout(message, profile, count)
     if profile == "MATRIX_ELECTRODES_12":
         parse_electrode_layout(message, count)
     parse_adc_status(message)
@@ -611,6 +618,9 @@ def parse_status(message: Dict[str, Any]) -> Dict[str, Any]:
     if message.get("reference_mode") not in REFERENCE_MODES:
         raise FrameValidationError("REFERENCE_MODE", "STATUS must report AVDD_AVSS")
     parse_channel_config(message, profile, count)
+    # Earlier dual-FSR status messages could omit the layout repeated in HELLO.
+    if fsr_channel_count(profile, count) != 2 or "fsr_layout" in message:
+        parse_fsr_layout(message, profile, count)
     if profile == "MATRIX_ELECTRODES_12":
         parse_electrode_layout(message, count)
     parse_adc_status(message)

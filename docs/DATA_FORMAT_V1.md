@@ -7,6 +7,10 @@
 
 日期：2026-11-13。当前写入 `schema_version=3`。无数据库服务器，全部为本地 JSON/JSONL/CSV。
 
+现行单 FSR Trial 记录 `parameters.sensor.fsr_layout` 中的 FSR_A 通道 ID、ADC ID 和 AIN，
+并在 `parameters.sensor_config` 保留完整布局。CSV 按原通道编号输出：1 通道仅 `ch_0`；
+13 通道的 `ch_12` 为 FSR_A，12 根待映射电极的值留空。历史 2/14 通道继续按各自的布局读取。
+
 ## 1. 目录
 
 | 来源 | 目录 | 写入 |

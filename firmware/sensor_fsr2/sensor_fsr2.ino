@@ -1,8 +1,10 @@
-// V2 tactile gripper acquisition firmware: four ADS1220, three build profiles.
+// V2 tactile gripper acquisition firmware: four ADS1220.
 //
-//   default                            FSR_ONLY (ADC4, two dividers)
+//   default                            FSR_ONLY (FSR_A, ADC4 AIN0)
+//   -DFSR2_PROFILE_ELECTRODES12_FSR1   twelve passive electrodes plus FSR_A
 //   -DFSR2_PROFILE_ELECTRODES12        twelve passive electrodes (ADC1..ADC3)
-//   -DFSR2_PROFILE_ELECTRODES12_FSR2   twelve electrodes plus the two FSR dividers
+//   -DFSR2_PROFILE_LEGACY_FSR2         historical dual-FSR build
+//   -DFSR2_PROFILE_ELECTRODES12_FSR2   historical twelve electrodes plus dual FSR
 //
 // The electrode profile carries no GPIO column drive: R1..R6 are pulled to GND
 // through 10 kOhm and C1..C6 to 3.3 V through 1 kOhm, each on its own AIN.
@@ -28,12 +30,18 @@
 #endif
 
 #include "fsr2.h"
-#if defined(FSR2_PROFILE_ELECTRODES12_FSR2)
+#if defined(FSR2_PROFILE_ELECTRODES12_FSR1)
+#include "fsr2_config_electrodes12_fsr1.h"
+static_assert(sizeof(FSR2_CHANNELS) / sizeof(FSR2_CHANNELS[0]) == 13, "expected 12 electrodes plus FSR_A");
+#elif defined(FSR2_PROFILE_ELECTRODES12_FSR2)
 #include "fsr2_config_electrodes12_fsr2.h"
 #elif defined(FSR2_PROFILE_ELECTRODES12)
 #include "fsr2_config_electrodes12.h"
-#else
+#elif defined(FSR2_PROFILE_LEGACY_FSR2)
 #include "fsr2_config.h"
+#else
+#include "fsr2_config_fsr1.h"
+static_assert(sizeof(FSR2_CHANNELS) / sizeof(FSR2_CHANNELS[0]) == 1, "expected only FSR_A");
 #endif
 #include "frame_builder_fsr2.h"
 #include "sampler_fsr2.h"

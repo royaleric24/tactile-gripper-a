@@ -166,6 +166,7 @@ def v2_channel_config(message: dict[str, Any]) -> ChannelConfiguration:
     config = message["channel_config"]
     profile = message["sensor_profile"]
     count = message["channel_count"]
+    fsr_start = count - wire_v2.fsr_channel_count(profile, count)
     channels = []
     for layout, entry in zip(wire_v2.expected_layout(profile, count), config["channels"]):
         electrode = layout.kind == "ELECTRODE"
@@ -173,7 +174,7 @@ def v2_channel_config(message: dict[str, Any]) -> ChannelConfiguration:
             "channel_id": layout.channel_id,
             "sensor_kind": "MATRIX_ELECTRODE" if electrode else "FSR",
             "name": (wire_v2.ELECTRODE_NAMES[layout.channel_id] if electrode
-                     else ("FSR_A", "FSR_B")[layout.channel_id - (count - 2)]),
+                     else wire_v2.FSR_NAMES[layout.channel_id - fsr_start]),
             "electrode_axis": layout.role if electrode else None,
             "electrode_index": layout.position - 1 if electrode else None,
             "ads1220_id": entry.get("ads1220_id"),

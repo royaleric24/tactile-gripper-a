@@ -10,12 +10,12 @@
 | STATUS | 主机用 `{"cmd":"STATUS","request_id":"…"}`；在同一会话匹配回显。2 s 未匹配标为超时。旧 `type: QUERY` 只属历史提案。 |
 | 采集许可 | 启动默认为 STOPPED；只在有单独现场采集授权后明确发 `{"cmd":"STREAM","value":"on","request_id":"…"}`。收到的连接/HELLO 不启动采集。 |
 | 版本与身份 | 新会话需有效 HELLO；SAMPLE 的 device/boot/firmware/profile 与之匹配；STATUS 的 device/boot/profile 与通道配置应一致。顶层与内层 profile 同时出现时必须相同。 |
-| 布局 | `FSR_ONLY`: 0、1 对应 FSR_A/B；`MATRIX_ELECTRODES_12`: 0..5 为 R1–R6，6..11 为 C1–C6，14 通道时 12、13 为 FSR_A/B；无行列交点。映射 PENDING 时 ADC/AIN 与样本为空。 |
+| 布局 | 现行 `FSR_ONLY` 为 1 通道，0=FSR_A；`MATRIX_ELECTRODES_12` 为 12 或 13 通道，0..11 对应 R1–R6/C1–C6，13 路时 12=FSR_A。FSR_A 为 ADC4 AIN0/MUX8。PENDING 电极的 ADC/AIN 与样本为空。旧 2/14 帧只用于仿真或回放。 |
 | 数据 | `channels` 镜像 `raw_adc`，单位 ADC counts（有符号 24 位）。`valid` 等于 `valid_mask`。缺失值的数字与通道时间都是 null，`NO_DATA=0x20`；有效的零值仍是测量读数。 |
 | 时间 | `timestamp_us` 与 `mcu_time_us` 同为一帧开始的 MCU uint32 μs。每路采样时间、`frame_period_us`、设备帧率和主机接收时钟各自保存；不假设跨通道同时采样或 MCU 与主机同步。 |
-| AUTO | 离线评估单独记录，任何无效通道、ADC 告警、过期、设备失联或上一条控制命令未确认均不得产生收紧步进。真实开关为 False。 |
+| AUTO | 离线评估单独记录，现行单 FSR 评估使用带显式空载基线的 FSR_A。帧错误、FSR_A 无效或饱和、ADC4 告警、过期、设备失联或控制命令未确认时不产生收紧步进。真实开关为 False。 |
 
-历史 `HYBRID_6X6_FSR2` 只用于兼容老 Trial，以 HISTORICAL 标识；当前 LIVE 与新 demo 入口排除它。
+历史 `HYBRID_6X6_FSR2` 只用于兼容老 Trial，以 HISTORICAL 标识。「36 格仿真」是独立合成视图，没有采集 profile 或执行器接口。
 下文保留 V1/S1 接口记录和曾用提案，不用作现行 V2 采集实现依据。
 
 ----
@@ -24,7 +24,7 @@
 >
 > **2026-11-15 修正**：真实压敏布为 12 电极被动读取（R1–R6 各接 AIN + 各自 10 kΩ 下拉、C1–C6 各接 AIN + 各自 1 kΩ 上拉），**无 GPIO 列激励、无 HI_Z、无 36 点扫描**。下文“6×6/36 感测单元”目标已作废（HISTORICAL），当前接线与 profile 以 WIRING_FREEZE_V2 与 PROTOCOL_V2_PROPOSAL 为准。
 
-> V2 固件实现入口：[FSR_ONLY_INTERFACE_V2.md](hardware/FSR_ONLY_INTERFACE_V2.md)，包含当前 2/12/14 通道的离线协议。
+> V2 固件实现入口：[FSR_ONLY_INTERFACE_V2.md](hardware/FSR_ONLY_INTERFACE_V2.md)，包含当前 1/12/13 通道与历史 2/14 的离线协议。
 
 # 软硬件通信边界
 

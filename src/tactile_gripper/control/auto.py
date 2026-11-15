@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..errors import ControlDenied
-from ..models import TactileFrame
+from ..models import ChannelConfig, TactileFrame
 from ..sources import DataSource, parse_source
 
 # Hard switch for V1.0: real AUTO remains disabled even if a future gate would
@@ -122,6 +122,7 @@ class RuleBasedAutoPolicy:
         total_change_us: int,
         sensor_state: str = "STREAMING",
         pending_command: bool = False,
+        single_fsr: ChannelConfig | None = None,
         min_pwm_us: int | None = None,
         max_pwm_us: int | None = None,
     ) -> AutoDecision:
@@ -152,9 +153,20 @@ class RuleBasedAutoPolicy:
             return AutoDecision("FAULT", "frame older than stale limit", seq, received, age_ms=age_ms, details=base_details)
         if pending_command:
             return AutoDecision("WAIT", "previous PWM command has no ACK", seq, received, age_ms=age_ms, details=base_details)
-        if (not frame.frame_valid or not all(frame.valid_mask)
-                or any((frame.raw or {}).get("channel_flags", []))
-                or any(item["state"] != "OK" for item in (frame.raw or {}).get("adc_status", []))):
+        raw = frame.raw or {}
+        flags = raw.get("channel_flags", [])
+        adc_status = raw.get("adc_status", [])
+        if single_fsr is not None:
+            indices = [i for i, (channel_id, _, _) in enumerate(frame.pairs())
+                       if channel_id == single_fsr.channel_id]
+            invalid_channels = not indices or any(
+                not frame.valid_mask[i] or (flags and flags[i]) for i in indices
+            )
+            adc_status = [adc for adc in adc_status if adc.get("id") == single_fsr.ads1220_id]
+        else:
+            invalid_channels = not all(frame.valid_mask) or any(flags)
+        if (not frame.frame_valid or invalid_channels
+                or any(item["state"] != "OK" for item in adc_status)):
             return AutoDecision("FAULT", "frame has invalid channels or ADC warnings", seq, received, age_ms=age_ms, details=base_details)
         state = getattr(assessment, "state", "INVALID")
         if state in ("INVALID", "NOT_APPLICABLE"):

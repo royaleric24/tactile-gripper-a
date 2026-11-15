@@ -1,6 +1,13 @@
 # 项目进度记录（持续更新）
 
-## 2026-11-15｜P3-A V2 离线集成｜integrate/hybrid-demo-v2
+## 2026-11-15｜P3-A PR #5 复核增量｜integrate/hybrid-demo-v2
+
+- 项目所有者确认唯一正常的 FSR_A 为 ADC4 AIN0，MUX 8，FSR_B 已损坏。新增现行 1/13 通道固件与 Dashboard，12 电极模式保持。原 2/14 通道 fixtures 与 Trial 继续兼容。[总控确认](https://github.com/royaleric24/tactile-gripper-a/pull/5#issuecomment-6895547216)
+- 独立「36 格仿真」复用原热力图与合成格值，展示页没有控制、记录或真实设备输入。电极图仍是 R1–R6 / C1–C6 的 ADC 条形图。
+- 固件样例的单 FSR 接触评分使用 FSR_A 与显式空载基线。离线 AUTO 拒绝坏帧、无效或饱和的 FSR_A、过期帧、失联及未确认指令。`AUTO_REAL_ENABLED=False`。
+- 完整测试、五个 ESP32 构建、浏览器截图及复现命令见 [P3-A 验收报告](P3A_ACCEPTANCE.md)。物理隔离、映射、采样与机械闭环留待 P3-B；复核提交停在 [PR #5](https://github.com/royaleric24/tactile-gripper-a/pull/5)。
+
+## 2026-11-15｜P3-A 首轮离线集成（历史基线 7e6c425）｜integrate/hybrid-demo-v2
 
 - 从 GitHub 核对四条分支；文档起点 `633e570`。保留硬件 PR #2 `0827536` 与软件 PR #4 `2c5a996` 的 merge 历史。两个合并仅有文档冲突，原始组内内容按历史分节保留。
 - V2 Dashboard 消费同一固件参考解析器；校验 profile、布线元数据、状态、通道编号、掩码与 null、会话、序号和时间。采集串口默认 921600 8N1，启动只握手及只读查询，原设置不自动开流。

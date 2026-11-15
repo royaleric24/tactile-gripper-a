@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Build the V2 four-ADS1220 / dual-FSR firmware (offline, no upload).
+"""Build the V2 four-ADS1220 acquisition firmware (offline, no upload).
 
 Generates the board header from the JSON config, compiles firmware/sensor_fsr2
 for the pinned Arduino-ESP32 3.3.2 core and records hashes.  No serial port is
 opened and nothing is flashed.
 
 Profiles:
-    --profile fsr     config/sensor_esp32_fsr2.json        + fsr2_config.h
-    --profile electrodes12       config/sensor_esp32_electrodes12.json
-    --profile electrodes12_fsr2  config/sensor_esp32_electrodes12_fsr2.json
+    Current: fsr1 (default), electrodes12, electrodes12_fsr1
+    Historical dual-FSR builds: fsr, electrodes12_fsr2
 
 Usage:
     python3 scripts/build_sensor_fsr2_firmware.py --build-dir "$PWD/evidence/fsr2/build_sensor_fsr2"
@@ -32,10 +31,22 @@ DEFAULT_BUILD = ROOT / "evidence/fsr2/build_sensor_fsr2"
 SKETCH = ROOT / "firmware/sensor_fsr2"
 
 PROFILES = {
+    "fsr1": {
+        "config": ROOT / "config/sensor_esp32_fsr1.json",
+        "header": ROOT / "firmware/sensor_fsr2/fsr2_config_fsr1.h",
+        "extra_flags": "",
+        "sensor_profile": "FSR_ONLY",
+    },
+    "electrodes12_fsr1": {
+        "config": ROOT / "config/sensor_esp32_electrodes12_fsr1.json",
+        "header": ROOT / "firmware/sensor_fsr2/fsr2_config_electrodes12_fsr1.h",
+        "extra_flags": "-DFSR2_PROFILE_ELECTRODES12_FSR1",
+        "sensor_profile": "MATRIX_ELECTRODES_12",
+    },
     "fsr": {
         "config": ROOT / "config/sensor_esp32_fsr2.json",
         "header": ROOT / "firmware/sensor_fsr2/fsr2_config.h",
-        "extra_flags": "",
+        "extra_flags": "-DFSR2_PROFILE_LEGACY_FSR2",
         "sensor_profile": "FSR_ONLY",
     },
     "electrodes12": {
@@ -84,9 +95,11 @@ def run(cmd: list[str], log_path: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=sorted(PROFILES), default="fsr")
+    parser.add_argument("--profile", choices=sorted(PROFILES), default="fsr1")
     parser.add_argument("--board-config", default=str(DEFAULT_BOARD))
     parser.add_argument("--build-dir", default=str(DEFAULT_BUILD))
+    parser.add_argument("--evidence-dir", default=str(ROOT / "evidence/fsr2"),
+                        help="directory for compile logs, manifests and hashes")
     parser.add_argument("--no-clean", action="store_true")
     args = parser.parse_args()
 
@@ -99,7 +112,7 @@ def main() -> int:
 
     build_dir = Path(args.build_dir).resolve()
     build_dir.mkdir(parents=True, exist_ok=True)
-    evidence = ROOT / "evidence/fsr2"
+    evidence = Path(args.evidence_dir).resolve()
     evidence.mkdir(parents=True, exist_ok=True)
     cli = find_cli()
 

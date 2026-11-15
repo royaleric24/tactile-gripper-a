@@ -248,19 +248,21 @@ class FsrContactAssessor:
     ) -> ContactAssessment:
         """Capture unloaded FSR counts from one *valid* frame.
 
-        All configured FSR channels must be valid and unsaturated; a partial
-        baseline would silently weaken the two-channel comparison.
+        Every configured FSR needs a valid, unsaturated baseline.
         """
         if frame is None:
             raise ValueError("no frame available for FSR baseline")
+        if not frame.frame_valid:
+            raise ValueError("frame marked invalid")
         channels = config.fsr_channels
         if not channels:
             raise ValueError("configuration has no FSR channels")
         pairs = {channel_id: (value, valid) for channel_id, value, valid in frame.pairs()}
+        flags = _flags_by_channel(frame)
         captured: dict[int, float] = {}
         for channel in channels:
             value, valid = pairs.get(channel.channel_id, (None, False))
-            if not valid or value is None:
+            if not valid or value is None or flags.get(channel.channel_id):
                 raise ValueError(f"FSR {channel.channel_id} is invalid; baseline not captured")
             if _is_saturated(channel, float(value)):
                 raise ValueError(f"FSR {channel.channel_id} is saturated; baseline not captured")
@@ -336,7 +338,9 @@ class FsrContactAssessor:
                 )
             )
 
-        invalid = [reading for reading in readings if not reading.valid or reading.saturated]
+        flags = _flags_by_channel(frame)
+        invalid = [reading for reading in readings
+                   if not reading.valid or reading.saturated or flags.get(reading.channel_id)]
         if frame.frame_valid is False:
             return self._finish(INVALID, None, 0.0, "frame marked invalid", readings, frame, age_ms, stale_after_ms)
         if age_ms > stale_after_ms:
@@ -362,7 +366,7 @@ class FsrContactAssessor:
                 age_ms,
                 stale_after_ms,
             )
-        if len(self._baseline) != len(channels):
+        if self._baseline.keys() != {channel.channel_id for channel in channels}:
             return self._finish(
                 UNCALIBRATED,
                 None,
@@ -385,9 +389,11 @@ class FsrContactAssessor:
                 age_ms,
                 stale_after_ms,
             )
-        # Conservative: the weaker FSR channel limits the decision, so one
-        # finger losing contact cannot be hidden by the other one.
-        score = min(float(item) for item in scores if item is not None)
+        if len(readings) == 1:
+            score = float(scores[0])
+        else:
+            # For historical dual FSR, the weaker side limits the decision.
+            score = min(float(item) for item in scores)
         state = classify_contact(score, self._previous_state, self.thresholds)
         self._previous_state = state
         quality = 1.0
@@ -434,6 +440,13 @@ class FsrContactAssessor:
         if state == TIGHT:
             return "relative contact above tight threshold; do not keep tightening"
         return state
+
+
+def _flags_by_channel(frame: TactileFrame) -> dict[int, int]:
+    return dict(zip(
+        (channel_id for channel_id, _, _ in frame.pairs()),
+        (frame.raw or {}).get("channel_flags", []),
+    ))
 
 
 def _is_saturated(channel: ChannelConfig, raw: float) -> bool:

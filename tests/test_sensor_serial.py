@@ -13,7 +13,7 @@ from tactile_gripper.devices.sensor_serial import (
     serial_sensor_adapter,
 )
 from tactile_gripper.devices.firmware_fixture import FIXTURE_ROOT
-from tactile_gripper.errors import SensorOffline
+from tactile_gripper.errors import FrameValidationError, SensorOffline
 from tactile_gripper.sources import DataSource
 
 from support import FakeLineTransport, channel_config, hello_line, sample_line
@@ -124,8 +124,12 @@ class SerialTransportTests(unittest.TestCase):
             self.assertEqual(fake.kwargs["baudrate"], 921600)
             self.assertEqual((fake.kwargs["bytesize"], fake.kwargs["parity"], fake.kwargs["stopbits"]), (8, "N", 1))
             self.assertEqual(fake.writes, [{"cmd": "HELLO"}])
-            hello = (FIXTURE_ROOT / "hello_fsr_only.json").read_bytes()
-            sample = (FIXTURE_ROOT / "sample_fsr_only_valid.json").read_bytes()
+            historical = (FIXTURE_ROOT / "hello_fsr_only.json").read_bytes()
+            fake.feed(historical)
+            with self.assertRaisesRegex(FrameValidationError, "dual FSR"):
+                adapter.read_frame(0)
+            hello = (FIXTURE_ROOT / "hello_fsr1.json").read_bytes()
+            sample = (FIXTURE_ROOT / "sample_fsr1_valid.json").read_bytes()
             fake.feed(hello[:100])
             self.assertIsNone(adapter.read_frame(0))
             fake.feed(hello[100:] + sample[:130])
@@ -134,7 +138,7 @@ class SerialTransportTests(unittest.TestCase):
             fake.feed(sample[130:])
             parsed = adapter.read_frame(0)
             self.assertIsNotNone(parsed)
-            self.assertEqual(parsed.channels, (762601, 889701))
+            self.assertEqual(parsed.channels, (762601,))
             self.assertEqual(parsed.source, DataSource.LIVE)
             self.assertEqual(adapter.status().state, "STREAMING")
             self.assertNotIn("STREAM", [item["cmd"] for item in fake.writes])

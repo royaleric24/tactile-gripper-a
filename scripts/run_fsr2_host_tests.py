@@ -35,6 +35,8 @@ TESTS = [
     ("test_fsr2_sampler", "tools/fsr2_sim/test_fsr2_sampler.cpp", []),
     ("test_fsr2_sampler_electrodes", "tools/fsr2_sim/test_fsr2_sampler_electrodes.cpp", []),
     ("test_fsr2_sampler_mapped", "tools/fsr2_sim/test_fsr2_sampler_mapped.cpp", []),
+    ("test_fsr2_sampler_fsr1", "tools/fsr2_sim/test_fsr2_sampler_fsr1.cpp", []),
+    ("test_fsr2_sampler_electrodes_fsr1", "tools/fsr2_sim/test_fsr2_sampler_electrodes_fsr1.cpp", []),
 ]
 
 INCLUDE_DIRS = ["tools/firmware_sim", "tools/fsr2_sim", "firmware/sensor_fsr2"]

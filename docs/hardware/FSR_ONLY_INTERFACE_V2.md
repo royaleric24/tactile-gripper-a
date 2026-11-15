@@ -11,9 +11,9 @@
 - 面向读者：软件组（解析 / 记录 / 界面）、总负责人、后续接手的硬件同学
 - 协议版本：`protocol_version = 1`（在 V1 基础上**只增字段**，不改变已有字段语义）
 - 传输：USB 串口 **`921600 8N1`**，UTF-8 JSON Lines，一行一条消息，以 `\n` 结束
-- 设备：旧 ESP32（NodeMCU ESP-32S V1.1）+ **4 × ADS1220**，其中 ADC4 专用于两路独立 FSR 分压
+- 设备：旧 ESP32（NodeMCU ESP-32S V1.1）+ **4 × ADS1220**，其中 ADC4 AIN0 读取唯一可用的 FSR_A
 - 固件目录：`firmware/sensor_fsr2/`（旧 `firmware/sensor/` 保持冻结，作为 V1 历史版本，不改动）
-- 配置：`config/sensor_esp32_fsr2.json`（FSR_ONLY）、`config/sensor_esp32_electrodes12.json`（12 电极）、`config/sensor_esp32_electrodes12_fsr2.json`（12 电极 + 2 FSR = 14 逻辑通道）
+- 现行配置为 `config/sensor_esp32_fsr1.json`（1）、`config/sensor_esp32_electrodes12.json`（12）、`config/sensor_esp32_electrodes12_fsr1.json`（13）。旧 fsr2 配置仅用于历史离线构建。
 
 本文件只承诺 **ADS1220 原始计数**与**明确的无效语义**。没有独立标定前，不得把 counts 说成牛顿、压强或滑移概率。
 
@@ -40,13 +40,13 @@ ADC 分配（SPI 固定）：
 | ADC1 | 21 | 34 | 电极 AIN（具体分配 PENDING） |
 | ADC2 | 22 | 35 | 电极 AIN（具体分配 PENDING） |
 | ADC3 | 5 | 26 | 电极 AIN（具体分配 PENDING） |
-| **ADC4** | **32** | **33** | **FSR_A = AIN0，FSR_B = AIN1** |
+| **ADC4** | **32** | **33** | **FSR_A = AIN0/MUX8；AIN1 当前不采样** |
 
 四颗共用 `SCLK = 18`、`MOSI = 23`；每颗独立 CS。`GPIO32` 在 V2 中**只作 ADC4 片选**。历史映射
 `miso = [35, 26, 34]` 已作废，不得再用来生成 V2 固件（生成器会直接拒绝 3 颗 ADC 的配置）。
 ADC4 保留给 FSR：电极如果被错误分配到 ADC4，生成器会拒绝该配置。
 
-FSR 分压：`3V3 ── R_fsr ──┬── AINx`，`AINx ── 10 kΩ ── GND`。两路各自独立 10 kΩ 下拉，两个节点不得互连（互连后两路读数会被平均，且一路短路会带偏另一路）。
+FSR 分压：`3V3 ── R_fsr ──┬── AINx`，`AINx ── 10 kΩ ── GND`。当前只对 AIN0 使用独立 10 kΩ 下拉。FSR_B 已损坏，AIN1 的电气隔离留待现场检查。
 
 采样配置（FSR profile 强制，生成器校验）：单端、`Gain = 1`、PGA bypass、**参考 = `AVDD_AVSS`**、330 SPS。**不得**使用内部 2.048 V 参考：分压点在有压力时接近 3.3 V，内部参考会让读数削顶到满量程，看起来像"一直压到底"。
 
@@ -57,7 +57,7 @@ V_AIN  ≈ counts × AVDD / 2^23          (Gain = 1，AVDD 名义 3.3 V)
 R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 ```
 
-按压使 `R_fsr` 下降，因此 **`V_AIN` 与 counts 上升**（`response_polarity = VOLTAGE_RISES_WITH_FORCE`）。10 kΩ 只是首轮取值，后续可比 4.7 kΩ / 10 kΩ / 47 kΩ；换电阻只改 `config/sensor_esp32_fsr2.json` 的 `divider_resistor_ohm` 并重新生成头文件。
+按压使 `R_fsr` 下降，因此 **`V_AIN` 与 counts 上升**（`response_polarity = VOLTAGE_RISES_WITH_FORCE`）。10 kΩ 只是首轮取值，后续可比 4.7 kΩ / 10 kΩ / 47 kΩ；换电阻只改 现行 fsr1 配置中的 `divider_resistor_ohm` 并重新生成头文件。
 
 ## 2. 串口参数（请软件组改这一处）
 
@@ -78,9 +78,11 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 
 | profile | 通道数 | 通道含义 |
 |---|---:|---|
-| `FSR_ONLY` | 2 | `0 = FSR_A`，`1 = FSR_B`；`matrix_rows/cols = null` |
+| `FSR_ONLY` | 1 | `0 = FSR_A`；`matrix_rows/cols = null` |
+| `FSR_ONLY`（历史离线） | 2 | `0 = FSR_A`，`1 = FSR_B` |
 | `MATRIX_ELECTRODES_12`（仅电极） | 12 | `0..5 = R1..R6`，`6..11 = C1..C6` |
-| `MATRIX_ELECTRODES_12`（电极 + FSR） | 14 | 同上，`12 = FSR_A`，`13 = FSR_B` |
+| `MATRIX_ELECTRODES_12`（电极 + FSR_A） | 13 | 0..11 同上，`12 = FSR_A` |
+| `MATRIX_ELECTRODES_12`（历史离线） | 14 | 0..11 同上，`12 = FSR_A`，`13 = FSR_B` |
 
 - 通道 0..11 的顺序是**协议顺序**（R1..R6 再 C1..C6），不是物理接线顺序；物理映射以
   `electrode_layout.channels[i].adc_id/adc_input` 为准，未记录时两者均为 `null`。
@@ -91,16 +93,16 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 
 ## 4. HELLO（设备 → 主机，上电后一次；也可用 `HELLO` 命令重发）
 
-真实字段（样例见 `tests/fixtures/fsr2/hello_fsr_only.json`）：
+现行单 FSR 字段示意（完整生成样例见 `tests/fixtures/fsr2/hello_fsr1.json`）：
 
 ```json
 {"protocol_version":1,"type":"HELLO","sensor_profile":"FSR_ONLY","device_id":"tactile-esp32-01",
- "boot_id":"...","firmware_version":"tactile-fsr2-0.2.0","scan_mode":"FSR_ONLY_2CH",
- "sample_rate_hz":null,"channel_count":2,"spi_mode":"MODE1_BITBANG","data_rate_sps":330,
+ "boot_id":"...","firmware_version":"tactile-fsr2-0.3.0","scan_mode":"FSR_ONLY_1CH",
+ "sample_rate_hz":null,"channel_count":1,"spi_mode":"MODE1_BITBANG","data_rate_sps":330,
  "conversion_wait_us":4500,"reference_mode":"AVDD_AVSS","reference_modes_allowed":["AVDD_AVSS"],
  "pins":{"sclk":18,"mosi":23,"miso":[34,35,26,33],"cs":[21,22,5,32]},
  "channel_config":{"status":"IMPLEMENTED_UNVERIFIED","matrix_rows":null,"matrix_cols":null,
-   "adc_count":4,"scan_mode":"FSR_ONLY_2CH","unit":"ADC_COUNTS",
+   "adc_count":4,"scan_mode":"FSR_ONLY_1CH","unit":"ADC_COUNTS",
    "channels":[{"channel_id":0,"name":"FSR_A","sensor_kind":"FSR","ads1220_id":4,
                 "adc_input":0,"mux_channel":8,"matrix_row":null,"matrix_col":null}, ...]},
  "fsr_layout":{"adc_id":4,"independent_pulldowns":true,"divider_resistor_ohm":10000,
@@ -138,7 +140,7 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
   为 `null`）或 `TABLE_PROVIDED`（现场表已填满且唯一）。fixtures 里的 `SIM_SYNTHETIC_MAPPING`
   只出现在 host 测试合成表，**不是**真实接线，软件应照常显示但不得当成实测映射。
 - `validated` 在真实台架记录前恒为 `false`；`gpio_excitation` 恒为 `false`。
-- 14 通道变体（电极 + FSR）会同时带 `fsr_layout`；12 通道变体不带。
+- 13/14 通道变体（电极 + FSR）会同时带 `fsr_layout`；12 通道变体不带。
 
 ## 5. SAMPLE（设备 → 主机，每帧一条）
 
@@ -171,12 +173,12 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 | `effective_frame_rate_hz` | number | 最近 32 帧滑动窗口速率，centi 精度 |
 | `adc_status` | object[] | 4 个对象，`id` 必须 1..4 顺序 |
 
-电极 profile（12 或 14 通道）的语义：
+电极 profile（现行 12/13 或历史 14 通道）的语义：
 
 - 未映射电极：`raw_adc/channels/sample_timestamp_us` 全为 `null`，`valid=false`，`channel_flags`
   含 `NO_DATA`。**这是正确状态**，不是故障、不是 0 值。
-- FSR 通道（14 通道变体的 12/13）独立于电极映射：即使 12 个电极全部未映射，FSR 两路仍可有效。
-- 不要把这 12/14 个通道拼成 6x6 热图；`matrix_rows/cols` 恒为 `null`。
+- 当前 FSR_A（13 通道变体的 12）独立于电极映射，12 个电极未映射时仍可有效。
+- 电极以 ADC 计数条形图呈现；`matrix_rows/cols` 恒为 `null`。
 
 `channel_flags` 位（沿用 V1）：`0x01 SAT_HIGH`、`0x02 SAT_LOW`、`0x04 NEGATIVE_SINGLE_ENDED`、`0x08 NEAR_RAIL`、`0x10 STUCK_EXTREME`、`0x20 NO_DATA`。
 
@@ -213,7 +215,10 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 
 | 帧 | 字节数 |
 |---|---:|
-| HELLO FSR_ONLY | 1750 |
+| HELLO 单 FSR / 电极 + 单 FSR | 1505 / 5713 |
+| SAMPLE 单 FSR / 电极 + 单 FSR（有效 FSR_A） | 897 / 1299 |
+| STATUS 单 FSR / 电极 + 单 FSR（ADC4 故障） | 1661 / 5869 |
+| HELLO FSR_ONLY（历史双 FSR） | 1750 |
 | SAMPLE FSR_ONLY（健康） | 931 |
 | SAMPLE FSR_ONLY（ADC4 掉线） | 964 |
 | HELLO 12 电极 + FSR（未映射） | 5972 |
@@ -221,10 +226,10 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 | HELLO 12 电极（合成映射） | 5070 |
 | SAMPLE 12 电极（合成映射） | 1326 |
 
-8192 字节发送缓冲对三种 profile 都有余量（最长 5972，约 73%）。软件侧单行缓冲建议 ≥ 8192；
+8192 字节发送缓冲覆盖上述 host 模拟帧。软件侧单行缓冲建议 ≥ 8192；
 超过即视为协议错，不要拼接跨行内容。
 
-帧率：FSR_ONLY 每帧只做 2 次 330 SPS 转换，模型上远高于 100 Hz；sim 中 `frame_period_us = 10000` 是模拟器步进，**不是**真实帧率。真实值以台架 `STATUS` / `effective_frame_rate_hz` 为准。
+帧率：现行 FSR_ONLY 每帧仅对 FSR_A 做 1 次转换，ADS1220 配置为 330 SPS；sim 中 `frame_period_us = 10000` 是模拟器步进，**不是**真实帧率。真实值以台架 `STATUS` / `effective_frame_rate_hz` 为准。
 
 ## 8. 命令
 
@@ -247,19 +252,20 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 ## 9. 样例与参考解析器
 
 - fixtures（由固件帧构造器实际输出、脱敏后提交）：`tests/fixtures/fsr2/`
-  - FSR_ONLY：`hello_fsr_only.json`、`sample_fsr_only_valid.json`、`sample_fsr_only_no_adc4.json`
+  - 现行 1/13：`hello_fsr1.json` / `hello_electrodes12_fsr1_unmapped.json` 及匹配的 SAMPLE、STATUS。
+  - 历史双 FSR FSR_ONLY：`hello_fsr_only.json`、`sample_fsr_only_valid.json`、`sample_fsr_only_no_adc4.json`
   - 12 电极 + FSR（真实映射缺失）：`hello_electrodes12_fsr2_unmapped.json`、
     `sample_electrodes12_fsr2_unmapped.json`、`sample_electrodes12_fsr2_fsr_absent.json`
   - 12 电极**合成映射**（仅测试用，非真实接线）：`hello_electrodes12_mapped_synthetic.json`、
-    `sample_electrodes12_mapped_synthetic.json`、`sample_electrodes12_mapped_absent.json`
+    `sample_electrodes12_mapped_synthetic.json`、`sample_electrodes12_mapped_adc_absent.json`
 - 严格参考解析器：`tools/fsr2/protocol_v2.py`（stdlib，无第三方依赖）
 
 ```python
 from tools.fsr2 import protocol_v2
 
-text = open("tests/fixtures/fsr2/sample_fsr_only_valid.json").read()
+text = open("tests/fixtures/fsr2/sample_fsr1_valid.json").read()
 sample = protocol_v2.parse_message(text)
-print(sample.fsr_values)              # {'FSR_A': 762601, 'FSR_B': 889701}
+print(sample.fsr_values)              # {'FSR_A': 762601}
 ```
 
 解析器会拒绝：通道数不符、`valid` 与 `valid_mask` 不一致、无效通道带数值、`valid` 与 `NO_DATA` 矛盾、内部 2.048 V 参考、`adc_status` 不是 4 个、`fsr_layout.validated = true`（在真实标定前宣称已验证）等。软件组可以用它当"客户端是否实现正确"的对照。
@@ -277,17 +283,16 @@ print(sample.fsr_values)              # {'FSR_A': 762601, 'FSR_B': 889701}
 
 1. **断电接线核对**：ADC1–3 的 CS/MISO 分别为 21/34、22/35、5/26；ADC4 为 32/33；四颗
    SCLK/MOSI 并联到 18/23；**R1–R6 每根各串一颗 10 kΩ 到 GND，C1–C6 每根各串一颗 1 kΩ 到
-   3.3 V，12 根电极分别接到 ADS1220 的某个 AIN，不接任何 GPIO 列驱动**；ADC4 的 AIN0/AIN1
-   各接一路独立 10 kΩ 下拉到 GND，两个节点不互连；3V3 与 GND 逐颗确认。
+   3.3 V，12 根电极分别接到 ADS1220 的某个 AIN，不接任何 GPIO 列驱动**；ADC4 AIN0 的 FSR_A 节点接独立 10 kΩ 下拉。复核损坏的 FSR_B 与 AIN1 的电气隔离，逐颗确认 3V3 与 GND。
    同时把每根电极的 ADC/AIN 实测结果填进本文 §12 的映射表（V2 文档基线
    `docs/WIRING_FREEZE_V2.md` 合并后以该文档 §4.1 为准），未填表前不要给配置填 `map`。
-2. **上电前测阻抗**：3V3 对 GND 不短路；每个 FSR 节点对 GND 约 10 kΩ ±5%。
+2. **上电前测阻抗**：3V3 对 GND 不短路；FSR_A 节点对 GND 约 10 kΩ ±5%。
 3. **烧录**（现场授权）：`python3 scripts/build_sensor_fsr2_firmware.py --build-dir "$PWD/evidence/fsr2/build_sensor_fsr2" && python3 -m esptool ...` 由现场同学执行；本仓库脚本只编译不烧录。
-4. **打开 921600 串口**，应立刻收到一行 `HELLO`：`channel_count = 2`、`pins.miso = [34,35,26,33]`、`reference_mode = "AVDD_AVSS"`、`adc_status` 四项均 `OK`。若 ADC4 为 `NO_RESPONSE`，先查 32/33 与供电，不要下发 `STREAM`。
-5. **空载基线**：`STREAM start` 后静置 10 s，两路 counts 应稳定（波动远小于满量程 1%），且两路**不相等**（独立分压，不应对齐）。
+4. **打开 921600 串口**，应立刻收到一行 `HELLO`：`channel_count = 1`、`pins.miso = [34,35,26,33]`、`reference_mode = "AVDD_AVSS"`、`adc_status` 四项均 `OK`。若 ADC4 为 `NO_RESPONSE`，先查 32/33 与供电，不要下发 `STREAM`。
+5. **空载基线**：`STREAM start` 后静置 10 s，记录 FSR_A 空载 counts 和波动。
 6. **命令面**：`STATUS` 回 `STREAMING`、`last_frame_seq` 递增；`VERIFY_CONFIG` 回 4 个器件且 `match` 全为 true；`STREAM stop` 后不再有 SAMPLE。
-7. **单路按压**：只按 FSR_A，`channels[0]` 明显上升而 `channels[1]` 基本不动；换 FSR_B 反之。两路同时变化说明节点被互连或激励串扰。
-8. **断线语义**：拔掉 ADC4 的 CS（或断电其一）后，SAMPLE 中两通道应为 `null` + `valid=false` + `channel_flags` 含 `NO_DATA`，`adc_status[3].state` 变 `NO_RESPONSE`；**不得**出现 0 值冒充。
+7. **单路按压**：按压与释放 FSR_A，观察 `channels[0]` 的变化方向、幅度与回落。
+8. **断线语义**：拔掉 ADC4 的 CS（或断电其一）后，FSR_A 应为 `null` + `valid=false` + `channel_flags` 含 `NO_DATA`，`adc_status[3].state` 变 `NO_RESPONSE`；**不得**出现 0 值冒充。
 9. **恢复**：接回后 `RESET_ADC 4`，数秒内 `adc_status[3]` 回到 `OK`，通道重新有效。
 10. **记录**：把实测串口原始帧、帧率、空载/按压 counts、AVDD 实测值写进 `docs/PROGRESS.md`，并将一组真实样例脱敏后补进 `tests/fixtures/fsr2/`（当前 fixtures 全部来自 host 模拟，**不得**当作硬件验证证据）。
 

@@ -69,10 +69,9 @@ bool fsr2ValidateLayout(const Fsr2Profile& profile) {
   if (profile.channel_count == 0) return false;
   if (profile.channels == nullptr) return false;
   if (profile.miso_pins == nullptr || profile.cs_pins == nullptr) return false;
-  if (profile.fsr_count > profile.channel_count) return false;
+  if (profile.fsr_count > 2 || profile.fsr_count > profile.channel_count) return false;
   if (profile.fsr_count > 0 && profile.fsr_channel_indices == nullptr) return false;
 
-  const bool has_fsr = profile.fsr_count > 0;
   const uint8_t electrode_count = profile.electrode_count;
   if (electrode_count > 0) {
     if (profile.electrode_rows == 0 || profile.electrode_columns == 0) return false;
@@ -106,7 +105,7 @@ bool fsr2ValidateLayout(const Fsr2Profile& profile) {
       if (channel.position != expected_position) return false;
       if (channelMapped(channel)) {
         any_mapped = true;
-        if (channel.adc_index == profile.adc_count - 1 && has_fsr) {
+        if (channel.adc_index == profile.adc_count - 1) {
           // The last ADS1220 is reserved for the FSR dividers.
           return false;
         }
@@ -122,6 +121,9 @@ bool fsr2ValidateLayout(const Fsr2Profile& profile) {
       if (channel.adc_input > 3) return false;
       if (channel.mux_code != static_cast<uint8_t>(8 + channel.adc_input)) return false;
       if (channel.adc_index != static_cast<uint8_t>(profile.adc_count - 1)) return false;
+      if (profile.fsr_count == 1 && (channel.adc_input != 0 || strcmp(channel.name, "FSR_A") != 0)) {
+        return false;
+      }
     } else {
       return false;
     }

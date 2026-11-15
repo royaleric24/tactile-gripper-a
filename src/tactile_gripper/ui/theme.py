@@ -8,6 +8,7 @@ from typing import Any
 
 from nicegui import ui
 
+from ..sources import DataSource
 from .text_zh import mode_label, source_label, status_label
 
 CSS = """
@@ -180,6 +181,8 @@ def shell(active: str, title: str, subtitle: str, core, version: str):
         ("experiments", "/experiments", "science", "实验管理"),
         ("analysis", "/analysis", "query_stats", "分析与诊断"),
     ]
+    if core.source is DataSource.SIMULATION:
+        nav.append(("demo-6x6", "/demo-6x6", "grid_on", "36 格仿真"))
     with ui.element("div").classes("app-shell"):
         with ui.element("aside").classes("sidebar"):
             with ui.element("div").classes("brand"):

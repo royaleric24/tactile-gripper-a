@@ -12,10 +12,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "fsr1": (1, 1, ("原始 ADC 762601", "FSR_A")),
+    "fsr1-adc4-fault": (0, 1, ("ADC4", "全部缺失", "FSR_A")),
+    "electrodes12-fsr1": (1, 13, ("12 路无效", "PENDING_REAL_WIRING", "FSR_A", "原始 ADC 2287802")),
+    "electrodes12-fsr1-adc4-fault": (0, 13, ("ADC4", "全部缺失", "PENDING_REAL_WIRING", "FSR_A")),
     "fsr": (2, 2, ("原始 ADC 762601", "原始 ADC 889701")),
     "fsr-adc4-fault": (0, 2, ("ADC4", "全部缺失")),
     "electrodes12": (12, 12, ("R1–R6 / C1–C6", "SIM_SYNTHETIC_MAPPING")),
@@ -88,19 +93,26 @@ def audit(base, out, label, pages, viewports, markers):
                     raise RuntimeError(f"{label}: rendered page did not show {marker!r}")
             if "传感器数据正常" in entry["text"] or "HISTORICAL" in entry["text"]:
                 raise RuntimeError(f"{label}: current frame mislabelled")
+            if "fsr1" in label and "FSR_B" in entry["text"]:
+                raise RuntimeError(f"{label}: current FSR frame displayed FSR_B")
         elif entry["page"] == "analysis":
             expected = ("触觉帧检查", "只读回放", "CSV 已导出")
             if label == "fsr-adc4-fault":
                 expected += ("第 2/2 帧", "0/2 有效")
+            if label == "fsr1-adc4-fault":
+                expected += ("第 2/2 帧", "0/1 有效")
             if any(marker not in entry["text"] for marker in expected):
                 raise RuntimeError(f"{label}: Trial loading, frame step or CSV export not visible")
+        elif entry["page"] == "demo-6x6":
+            if any(marker not in entry["text"] for marker in markers) or "提交 PWM" in entry["text"]:
+                raise RuntimeError(f"{label}: synthetic preview isolation or next-frame interaction failed")
     return len(report["viewports"])
 
 
 def scenario(case, root):
     valid, count, markers = CASES[case]
     out = root / case
-    full = case in ("fsr-adc4-fault", "electrodes12-fsr2")
+    full = case in ("fsr-adc4-fault", "electrodes12-fsr2", "fsr1-adc4-fault", "electrodes12-fsr1")
     with dashboard(out, ["--firmware-fixture", case, "--record-fixture"]) as base:
         pages = audit(base, out, case, "live,experiments,analysis" if full else "live",
                       "1440x900,1280x800" if full else "1440x900",
@@ -127,15 +139,30 @@ def main():
     root.mkdir(parents=True)
     with ThreadPoolExecutor(max_workers=3) as pool:
         results = list(pool.map(lambda key: scenario(key, root), CASES))
-    path = root / next(result["replay"] for result in results if result["scenario"] == "electrodes12-fsr2")
-    replay = root / "replay"
-    with dashboard(replay, ["--source", "REPLAY", "--sensor-file", str(path)]) as base:
-        replay_views = audit(base, replay, "replay", "live", "1440x900",
-                             ("只读回放", "2/14 有效", "PENDING_REAL_WIRING", "只读回放 · 已禁用"))
-    if (replay / "data" / "real").exists() or (replay / "data" / "simulated").exists():
-        raise RuntimeError("read-only replay wrote Trial data")
+    replay_views = 0
+    for case, quality in (("electrodes12-fsr1", "1/13 有效"), ("electrodes12-fsr2", "2/14 有效")):
+        path = root / next(result["replay"] for result in results if result["scenario"] == case)
+        label = f"replay-{case}"
+        replay = root / label
+        with dashboard(replay, ["--source", "REPLAY", "--sensor-file", str(path)]) as base:
+            replay_views += audit(base, replay, label, "live", "1440x900",
+                                  ("只读回放", quality, "PENDING_REAL_WIRING", "只读回放 · 已禁用"))
+            try:
+                with urlopen(base + "/demo-6x6", timeout=3):
+                    raise RuntimeError("6×6 synthetic preview is exposed in REPLAY")
+            except HTTPError as exc:
+                if exc.code != 404:
+                    raise
+        if (replay / "data" / "real").exists() or (replay / "data" / "simulated").exists():
+            raise RuntimeError("read-only replay wrote Trial data")
+    preview = root / "demo-6x6"
+    with dashboard(preview, []) as base:
+        preview_views = audit(base, preview, "demo-6x6", "demo-6x6", "1440x900,1280x800",
+                              ("SIMULATION ONLY", "帧 2", "36/36 格有值", "合成格值"))
+    if (preview / "data" / "real").exists() or (preview / "data" / "simulated").exists():
+        raise RuntimeError("standalone synthetic preview wrote Trial data")
     report = {"result": "PASS", "evidence": "OFFLINE_VERIFIED",
-              "scenarios": results, "replay_viewports": replay_views}
+              "scenarios": results, "replay_viewports": replay_views, "preview_viewports": preview_views}
     (root / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 

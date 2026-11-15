@@ -11,6 +11,9 @@
 | I-109 | OFFLINE_VERIFIED | 现行采集/演示拒绝 HYBRID；历史样例仅供带标识的回放。 |
 | I-201 | RESOLVED | 零等待串口轮询原来不读，分片不保留；修复后用固件原帧分片通过假串口。 |
 | I-202 | RESOLVED | 浏览器点“加载实验”触发 NiceGUI 容器刷新错误，已改为刷新试次视图，复测加载、步进、CSV。 |
+| I-204 | OFFLINE_VERIFIED | 所有者确认 FSR_A 为 ADC4 AIN0。1/13 通道固件、单 FSR 评分/AUTO、Trial 与回放通过离线验证；2/14 留作离线兼容。 |
+| I-205 | OPEN | FSR_B 已损坏。AIN1 是否已电气隔离、AVDD 实际参考值、分压、FSR_A 阈值与滑移代理等待总控/现场组核对。 |
+| I-206 | OFFLINE_VERIFIED | 36 格仅在独立 SIMULATION 演示和历史矩阵回放中显示，现行采集保留 12 电极原始 ADC 条形图。 |
 | I-203 | OPEN | P3-B 需核对实际波特率、包吞吐、真实时间基准、FSR 极性与阈值、滑移代理、杯体机械风险。负责人：总负责人 / 现场硬件与软件组。 |
 
 > 状态为 OPEN / WAITING / RESOLVED / ACCEPTED_LIMITATION。解决后留历史记录，不直接删掉。每个开发进展后检查是否需要更新。

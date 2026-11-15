@@ -220,6 +220,23 @@ class GeneratedHeaderTests(unittest.TestCase):
     def test_electrode_fsr_header_matches_generator(self) -> None:
         self._check(ELECTRODE_FSR_CONFIG, ELECTRODE_FSR_HEADER, "fsr2_config_electrodes12_fsr2.h")
 
+    def test_current_single_fsr_headers_are_reproducible_and_require_confirmed_input(self) -> None:
+        for profile, count in (("fsr1", 1), ("electrodes12_fsr1", 13)):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as temporary:
+                path = ROOT / "config" / f"sensor_esp32_{profile}.json"
+                filename = f"fsr2_config_{profile}.h"
+                header = FSR_HEADER.parent / filename
+                self._check(path, header, filename)
+                config = load(path)
+                self.assertEqual(config["fsr"]["channels"], [
+                    {"channel_id": count - 1, "name": "FSR_A", "adc_input": 0, "mux_code": 8}
+                ])
+                config["fsr"]["channels"][0].update(adc_input=1, mux_code=9)
+                rejected = Path(temporary) / "wrong-input.json"
+                rejected.write_text(json.dumps(config))
+                with self.assertRaisesRegex(SystemExit, "ADC4 AIN0"):
+                    GENERATOR.generate(rejected, Path(temporary) / filename)
+
     def test_fsr_header_content(self) -> None:
         text = FSR_HEADER.read_text()
         self.assertIn("static const uint8_t FSR2_MISO_PINS[4] = {34, 35, 26, 33};", text)

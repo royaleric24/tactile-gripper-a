@@ -425,6 +425,8 @@ class ApplicationCore:
                 # Offline decision on the last fixture only while its normal
                 # monotonic deadline still holds. No actuator dispatch.
                 state = "STREAMING"
+            config = self.sensor_configuration()
+            single_fsr = config.fsr_channels[0] if config and len(config.fsr_channels) == 1 else None
             decision = self.auto_policy.evaluate_contact(
                 frame,
                 assessment,
@@ -436,6 +438,7 @@ class ApplicationCore:
                 pending_command=bool(pending_command or self.pending_command or (
                     self.last_pwm_command and self.last_pwm_command.get("acknowledged") is not True
                 )),
+                single_fsr=single_fsr,
                 min_pwm_us=(self.gripper.pwm_limits or {}).get("min_us") if self.gripper else None,
                 max_pwm_us=(self.gripper.pwm_limits or {}).get("max_us") if self.gripper else None,
             )
@@ -456,11 +459,11 @@ class ApplicationCore:
         if config is None or not config.fsr_channels:
             self.last_assessment = None
             return frame
-        # Simulation only: capture the first valid unloaded frame so the
-        # offline demo can show relative contact.  Real data requires the
-        # operator to press "capture baseline".
+        # The synthetic demo starts unloaded. Firmware fixtures and live
+        # samples require an explicit baseline because that is not known.
         if (
             self.source is DataSource.SIMULATION
+            and not self.firmware_fixture
             and not self.contact_assessor.baseline_ready
             and frame.frame_valid
         ):
@@ -948,6 +951,11 @@ class ApplicationCore:
                         "config_status": self.sensor.channel_config.status,
                         "sensor_profile": self.sensor.channel_config.sensor_profile,
                         "fsr_channel_ids": [c.channel_id for c in self.sensor.channel_config.fsr_channels],
+                        "fsr_layout": [
+                            {"channel_id": c.channel_id, "name": c.name,
+                             "adc_id": c.ads1220_id, "adc_input": c.adc_input}
+                            for c in self.sensor.channel_config.fsr_channels
+                        ],
                     }
                     if self.sensor is not None and self.sensor.channel_config is not None
                     else None

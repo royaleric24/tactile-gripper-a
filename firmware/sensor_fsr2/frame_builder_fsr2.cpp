@@ -349,7 +349,7 @@ bool fsr2BuildSampleFrame(char* buffer, size_t capacity, const Fsr2SampleFrame& 
 bool fsr2BuildHelloFrame(char* buffer, size_t capacity, const Fsr2Profile& profile,
                          const char* boot_id, const Fsr2AdcStatusSnapshot* adc_status,
                          uint8_t adc_status_count) {
-  if (buffer == nullptr || capacity == 0) return false;
+  if (buffer == nullptr || capacity == 0 || !fsr2ValidateLayout(profile)) return false;
   JsonLineWriter writer(buffer, capacity);
   writer.ch('{');
   writeKey(writer, "protocol_version");
@@ -406,6 +406,7 @@ bool fsr2BuildHelloFrame(char* buffer, size_t capacity, const Fsr2Profile& profi
 bool fsr2BuildStatusFrame(char* buffer, size_t capacity, const Fsr2StatusFrame& frame) {
   if (buffer == nullptr || capacity == 0 || frame.profile == nullptr) return false;
   const Fsr2Profile& profile = *frame.profile;
+  if (!fsr2ValidateLayout(profile)) return false;
   JsonLineWriter writer(buffer, capacity);
   writer.ch('{');
   writeKey(writer, "protocol_version");

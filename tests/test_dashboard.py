@@ -69,15 +69,20 @@ class DashboardServerTests(unittest.TestCase):
             base = f"http://127.0.0.1:{port}"
             try:
                 wait_for(base + "/")
-                for path in ("/", "/experiments", "/analysis"):
+                for path in ("/", "/experiments", "/analysis", "/demo-6x6"):
                     with self.subTest(path=path):
                         with urllib.request.urlopen(base + path, timeout=5) as response:
                             self.assertEqual(response.status, 200)
                             body = response.read().decode("utf-8")
                             self.assertIn("触觉闭环机械爪 A", body)
+                            if path == "/demo-6x6":
+                                self.assertIn("36/36 格有值", body)
+                                self.assertIn("SIMULATION ONLY", body)
+                                self.assertNotIn("提交 PWM", body)
                 log = self._stop(proc)
                 self.assertNotIn("Traceback", log)
                 self.assertFalse((Path(tmp) / "data" / "real").exists())
+                self.assertFalse((Path(tmp) / "data" / "simulated").exists())
             finally:
                 if proc.poll() is None:
                     proc.kill()

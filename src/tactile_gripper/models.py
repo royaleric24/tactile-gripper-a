@@ -285,8 +285,8 @@ class ChannelConfiguration:
                 "sensor_profile must be UNKNOWN, FSR_ONLY, HYBRID_6X6_FSR2 or MATRIX_ELECTRODES_12"
             )
         if self.sensor_profile == "FSR_ONLY":
-            if len(self.channels) != 2:
-                raise ValueError("FSR_ONLY requires exactly 2 FSR channels")
+            if len(self.channels) not in (1, 2):
+                raise ValueError("FSR_ONLY requires one or two FSR channels")
             if self.matrix_rows is not None or self.matrix_cols is not None:
                 raise ValueError("FSR_ONLY must not declare matrix dimensions")
             if any(channel.has_matrix_position for channel in self.channels):
@@ -307,15 +307,15 @@ class ChannelConfiguration:
             if positions != expected:
                 raise ValueError("HYBRID_6X6_FSR2 matrix map must cover all 36 cells")
         if self.sensor_profile == "MATRIX_ELECTRODES_12":
-            if len(self.channels) not in (12, 14):
-                raise ValueError("MATRIX_ELECTRODES_12 requires 12 electrodes with optional two FSR")
+            if len(self.channels) not in (12, 13, 14):
+                raise ValueError("MATRIX_ELECTRODES_12 requires 12 electrodes with up to two FSR")
             # The old offline model stored 6x6 dimensions. Read old recordings,
             # but never interpret the dimensions as intersections.
             if (self.matrix_rows, self.matrix_cols) not in ((None, None), (6, 6)):
                 raise ValueError("invalid legacy electrode geometry")
             electrodes = [channel for channel in self.channels if self.effective_kind(channel) == "MATRIX_ELECTRODE"]
             if len(electrodes) != 12 or len(self.fsr_channels) != len(self.channels) - 12:
-                raise ValueError("expected 12 electrodes and zero or two FSR channels")
+                raise ValueError("expected 12 electrodes and zero to two FSR channels")
             rows = {channel.electrode_index for channel in electrodes if channel.electrode_axis == "ROW"}
             cols = {channel.electrode_index for channel in electrodes if channel.electrode_axis == "COLUMN"}
             if rows != set(range(6)) or cols != set(range(6)):

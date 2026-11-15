@@ -233,8 +233,12 @@ class SensorAdapter:
             if hello.sensor_profile == "HYBRID_6X6_FSR2" and self.source is not DataSource.REPLAY:
                 raise FrameValidationError("withdrawn profile (HISTORICAL)", code="PROFILE_HISTORICAL")
             wire_message = self.strict_v2 or is_wire_v2(message)
-            if wire_message and self.source is DataSource.LIVE and hello.channel_config.mapping_status == "SIM_SYNTHETIC_MAPPING":
-                raise FrameValidationError("synthetic electrode mapping in LIVE", code="MAPPING_STATUS")
+            if wire_message and self.source is DataSource.LIVE:
+                if hello.channel_config.mapping_status == "SIM_SYNTHETIC_MAPPING":
+                    raise FrameValidationError("synthetic electrode mapping in LIVE", code="MAPPING_STATUS")
+                if len(hello.channel_config.fsr_channels) > 1:
+                    raise FrameValidationError("dual FSR is supported only for simulation or historical replay",
+                                               code="PROFILE_HISTORICAL")
             previous = self.last_hello
             if wire_message and previous is not None and (
                 hello.device_id != previous.device_id or (hello.boot_id == previous.boot_id and (
@@ -763,7 +767,7 @@ def demo_config_for_profile(
     base = Path(root) if root is not None else PROJECT_ROOT
     names = {
         "MATRIX_6X6": "sensor_channels.demo.json",
-        "FSR_ONLY": "sensor_channels.fsr_only.demo.json",
+        "FSR_ONLY": "sensor_channels.fsr_single.demo.json",
         "HYBRID_6X6_FSR2": "sensor_channels.hybrid.demo.json",
         "MATRIX_ELECTRODES_12": "sensor_channels.matrix_electrodes12.demo.json",
     }

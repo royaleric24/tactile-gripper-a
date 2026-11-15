@@ -32,7 +32,7 @@ const PAGES = (process.env.PAGES || 'live,experiments,analysis').split(',');
 const VIEWPORTS = (process.env.VIEWPORTS || '1440x900,1280x800,1920x1080')
   .split(',')
   .map((item) => item.split('x').map(Number));
-const PATH = { live: '/', experiments: '/experiments', analysis: '/analysis' };
+const PATH = { live: '/', experiments: '/experiments', analysis: '/analysis', 'demo-6x6': '/demo-6x6' };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -190,6 +190,10 @@ async function auditPage(cdp, page, width, height, errors) {
       })()`);
       await sleep(600);
     }
+  }
+  if (page === 'demo-6x6') {
+    await evaluate(cdp, `[...document.querySelectorAll('button')]
+      .find((item) => item.innerText.trim() === '下一仿真帧')?.click()`);
   }
   await sleep(600);
   const metrics = await evaluate(cdp, METRICS_JS);

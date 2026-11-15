@@ -3,6 +3,7 @@ import csv
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +39,10 @@ def line(value):
 class FixtureCoreTests(unittest.TestCase):
     def test_dashboard_trials_csv_and_replay_use_original_wire_frames(self):
         cases = (
+            ("fsr1", 1, 1, "sample_fsr1_valid"),
+            ("fsr1-adc4-fault", 1, 0, "sample_fsr1_no_adc4"),
+            ("electrodes12-fsr1", 13, 1, "sample_electrodes12_fsr1_unmapped"),
+            ("electrodes12-fsr1-adc4-fault", 13, 0, "sample_electrodes12_fsr1_no_adc4"),
             ("fsr", 2, 2, "sample_fsr_only_valid"),
             ("fsr-adc4-fault", 2, 0, "sample_fsr_only_no_adc4"),
             ("electrodes12", 12, 12, "sample_electrodes12_mapped_synthetic"),
@@ -70,15 +75,20 @@ class FixtureCoreTests(unittest.TestCase):
                         self.assertEqual(matrix_view(config), "ELECTRODES")
                         chart = bar_options(snapshot["latest_frame"], config, electrode_only=True)
                         self.assertEqual(chart["xAxis"]["data"], [f"{axis}{i}" for axis in "RC" for i in range(1, 7)])
-                        if count == 14:
+                        if count in (13, 14):
                             self.assertTrue(all(item["value"] is None for item in chart["series"][0]["data"]))
-                    if count in (2, 14):
+                    if count in (1, 2, 13, 14):
+                        names = ["FSR_A"] if count in (1, 13) else ["FSR_A", "FSR_B"]
                         self.assertEqual([reading["name"] for reading in snapshot["fsr_assessment"]["readings"]],
-                                         ["FSR_A", "FSR_B"])
+                                         names)
                         self.assertTrue(all(reading["voltage_uv"] is None
                                             for reading in snapshot["fsr_assessment"]["readings"]))
                     core.stop_trial()
-                    rows = core.read_trial(trial_id)["frames"]
+                    record = core.read_trial(trial_id)
+                    rows = record["frames"]
+                    if count in (1, 13):
+                        self.assertEqual(record["metadata"]["parameters"]["sensor"]["fsr_layout"],
+                                         [{"channel_id": count - 1, "name": "FSR_A", "adc_id": 4, "adc_input": 0}])
                     self.assertEqual(rows[-1]["raw"], load(fixture))
                     csv_path = core.trial_store.export_csv(trial_id)
                     with csv_path.open(newline="") as handle:
@@ -132,6 +142,55 @@ class FixtureCoreTests(unittest.TestCase):
                 drain(bad)
                 self.assertEqual(bad.evaluate_auto_contact().action, "FAULT")
                 bad.shutdown()
+
+    def test_single_fsr_auto_uses_confirmed_channel_and_fails_closed(self):
+        with patch("serial.Serial", side_effect=AssertionError("no hardware")):
+            for fixture, channel_id in (("fsr1", 0), ("electrodes12-fsr1", 12)):
+                with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as tmp:
+                    clock = Clock()
+                    core = build_core(root=tmp, firmware_fixture=fixture)
+                    core.clock_ns = core.sensor.clock_ns = clock
+                    drain(core)
+                    frame = core.latest_frame
+                    config = core.sensor_configuration()
+                    with patch.object(core.gripper, "execute", side_effect=AssertionError("no dispatch")):
+                        core.clear_fsr_baseline()
+                        core._assess_latest_frame(frame)
+                        self.assertEqual(core.evaluate_auto_contact().action, "WAIT")
+                        assessment = core.capture_fsr_baseline()
+                        self.assertEqual([reading.channel_id for reading in assessment.readings], [channel_id])
+                        self.assertEqual(assessment.score, 0)
+                        self.assertEqual(core.evaluate_auto_contact().action, "STEP")
+                        values = (*frame.channels[:-1], frame.channels[-1] + 100_000)
+                        assessment = core.contact_assessor.assess(replace(frame, channels=values), config, now_ns=clock())
+                        self.assertEqual(assessment.score, assessment.readings[0].channel_score)
+                        self.assertGreater(assessment.score, 0)
+
+                        values = (*frame.channels[:-1], 8388607)
+                        core.latest_frame = core._assess_latest_frame(replace(frame, channels=values))
+                        self.assertTrue(core.last_assessment.readings[0].saturated)
+                        with self.assertRaisesRegex(ControlDenied, "saturated"):
+                            core.capture_fsr_baseline()
+                        self.assertEqual(core.evaluate_auto_contact().action, "FAULT")
+                        core.latest_frame = core._assess_latest_frame(frame)
+                        core.pending_command = {"command_id": "pending"}
+                        self.assertEqual(core.evaluate_auto_contact().action, "WAIT")
+                        core.pending_command = None
+                        clock.now += 300_000_000
+                        self.assertEqual(core.evaluate_auto_contact().action, "FAULT")
+                        core.sensor.close()
+                        self.assertEqual(core.evaluate_auto_contact().action, "FAULT")
+                    core.shutdown()
+
+            for fixture in ("fsr1-adc4-fault", "electrodes12-fsr1-adc4-fault"):
+                with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as tmp:
+                    core = build_core(root=tmp, firmware_fixture=fixture)
+                    drain(core)
+                    self.assertEqual(core.last_assessment.state, "INVALID")
+                    self.assertEqual(core.evaluate_auto_contact().action, "FAULT")
+                    with self.assertRaises(ControlDenied):
+                        core.capture_fsr_baseline()
+                    core.shutdown()
 
     def test_conflicts_restart_wrap_and_invalid_frames(self):
         clock = Clock()
@@ -194,11 +253,11 @@ class FixtureCoreTests(unittest.TestCase):
         clock.now += 600_000_000
         sensor.read_frame(0)
         self.assertEqual(transport.writes, [{"cmd": "HELLO"}, {"cmd": "HELLO"}])
-        transport.lines.append(line(load("hello_fsr_only")))
+        transport.lines.append(line(load("hello_fsr1")))
         sensor.read_frame(0)
         self.assertEqual(transport.writes[-1]["cmd"], "STATUS")
         query = transport.writes[-1]
-        status = load("status_fsr_only_no_adc4")
+        status = load("status_fsr1_no_adc4")
         status.update({"sensor_state": "STOPPED", "streaming": False})
         transport.lines.append(line(status))
         sensor.read_frame(0)

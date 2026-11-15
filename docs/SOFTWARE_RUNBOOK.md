@@ -22,13 +22,14 @@ PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser --demo --po
 
 # P3-A：使用固件 host 仿真输出，自动创建仿真 Trial、导出 CSV 和 REPLAY 文件
 PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser \
-  --firmware-fixture electrodes12-fsr2 --record-fixture --data-root /tmp/gripper-v2-demo --port 8080
+  --firmware-fixture electrodes12-fsr1 --record-fixture --data-root /tmp/gripper-v2-demo --port 8080
 ```
 
-`--demo-profile` 只影响合成帧；默认 `FSR_ONLY`，另一选项为 `MATRIX_ELECTRODES_12`。
+`--demo-profile` 只影响合成帧；默认单 FSR 的 `FSR_ONLY`，另一选项为 `MATRIX_ELECTRODES_12`。
 `--firmware-fixture` 直接使用固件帧构造器生成的 JSONL，仅可与 SIMULATION 同用。
-正向场景：`fsr`、`electrodes12`、`electrodes12-fsr2`；故障：
-`fsr-adc4-fault`、`electrodes12-partial`、`electrodes12-fsr2-adc4-fault`。
+当前场景为 `fsr1`、`electrodes12`、`electrodes12-fsr1`，故障场景为
+`fsr1-adc4-fault`、`electrodes12-partial`、`electrodes12-fsr1-adc4-fault`。
+历史双 FSR 场景 `fsr`、`electrodes12-fsr2` 及其故障版本可继续离线运行。
 `--record-fixture` 在读完 HELLO 后开始记录，在文件结束后结束 Trial 并输出回放路径。
 
 打开 `http://127.0.0.1:8080/`：
@@ -36,6 +37,7 @@ PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser \
 - `/` Live Monitor
 - `/experiments`
 - `/analysis`
+- `/demo-6x6`（仅 SIMULATION，独立合成热力图）
 
 默认只监听 `127.0.0.1`；投屏/局域网访问使用 `--host 0.0.0.0` 并自行评估网络暴露。
 
@@ -104,7 +106,7 @@ PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui \
   现场 USB 桥/波特率与启动时序尚未实测。
 - 正常握手发送 `{"cmd":"HELLO"}`，验证同会话后发送带请求 ID 的 `STATUS` 查询，两者只读。
   `queries_enabled=false` 禁止写采集串口。打开和握手不启动采集；单独授权采集后才点击“开始采集”。
-- 现行帧只有 2/12/14 路，缺失是 null / NO_DATA。显示 ADC counts；没有参考/增益/位数完整的
+- 现行 LIVE 帧为 1/12/13 路，历史 2/14 可仿真或回放，缺失是 null / NO_DATA。显示 ADC counts；没有参考/增益/位数完整的
   实测基准就不显示电压。相对接触评分是归一化值，真实 AUTO 保持硬关闭。
 - 状态、超时与 profile 约束见 [接口](INTERFACE_CONTRACT.md)；证据等级见 [P3-A 验收](P3A_ACCEPTANCE.md)。
 

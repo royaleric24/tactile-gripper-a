@@ -1,0 +1,24 @@
+{
+  "status": "SIMULATION",
+  "sensor_profile": "FSR_ONLY",
+  "matrix_rows": null,
+  "matrix_cols": null,
+  "adc_count": 4,
+  "scan_mode": "FSR_SINGLE",
+  "channels": [
+    {
+      "channel_id": 0,
+      "sensor_kind": "FSR",
+      "name": "FSR_A",
+      "ads1220_id": 4,
+      "adc_input": 0,
+      "matrix_row": null,
+      "matrix_col": null,
+      "enabled": true,
+      "unit": "ADC_COUNTS",
+      "adc_reference_uv": 3300000,
+      "adc_gain": 1.0,
+      "adc_bits": 24
+    }
+  ]
+}

@@ -9,7 +9,9 @@
 
 | 文件 | 内容 |
 |---|---|
-| `hello_fsr_only.json` | FSR_ONLY HELLO，2 通道 |
+| `hello_fsr1.json`、`sample_fsr1_*.json`、`status_fsr1_no_adc4.json` | 当前单 FSR_A，ADC4 AIN0，通道 0，含 ADC4 故障 |
+| `hello_electrodes12_fsr1_unmapped.json`、`sample_electrodes12_fsr1_*.json`、`status_electrodes12_fsr1_no_adc4.json` | 13 通道，通道 12 为 FSR_A，电极保持未映射 |
+| `hello_fsr_only.json` | 历史 FSR_ONLY HELLO，2 通道 |
 | `sample_fsr_only_valid.json` | FSR 健康帧 |
 | `sample_fsr_only_no_adc4.json` | ADC4 无响应：两路 FSR `null` + `NO_DATA` |
 | `hello_electrodes12_fsr2_unmapped.json` | 12 电极 + FSR HELLO，`mapping_status = PENDING_REAL_WIRING` |
@@ -19,7 +21,7 @@
 | `sample_electrodes12_mapped_synthetic.json` | 合成映射下 12 路电极数值（仅测试） |
 | `sample_electrodes12_mapped_adc_absent.json` | 合成映射下 ADC1 缺失（仅测试） |
 
-三组另有 `status_*.json`：C++ host 模拟调用同一个 STATUS 帧构造器生成，含
+五组另有 `status_*.json`：C++ host 模拟调用同一个 STATUS 帧构造器生成，含
 `request_id=fixture-status-1`、对应故障状态和最后帧序号。前三类既有 HELLO/SAMPLE 原件保留。
 
 **注意**：`*_mapped_*` 系列使用 `tools/fsr2_sim/electrode_test_profile.h` 的
