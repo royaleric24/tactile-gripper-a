@@ -10,14 +10,15 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
-import time
 from pathlib import Path
 
 from nicegui import app, ui
 
 from ..constants import SOFTWARE_VERSION
 from ..control import build_core
+from ..devices.firmware_fixture import FIXTURE_STREAMS
 from ..paths import PROJECT_ROOT
+from ..protocol import CURRENT_SENSOR_PROFILES
 from ..sources import DataSource, parse_source
 from .pages import analysis_page, experiments_page, live_page
 
@@ -51,7 +52,7 @@ def create_ui(core) -> None:
         analysis_page(core)
 
 
-def _demo_setup(core, profile: str = "MATRIX_6X6") -> None:
+def _demo_setup(core, profile: str = "FSR_ONLY") -> None:
     if core.source is not DataSource.SIMULATION:
         raise SystemExit("--demo 只适用于 --source SIMULATION")
     core.connect_gripper()
@@ -75,7 +76,7 @@ def _demo_setup(core, profile: str = "MATRIX_6X6") -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="触觉闭环机械爪 A 控制台（V1.0）")
+    parser = argparse.ArgumentParser(description="触觉闭环机械爪 A · V2 Dashboard")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--no-browser", action="store_true")
@@ -86,6 +87,8 @@ def main(argv: list[str] | None = None) -> None:
         help="数据来源；LIVE 还需要 --hardware-permission",
     )
     parser.add_argument("--sensor-file", type=Path, help="replay JSONL（需要 --source REPLAY）")
+    parser.add_argument("--firmware-fixture", choices=FIXTURE_STREAMS, help="仅 SIMULATION：读取固件 host 仿真生成的原始 JSONL")
+    parser.add_argument("--record-fixture", action="store_true", help="将本次 fixture 写入隔离的仿真 Trial 并导出 CSV / REPLAY")
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--config", type=Path, help="控制器配置 JSON（默认 config/gripper_s3.json）")
     parser.add_argument("--hardware-permission", action="store_true", help="明确授权 LIVE 串口")
@@ -98,9 +101,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--demo", action="store_true", help="仅 SIMULATION 的 Dashboard 演示数据")
     parser.add_argument(
         "--demo-profile",
-        choices=["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2", "MATRIX_ELECTRODES_12"],
-        default="MATRIX_6X6",
-        help="仿真配置档（默认 MATRIX_6X6；仅 --demo 使用）",
+        choices=CURRENT_SENSOR_PROFILES,
+        default="FSR_ONLY",
+        help="仿真配置档（默认 FSR_ONLY；仅 --demo 使用）",
     )
     args = parser.parse_args(argv)
 
@@ -118,6 +121,10 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--connect-sensor 需要 --sensor-port")
     if args.demo and source is not DataSource.SIMULATION:
         parser.error("--demo 需要 --source SIMULATION")
+    if args.firmware_fixture and (source is not DataSource.SIMULATION or args.demo or args.hardware_permission):
+        parser.error("--firmware-fixture 仅适用于独立离线 SIMULATION")
+    if args.record_fixture and not args.firmware_fixture:
+        parser.error("--record-fixture 需要 --firmware-fixture")
 
     core = build_core(
         source=source,
@@ -127,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
         port=args.connect_port,
         connect=args.connect,
         sensor_file=args.sensor_file,
+        firmware_fixture=args.firmware_fixture,
         sensor_port=args.sensor_port,
         sensor_baud=args.sensor_baud,
         sensor_config_path=args.sensor_config,
@@ -134,6 +142,22 @@ def main(argv: list[str] | None = None) -> None:
     )
     if args.demo:
         _demo_setup(core, args.demo_profile)
+    if args.firmware_fixture:
+        core.tick()  # HELLO establishes the channel map before creating a Trial.
+        if args.record_fixture:
+            core.create_trial(f"固件仿真 · {args.firmware_fixture}", tags=["P3-A", "HOST_SIMULATION"])
+            core.start_trial()
+        for _ in core.sensor.transport.lines:
+            if core.sensor.transport.at_end or core.last_sensor_error:
+                break
+            core.tick()
+        if not core.sensor.transport.at_end or core.last_sensor_error:
+            raise SystemExit(f"固件 fixture 读取失败：{core.last_sensor_error or '未读完'}")
+        if args.record_fixture:
+            trial_id = core.stop_trial("firmware fixture completed")["trial_id"]
+            core.trial_store.export_csv(trial_id)
+            replay = core.trial_store.export_replay_jsonl(trial_id)
+            print(f"SIMULATION Trial: {trial_id}; REPLAY: {replay}", flush=True)
     stop = start_ticker(core)
 
     def shutdown() -> None:

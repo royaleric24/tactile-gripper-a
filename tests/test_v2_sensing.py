@@ -462,10 +462,10 @@ class FixtureAndTrialTests(unittest.TestCase):
         self.assertTrue(adapter.query_hello(request_id="q-2"))
         self.assertEqual(
             transport.queries,
-            [encode_status_query(request_id="q-1"), encode_hello_query(request_id="q-2")],
+            [encode_status_query(request_id="q-1"), encode_hello_query()],
         )
-        self.assertIn(b'"query":"STATUS"', transport.queries[0])
-        self.assertIn(b'"query":"HELLO"', transport.queries[1])
+        self.assertEqual(json.loads(transport.queries[0]), {"cmd": "STATUS", "request_id": "q-1"})
+        self.assertEqual(json.loads(transport.queries[1]), {"cmd": "HELLO"})
 
     def test_serial_baud_921600_is_configurable_but_queries_stay_off(self):
         config = SerialSensorConfig.from_dict({"baudrate": 921600, "queries_enabled": False}).with_port("tty-test", 921600)

@@ -1,5 +1,10 @@
 # V1 Trial 数据格式
 
+> P3-A：文档中的 Trial 容器仍适用。V2 的 `raw` 保留固件 SAMPLE 原文对象（含 uint32 μs 时间、
+> `channel_flags` 和 ADC 状态），CSV 无效 `ch_N` 留空并保留 `valid_N=false`。
+> REPLAY 导出附带从元数据生成的主机布局头；不把旧 36/38 通道记录解释为 V2 新采集。
+
+
 日期：2026-11-13。当前写入 `schema_version=3`。无数据库服务器，全部为本地 JSON/JSONL/CSV。
 
 ## 1. 目录

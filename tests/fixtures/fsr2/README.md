@@ -19,6 +19,9 @@
 | `sample_electrodes12_mapped_synthetic.json` | 合成映射下 12 路电极数值（仅测试） |
 | `sample_electrodes12_mapped_adc_absent.json` | 合成映射下 ADC1 缺失（仅测试） |
 
+三组另有 `status_*.json`：C++ host 模拟调用同一个 STATUS 帧构造器生成，含
+`request_id=fixture-status-1`、对应故障状态和最后帧序号。前三类既有 HELLO/SAMPLE 原件保留。
+
 **注意**：`*_mapped_*` 系列使用 `tools/fsr2_sim/electrode_test_profile.h` 的
 `SIM_SYNTHETIC_MAPPING`，只证明"映射齐全时读数正确"的代码路径；它不是现场接线表，不能作为
 配置模板或验收证据。真实 R/C→ADC/AIN 映射缺失状态见 `docs/ISSUES.md` I-107。

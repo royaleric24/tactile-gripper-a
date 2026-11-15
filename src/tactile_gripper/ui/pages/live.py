@@ -8,6 +8,7 @@ from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
 from ...control import Mode
+from ...protocol import CURRENT_SENSOR_PROFILES
 from ...sources import DataSource
 from ..charts import bar_options, fsr_trend_options, heatmap_options, matrix_view
 from ..theme import (
@@ -75,7 +76,7 @@ def live_page(core) -> None:
         "chart_key": None,
         "fsr_key": None,
         "syncing": False,
-        "demo_profile": getattr(core, "demo_profile", "MATRIX_6X6"),
+        "demo_profile": getattr(core, "demo_profile", "FSR_ONLY"),
     }
     if core.gripper is not None:
         state["pending"] = core.gripper.pwm_initial_us or 1500
@@ -98,7 +99,7 @@ def live_page(core) -> None:
             with ui.element("div").classes("col-3"):
                 s3_value, s3_caption = metric_card("控制器状态", "memory", "离线（OFFLINE）", "尚无控制会话")
             with ui.element("div").classes("col-3"):
-                sensor_value, sensor_caption = metric_card("传感器状态", "sensors", "等待传感器数据", "未连接真实传感器")
+                sensor_value, sensor_caption = metric_card("传感器通信", "sensors", "等待传感器数据", "未连接真实传感器")
             with ui.element("div").classes("col-3"):
                 mode_value, mode_caption = metric_card("控制模式", "tune", "待机（STANDBY）", "手动控制未启用")
             with ui.element("div").classes("col-3"):
@@ -115,18 +116,24 @@ def live_page(core) -> None:
                 with ui.column().classes("card gap-3"):
                     with ui.row().classes("w-full items-start justify-between"):
                         with ui.column().classes("gap-0"):
-                            ui.label("触觉分布").classes("card-title")
+                            ui.label("触觉读数").classes("card-title")
                             ui.label("ADC 原始计数 · 无效通道不当作零接触 · 未标定数据不解释为压力/摩擦力/重量").classes("card-sub")
                         with ui.row().classes("items-center gap-3"):
                             sensor_connect_button = ui.button("连接传感器", color="secondary").props("outline no-caps")
                             sensor_query_button = ui.button("查询状态", color="secondary").props("outline no-caps")
                             sensor_hello_button = ui.button("查询 HELLO", color="secondary").props("outline no-caps")
+                            sensor_start_button = ui.button("开始采集", color="secondary").props("outline no-caps")
+                            sensor_stop_button = ui.button("停止采集", color="secondary").props("outline no-caps")
                             demo_switch = ui.switch("仿真演示（SIMULATION）", value=False).props("dense")
                             demo_profile_select = ui.select(
-                                ["MATRIX_6X6", "FSR_ONLY", "HYBRID_6X6_FSR2", "MATRIX_ELECTRODES_12"],
+                                list(CURRENT_SENSOR_PROFILES),
                                 value=state["demo_profile"],
                             ).props("dense outlined").classes("w-60")
                             source_pill = pill(source_label("SIMULATION"), "teal")
+                    with ui.row().classes("w-full items-center gap-2"):
+                        ui.label("通道数据质量").classes("card-kicker")
+                        quality_pill = pill("尚未收到帧", "slate")
+                        adc_quality = ui.label("").classes("card-sub")
                     chart_holder = ui.column().classes("w-full")
                     with ui.row().classes("w-full items-center gap-4"):
                         contact_value = ui.label("未知").classes("metric-value")
@@ -135,9 +142,10 @@ def live_page(core) -> None:
                             contact_caption = ui.label("尚无标定接触指标").classes("metric-caption")
                         ui.element("div").classes("sidebar-spacer")
                         frame_caption = ui.label("暂无触觉帧").classes("mono").style("color:#94a3b8")
-                    ui.label(
-                        "仿真演示只产生合成数据，始终标注 SIMULATION；不会显示为真实设备（LIVE）。"
-                    ).classes("card-sub")
+                    if core.firmware_fixture:
+                        ui.label(
+                            f"固件主机仿真（OFFLINE_VERIFIED） · {core.firmware_fixture} · 无真实设备"
+                        ).classes("notice notice-amber")
 
             with ui.element("div").classes("col-5"):
                 with ui.column().classes("card gap-3"):
@@ -272,19 +280,21 @@ def live_page(core) -> None:
         view = matrix_view(config)
         with chart_holder:
             if view == "CELLS":
+                ui.label("HISTORICAL · 历史矩阵回放").classes("notice notice-amber")
                 ui.echart(heatmap_options(frame, config)).classes("w-full").style("height:310px")
             elif view == "ELECTRODES":
-                ui.echart(bar_options(frame, config)).classes("w-full").style("height:280px")
-                ui.label(
-                    "MATRIX_ELECTRODES_12：仅显示 12 路行列电极原始 ADC。"
-                    "R/C→ADC/AIN 映射未确认，36 点压力热图不可用；这里不推算压力分布。"
-                ).classes("notice notice-amber").style("width:100%")
-            elif config is not None:
-                empty_state(
-                    "grid_off",
-                    "此配置没有矩阵通道",
-                    "FSR 原始值、相对变化与趋势见下方 FSR 相对接触卡片；FSR 不会进入矩阵热图。",
+                ui.echart(bar_options(frame, config, electrode_only=True)).classes("w-full").style("height:280px")
+                mapping = (config or {}).get("mapping_status")
+                message = (
+                    "本图使用合成映射（SIM_SYNTHETIC_MAPPING）；真实映射待现场核对。"
+                    if mapping == "SIM_SYNTHETIC_MAPPING" else
+                    "真实 R/C→ADC/AIN 映射待核对（PENDING_REAL_WIRING）。"
                 )
+                ui.label("R1–R6 / C1–C6 · 12 路被动电极原始计数。 " + message).classes(
+                    "notice notice-amber"
+                ).style("width:100%")
+            elif config is not None:
+                ui.echart(bar_options(frame, config)).classes("w-full").style("height:260px")
             else:
                 ui.echart(bar_options(frame)).classes("w-full").style("height:310px")
             invalid = frame.get("channel_count", 0) - frame.get("valid_count", 0)
@@ -321,6 +331,8 @@ def live_page(core) -> None:
         config = snapshot.get("sensor_config")
         sensor_identity = (snapshot.get("device_identities") or {}).get("sensor") or {}
         profile = (config or {}).get("sensor_profile") or sensor_identity.get("sensor_profile") or "UNKNOWN"
+        if profile == "HYBRID_6X6_FSR2" or (config and matrix_view(config) == "CELLS"):
+            profile = f"HISTORICAL · {profile}"
         fsr_count = sum(
             1 for channel in (config or {}).get("channels", [])
             if channel.get("sensor_kind") == "FSR"
@@ -340,14 +352,20 @@ def live_page(core) -> None:
             if channel.get("sensor_kind") == "MATRIX_ELECTRODE"
             or channel.get("electrode_axis") is not None
         )
-        channel_summary = f"FSR {fsr_count} / 矩阵 {matrix_count}"
+        channel_summary = f"FSR {fsr_count}" + (f" / 历史矩阵 {matrix_count}" if matrix_count else "")
         if electrode_count:
-            channel_summary = f"FSR {fsr_count} / 电极 {electrode_count}（36 点热图不可用）"
+            channel_summary = f"FSR {fsr_count} / 电极 {electrode_count}"
+        sensor_detail = snapshot["sensor"].get("detail") or {}
+        query = {"PENDING": "等待 STATUS", "TIMEOUT": "STATUS 回复超时", "RECEIVED": "已收到 STATUS"}.get(
+            sensor_detail.get("status_query_result"), ""
+        )
         sensor_caption.set_text(
             f"{profile} · {snapshot['sensor'].get('channel_count') or '—'} 通道 / {channel_summary}"
             + (f" · {sensor_identity.get('port')}@{sensor_identity.get('baudrate')}" if sensor_identity.get("port") else "")
             + f" · 已接收 {snapshot['frames_received']} 帧 · "
-            f"{f'{rate:.1f} Hz' if rate else '采样率未知'} · {freshness_text}"
+            f"{f'{rate:.1f} Hz' if rate else '帧率未知'}"
+            + (f" · {freshness_text}" if source == "LIVE" else "")
+            + (f" · {query}" if query else "")
             + (f" · 重连 {snapshot.get('sensor_reconnect_count', 0)}" if snapshot.get("sensor_reconnect_count") else "")
             + (f" · {event_detail_label(snapshot['sensor'].get('last_error'))}" if snapshot['sensor'].get('last_error') else "")
         )
@@ -423,6 +441,22 @@ def live_page(core) -> None:
             connect_button.set_enabled(False)
 
         latest = snapshot.get("latest_frame")
+        adc_faults = [item for item in sensor_detail.get("adc_status", []) if item.get("state") != "OK"]
+        adc_states = {"NO_RESPONSE": "无响应", "CONFIG_ERROR": "配置错误", "RECOVERING": "恢复中", "FAILED": "故障"}
+        adc_quality.set_text(" · ".join(
+            f"ADC{item['id']} {adc_states.get(item['state'], item['state'])}" for item in adc_faults
+        ))
+        if latest:
+            valid, count = latest["valid_count"], latest["channel_count"]
+            flagged = sum(1 for flag in sensor_detail.get("channel_flags", []) if flag and not flag & 0x20)
+            prefix = "最近一帧 · " if snapshot["sensor"]["state"] in ("STALE", "OFFLINE", "DATA_ERROR", "STOPPED") else ""
+            label = f"{prefix}{valid}/{count} 有效"
+            label += " · 全部缺失" if valid == 0 else f" · {count - valid} 路无效" if valid < count else ""
+            if flagged:
+                label += f" · {flagged} 路 ADC 告警"
+            set_pill(quality_pill, label, "green" if valid == count and not flagged and not adc_faults and not prefix else "amber")
+        else:
+            set_pill(quality_pill, "尚未收到帧", "slate")
         if latest:
             latest_source = latest.get("source", "UNKNOWN")
             set_pill(
@@ -495,7 +529,7 @@ def live_page(core) -> None:
                     fsr_raw.set_text("原始 ADC —（无效/缺失，不当作零）")
                     fsr_voltage.set_text("电压 —")
                     fsr_delta.set_text("相对变化 —")
-                    set_pill(fsr_state, "无效帧" if baseline_ready else "未标定", "red" if baseline_ready else "amber")
+                    set_pill(fsr_state, "无效 / 无数据", "red")
                 else:
                     fsr_raw.set_text(f"原始 ADC {int(reading['raw'])}")
                     voltage_uv = reading.get("voltage_uv")
@@ -525,13 +559,20 @@ def live_page(core) -> None:
         decision_table.rows = [_format_event(item) for item in (snapshot.get("recent_events") or [])[:8]]
         decision_table.update()
 
-        demo_switch.set_visibility(core.source is DataSource.SIMULATION)
-        demo_profile_select.set_visibility(core.source is DataSource.SIMULATION)
+        demo_switch.set_visibility(core.source is DataSource.SIMULATION and not core.firmware_fixture)
+        demo_profile_select.set_visibility(core.source is DataSource.SIMULATION and not core.firmware_fixture)
         sensor_connect_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
         sensor_query_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
         sensor_query_button.set_enabled(core.sensor is not None and hasattr(core.sensor, "query_status"))
         sensor_hello_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
         sensor_hello_button.set_enabled(core.sensor is not None and hasattr(core.sensor, "query_hello"))
+        live_sensor = core.source is DataSource.LIVE and core.sensor is not None
+        sensor_start_button.set_visibility(live_sensor)
+        sensor_stop_button.set_visibility(live_sensor)
+        if live_sensor:
+            ready = bool(snapshot.get("sensor_connected") and sensor_detail.get("hello") and query != "等待 STATUS")
+            sensor_start_button.set_enabled(ready and snapshot["sensor"]["state"] != "STREAMING")
+            sensor_stop_button.set_enabled(ready)
         if core.source is DataSource.SIMULATION and state["demo_profile"] != getattr(core, "demo_profile", state["demo_profile"]):
             state["demo_profile"] = core.demo_profile
             demo_profile_select.value = state["demo_profile"]
@@ -540,7 +581,7 @@ def live_page(core) -> None:
             sensor_connected = bool(snapshot.get("sensor_connected"))
             sensor_connect_button.set_text("传感器已连接" if sensor_connected else "连接传感器")
             sensor_connect_button.set_enabled(not sensor_connected)
-        if core.source is DataSource.SIMULATION:
+        if core.source is DataSource.SIMULATION and not core.firmware_fixture:
             connected = bool(snapshot.get("sensor_connected"))
             if demo_switch.value != connected:
                 state["syncing"] = True
@@ -593,6 +634,14 @@ def live_page(core) -> None:
             await asyncio.to_thread(core.request_real_auto_commissioning)
         except Exception as exc:
             ui.notify(error_text(exc), type="negative", timeout=8000)
+        refresh()
+
+    async def set_sensor_stream(enabled: bool) -> None:
+        try:
+            ok = await asyncio.to_thread(core.request_sensor_stream, enabled)
+            ui.notify("采集命令已发送，等待 STATUS 确认" if ok else "采集命令未发送", type="info" if ok else "warning")
+        except Exception as exc:
+            ui.notify(error_text(exc), type="negative")
         refresh()
 
     async def on_demo_profile(event) -> None:
@@ -671,13 +720,13 @@ def live_page(core) -> None:
     async def connect_sensor() -> None:
         try:
             await asyncio.to_thread(core.connect_sensor)
-            ui.notify("传感器串口已连接；协议仍为 PROPOSED，未确认硬件实现", type="positive")
+            ui.notify("传感器串口已连接，等待 V2 HELLO。采集需要单独启动。", type="positive")
         except Exception as exc:
             ui.notify(error_text(exc), type="negative", timeout=6000)
         refresh()
 
     async def on_demo_change(event) -> None:
-        if state["syncing"]:
+        if state["syncing"] or core.firmware_fixture:
             return
         try:
             await asyncio.to_thread(core.set_demo_stream, bool(event.value))
@@ -700,6 +749,12 @@ def live_page(core) -> None:
     baseline_clear_button.on_click(clear_baseline)
     sensor_query_button.on_click(query_sensor)
     sensor_hello_button.on_click(query_sensor_hello)
+    async def start_sensor_stream():
+        await set_sensor_stream(True)
+    async def stop_sensor_stream():
+        await set_sensor_stream(False)
+    sensor_start_button.on_click(start_sensor_stream)
+    sensor_stop_button.on_click(stop_sensor_stream)
     commission_button.on_click(request_commissioning)
 
     refresh()

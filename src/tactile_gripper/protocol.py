@@ -14,6 +14,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from tools.fsr2 import protocol_v2 as wire_v2
+
 from .constants import (
     DEFAULT_SENSOR_STALE_S,
     MAX_SENSOR_LINE_BYTES,
@@ -144,20 +146,71 @@ class ErrorMessage:
     raw: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
 
-def parse_hello(message: dict[str, Any]) -> HelloMessage:
+CURRENT_SENSOR_PROFILES = ("FSR_ONLY", "MATRIX_ELECTRODES_12")
+
+
+def validate_wire_v2(message: dict[str, Any]):
+    """Reuse the firmware team's reference checks; translate errors for the UI."""
+    try:
+        return wire_v2.PARSERS[message["type"]](message)
+    except wire_v2.FrameValidationError as exc:
+        raise FrameValidationError(str(exc), code=exc.code) from exc
+
+
+def is_wire_v2(message: dict[str, Any]) -> bool:
+    return "reference_mode" in message or "raw_adc" in message
+
+
+def v2_channel_config(message: dict[str, Any]) -> ChannelConfiguration:
+    """Project a validated HELLO/STATUS into the existing host model."""
+    config = message["channel_config"]
+    profile = message["sensor_profile"]
+    count = message["channel_count"]
+    channels = []
+    for layout, entry in zip(wire_v2.expected_layout(profile, count), config["channels"]):
+        electrode = layout.kind == "ELECTRODE"
+        channels.append({
+            "channel_id": layout.channel_id,
+            "sensor_kind": "MATRIX_ELECTRODE" if electrode else "FSR",
+            "name": (wire_v2.ELECTRODE_NAMES[layout.channel_id] if electrode
+                     else ("FSR_A", "FSR_B")[layout.channel_id - (count - 2)]),
+            "electrode_axis": layout.role if electrode else None,
+            "electrode_index": layout.position - 1 if electrode else None,
+            "ads1220_id": entry.get("ads1220_id"),
+            "adc_input": entry.get("adc_input"),
+            "mux_channel": entry.get("mux_channel"),
+            "unit": "ADC_COUNTS",
+            "adc_bits": 24,
+        })
+    return ChannelConfiguration.from_dict({
+        "status": config["status"],
+        "scan_mode": config.get("scan_mode", "UNKNOWN"),
+        "adc_count": config["adc_count"],
+        "sensor_profile": profile,
+        "mapping_status": (message.get("electrode_layout") or {}).get("mapping_status"),
+        "channels": channels,
+    })
+
+
+def parse_hello(message: dict[str, Any], *, strict_v2: bool = False) -> HelloMessage:
     if message.get("type") != "HELLO":
         raise ProtocolError("not a HELLO message")
     channel_config = message.get("channel_config")
     if not isinstance(channel_config, dict):
         raise FrameValidationError("missing channel_config", code="MISSING_FIELD")
-    # ``sensor_profile`` is proposed at HELLO top level; legacy devices may put
-    # it inside channel_config.  Accept either, with the channel_config value
-    # winning because that is the structure the host actually consumes.
+    if "sensor_profile" in channel_config and "sensor_profile" in message and (
+        channel_config["sensor_profile"] != message["sensor_profile"]
+    ):
+        raise FrameValidationError("top-level and channel_config sensor_profile disagree", code="PROFILE_CONFLICT")
     config_payload = dict(channel_config)
     if "sensor_profile" not in config_payload and message.get("sensor_profile") is not None:
         config_payload["sensor_profile"] = message.get("sensor_profile")
     try:
-        config = ChannelConfiguration.from_dict(config_payload)
+        if strict_v2 or is_wire_v2(message):
+            validate_wire_v2(message)
+            config = v2_channel_config(message)
+        else:
+            config = ChannelConfiguration.from_dict(config_payload)
     except ValueError as exc:
         raise FrameValidationError(f"invalid channel_config: {exc}", code="INVALID_CHANNEL") from exc
     sample_rate = message.get("sample_rate_hz")
@@ -188,9 +241,19 @@ def parse_sample(
     source: DataSource = DataSource.LIVE,
     host_received_ns: int | None = None,
     host_received_utc: str | None = None,
+    strict_v2: bool = False,
 ) -> TactileFrame:
     if message.get("type") != "SAMPLE":
         raise ProtocolError("not a SAMPLE message")
+    if strict_v2 or is_wire_v2(message):
+        wire = validate_wire_v2(message)
+        if wire.profile != channel_config.sensor_profile or wire.channel_count != channel_config.expected_channel_count:
+            raise FrameValidationError("SAMPLE profile/count differs from HELLO", code="PROFILE_CONFLICT")
+        for entry, valid in zip(channel_config.channels, wire.valid):
+            if not valid:
+                continue
+            if entry.ads1220_id is None:
+                raise FrameValidationError("SAMPLE claims data from an unmapped ADC", code="ADC_DATA_CONFLICT")
     channels_raw = message.get("channels")
     mask_raw = message.get("valid_mask")
     if not isinstance(channels_raw, list) or not isinstance(mask_raw, list):
@@ -203,7 +266,7 @@ def parse_sample(
         if not isinstance(channel_ids_raw, list) or not all(type(item) is int for item in channel_ids_raw):
             raise FrameValidationError("channel_ids must be an array of integers", code="INVALID_CHANNEL")
         channel_ids = tuple(channel_ids_raw)
-    contact_score = message.get("contact_score")
+    contact_score = None if strict_v2 or is_wire_v2(message) else message.get("contact_score")
     if contact_score is not None and (
         type(contact_score) not in (int, float) or not math.isfinite(contact_score)
     ):
@@ -360,34 +423,14 @@ def encode_status(
     )
 
 
-def _encode_query(query: str, *, request_id: str | None = None) -> bytes:
-    payload = {
-        "protocol_version": PROTOCOL_VERSION,
-        "type": "QUERY",
-        "query": query,
-    }
-    if request_id is not None:
-        payload["request_id"] = request_id
-    return _json_line(payload)
-
-
 def encode_status_query(*, request_id: str | None = None) -> bytes:
-    """Host -> device query; not a sensor->host message.
-
-    The V2 proposal does not freeze a query response yet.  Sending this is
-    opt-in and only a request for a normal STATUS/HELLO reply; it never changes
-    PWM or starts a control session.
-    """
-    return _encode_query("STATUS", request_id=request_id)
+    """V2 read-only STATUS command; firmware echoes an optional request ID."""
+    return wire_v2.encode_command("STATUS", request_id=request_id)
 
 
-def encode_hello_query(*, request_id: str | None = None) -> bytes:
-    """Ask the device to repeat HELLO after a missed boot announcement.
-
-    Like STATUS, this is a proposed opt-in query, not a control command.  The
-    reply is parsed by the normal HELLO path and cannot by itself open AUTO.
-    """
-    return _encode_query("HELLO", request_id=request_id)
+def encode_hello_query() -> bytes:
+    """Ask V2 firmware to repeat HELLO; it never echoes a request ID."""
+    return wire_v2.encode_command("HELLO")
 
 
 def encode_error(
@@ -491,7 +534,11 @@ class FrameTracker:
                     code="SEQUENCE_REGRESSION",
                 )
             assert self.last_mcu_time_us is not None
-            if frame.mcu_time_us <= self.last_mcu_time_us:
+            wire = frame.raw or {}
+            time_delta = frame.mcu_time_us - self.last_mcu_time_us
+            if is_wire_v2(wire):
+                time_delta &= 0xFFFFFFFF
+            if time_delta <= 0 or (is_wire_v2(wire) and time_delta >= 0x80000000):
                 raise FrameValidationError(
                     "mcu_time_us is not strictly increasing", code="TIMESTAMP_ANOMALY"
                 )

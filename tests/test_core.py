@@ -116,7 +116,7 @@ class SimulationCoreTests(unittest.TestCase):
         snapshot = self.core.snapshot()
         self.assertEqual(snapshot["sensor_state_label"], "SENSOR STREAMING")
         self.assertEqual(snapshot["latest_frame"]["source"], "SIMULATION")
-        self.assertEqual(snapshot["latest_frame"]["channel_count"], 36)
+        self.assertEqual(snapshot["latest_frame"]["channel_count"], 2)
 
         metadata = self.core.create_trial("demo trial", conditions={"object": "none"})
         self.assertEqual(metadata["source"], "SIMULATION")

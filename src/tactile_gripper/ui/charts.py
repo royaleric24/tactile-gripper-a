@@ -45,7 +45,7 @@ def _axis_bounds(low: float, high: float) -> tuple[float, float]:
         if span / candidate <= 5:
             step = candidate
             break
-    lower = max(0.0, math.floor(low / step) * step)
+    lower = math.floor(low / step) * step
     upper = math.ceil((high + span * 0.12) / step) * step
     if upper <= high:
         upper = high + step
@@ -192,7 +192,8 @@ def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
                 "type": "line",
                 "yAxisIndex": 0,
                 "data": data,
-                "showSymbol": False,
+                "showSymbol": len(history) <= 12,
+                "symbolSize": 5,
                 "connectNulls": False,
                 "lineStyle": {"width": 1.6, "color": palette[order % len(palette)]},
                 "itemStyle": {"color": palette[order % len(palette)]},
@@ -204,7 +205,8 @@ def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
             "type": "line",
             "yAxisIndex": 1,
             "data": [item.get("score") for item in history],
-            "showSymbol": False,
+            "showSymbol": len(history) <= 12,
+            "symbolSize": 5,
             "connectNulls": False,
             "lineStyle": {"width": 1.2, "type": "dashed", "color": "#b45309"},
             "itemStyle": {"color": "#b45309"},
@@ -244,9 +246,12 @@ def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
+def bar_options(frame: dict[str, Any], channel_config=None, *, electrode_only: bool = False) -> dict[str, Any]:
     values = _values(frame)
     config = _config(channel_config)
+    if electrode_only and config is not None:
+        ids = {channel.channel_id for channel in config.electrode_channels}
+        values = [item for item in values if item[0] in ids]
     labels = {
         channel.channel_id: channel.name or f"CH{channel.channel_id}"
         for channel in (config.channels if config is not None else ())
@@ -254,6 +259,7 @@ def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
     valid = [float(value) for _, value, is_valid in values if is_valid and value is not None]
     low, high = _range(valid)
     axis_low, axis_high = _axis_bounds(low, high)
+    axis_low, axis_high = min(0, axis_low), max(0, axis_high)
     data = [
         {
             "value": round(float(value), 1) if is_valid and value is not None else None,
@@ -264,7 +270,7 @@ def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
     return {
         "backgroundColor": "transparent",
         "animationDuration": 250,
-        "grid": {"left": 46, "right": 14, "top": 32, "bottom": 30},
+        "grid": {"left": 12, "right": 14, "top": 32, "bottom": 12, "containLabel": True},
         "tooltip": {"trigger": "axis"},
         "xAxis": {
             "type": "category",

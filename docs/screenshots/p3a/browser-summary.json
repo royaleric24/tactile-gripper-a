@@ -1,0 +1,49 @@
+{
+  "result": "PASS",
+  "evidence": "OFFLINE_VERIFIED",
+  "scenarios": [
+    {
+      "scenario": "fsr",
+      "valid": 2,
+      "channels": 2,
+      "trial_frames": 1,
+      "viewports": 1
+    },
+    {
+      "scenario": "fsr-adc4-fault",
+      "valid": 0,
+      "channels": 2,
+      "trial_frames": 2,
+      "viewports": 6
+    },
+    {
+      "scenario": "electrodes12",
+      "valid": 12,
+      "channels": 12,
+      "trial_frames": 1,
+      "viewports": 1
+    },
+    {
+      "scenario": "electrodes12-partial",
+      "valid": 8,
+      "channels": 12,
+      "trial_frames": 2,
+      "viewports": 1
+    },
+    {
+      "scenario": "electrodes12-fsr2",
+      "valid": 2,
+      "channels": 14,
+      "trial_frames": 1,
+      "viewports": 6
+    },
+    {
+      "scenario": "electrodes12-fsr2-adc4-fault",
+      "valid": 0,
+      "channels": 14,
+      "trial_frames": 2,
+      "viewports": 1
+    }
+  ],
+  "replay_viewports": 1
+}

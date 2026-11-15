@@ -152,6 +152,10 @@ class RuleBasedAutoPolicy:
             return AutoDecision("FAULT", "frame older than stale limit", seq, received, age_ms=age_ms, details=base_details)
         if pending_command:
             return AutoDecision("WAIT", "previous PWM command has no ACK", seq, received, age_ms=age_ms, details=base_details)
+        if (not frame.frame_valid or not all(frame.valid_mask)
+                or any((frame.raw or {}).get("channel_flags", []))
+                or any(item["state"] != "OK" for item in (frame.raw or {}).get("adc_status", []))):
+            return AutoDecision("FAULT", "frame has invalid channels or ADC warnings", seq, received, age_ms=age_ms, details=base_details)
         state = getattr(assessment, "state", "INVALID")
         if state in ("INVALID", "NOT_APPLICABLE"):
             return AutoDecision("FAULT", f"contact assessment {state}", seq, received, age_ms=age_ms, details=base_details)

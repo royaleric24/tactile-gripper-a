@@ -191,6 +191,24 @@ inline int run_fsr2_sampler_cases(const Fsr2Profile& profile, bool emit) {
     if (fsr2BuildSampleFrame(out_buffer, sizeof(out_buffer), degraded)) {
       emitLine(out_buffer);
     }
+    Fsr2AdcStatusSnapshot status[4];
+    for (uint8_t index = 0; index < sampler.adcStatusCount(); ++index) {
+      status[index] = sampler.adcStatus(index);
+    }
+    Fsr2StatusFrame report{};
+    report.profile = &profile;
+    report.boot_id = boot_id;
+    report.uptime_ms = 140;
+    report.streaming = sampler.streaming();
+    report.frame_rate_centi_hz = sampler.frameRateCentiHz();
+    report.last_frame_seq = sampler.frameSeq();
+    report.last_error = sampler.lastError();
+    report.adc_status = status;
+    report.adc_status_count = sampler.adcStatusCount();
+    report.request_id = "fixture-status-1";
+    const bool status_built = fsr2BuildStatusFrame(out_buffer, sizeof(out_buffer), report);
+    expect(status_built, "STATUS fits in the firmware line buffer");
+    if (status_built) emitLine(out_buffer);
   }
 
   // Recovery path: the converter answers again and the next frame is clean.

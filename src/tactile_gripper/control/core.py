@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from ..constants import SOFTWARE_VERSION, TRIAL_SCHEMA_VERSION
+from ..devices.firmware_fixture import firmware_fixture_adapter
 from ..devices.gripper import GripperAdapter
 from ..devices.sensor import (
     ReplaySensorAdapter,
     SimulatedSensorAdapter,
-    default_demo_config,
     demo_config_for_profile,
 )
 from ..devices.sensor_serial import SerialSensorConfig, serial_sensor_adapter
@@ -37,6 +37,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..paths import PROJECT_ROOT, environment_snapshot
+from ..protocol import CURRENT_SENSOR_PROFILES
 from ..sources import DataSource, parse_source
 from .auto import (
     AUTO_REAL_ENABLED,
@@ -88,7 +89,7 @@ class ApplicationCore:
         clock=time.monotonic,
         clock_ns=time.monotonic_ns,
         demo_period_s: float = 0.2,
-        demo_profile: str = "MATRIX_6X6",
+        demo_profile: str = "FSR_ONLY",
         fsr_thresholds: FsrThresholds | None = None,
         commission_real_auto: bool = False,
     ):
@@ -103,6 +104,7 @@ class ApplicationCore:
             raise ControlDenied("sensor source does not match application source")
         self.gripper = gripper
         self.sensor = sensor
+        self.firmware_fixture = getattr(getattr(sensor, "transport", None), "scenario", None)
         self.trial_store = trial_store or TrialStore(self.root, self.source)
         self.clock = clock
         self.clock_ns = clock_ns
@@ -367,6 +369,8 @@ class ApplicationCore:
                 raise ControlDenied("no FSR frame available for baseline")
             if not config.fsr_channels:
                 raise ControlDenied("sensor profile has no FSR channels")
+            if self.sensor.last_frame is None or self.sensor.state not in ("STREAMING", "REPLAY", "FIXTURE_COMPLETE"):
+                raise ControlDenied("FSR baseline requires an accepted frame from the current session")
             # A recorded REPLAY is not judged against wall-clock now; its own
             # host_received_ns is the only timebase it has.
             reference_ns = (
@@ -416,15 +420,22 @@ class ApplicationCore:
         with self._lock:
             frame = self.latest_frame
             assessment = self.last_assessment
+            state = self.sensor.status().state if self.sensor is not None else "OFFLINE"
+            if state == "FIXTURE_COMPLETE":
+                # Offline decision on the last fixture only while its normal
+                # monotonic deadline still holds. No actuator dispatch.
+                state = "STREAMING"
             decision = self.auto_policy.evaluate_contact(
                 frame,
                 assessment,
                 now_ns=self.clock_ns(),
-                target_us=int(getattr(self.gripper, "last_pwm_us", 0) or 0),
+                target_us=int((self.gripper.last_pwm_us or self.gripper.pwm_initial_us) if self.gripper else 0),
                 steps=0,
                 total_change_us=0,
-                sensor_state=sensor_state or (getattr(self.sensor, "state", "OFFLINE") if self.sensor else "OFFLINE"),
-                pending_command=pending_command,
+                sensor_state=state if state != "STREAMING" else (sensor_state or state),
+                pending_command=bool(pending_command or self.pending_command or (
+                    self.last_pwm_command and self.last_pwm_command.get("acknowledged") is not True
+                )),
                 min_pwm_us=(self.gripper.pwm_limits or {}).get("min_us") if self.gripper else None,
                 max_pwm_us=(self.gripper.pwm_limits or {}).get("max_us") if self.gripper else None,
             )
@@ -443,6 +454,7 @@ class ApplicationCore:
     def _assess_latest_frame(self, frame: TactileFrame) -> TactileFrame:
         config = self.sensor_configuration()
         if config is None or not config.fsr_channels:
+            self.last_assessment = None
             return frame
         # Simulation only: capture the first valid unloaded frame so the
         # offline demo can show relative contact.  Real data requires the
@@ -681,6 +693,14 @@ class ApplicationCore:
     def query_sensor_hello(self) -> bool:
         return self._query_sensor("HELLO")
 
+    def request_sensor_stream(self, enabled: bool) -> bool:
+        with self._lock:
+            if self.source is not DataSource.LIVE or self.sensor is None:
+                raise ControlDenied("sensor stream command requires an explicitly authorized LIVE source")
+            ok = self.sensor.request_stream(enabled)
+            self._system("SENSOR_QUERY", f"sensor stream request {'sent' if ok else 'not sent'}")
+            return ok
+
     def _query_sensor(self, query: str) -> bool:
         with self._lock:
             if self.sensor is None:
@@ -697,8 +717,10 @@ class ApplicationCore:
 
     def select_demo_profile(self, profile: str) -> None:
         with self._lock:
-            if self.source is not DataSource.SIMULATION:
+            if self.source is not DataSource.SIMULATION or self.firmware_fixture:
                 raise ControlDenied("demo profile only applies to SIMULATION")
+            if profile.upper() not in CURRENT_SENSOR_PROFILES:
+                raise ControlDenied("historical sensor profile is replay-only")
             self.demo_profile = profile.upper()
             self.contact_assessor.clear_baseline()
             self.last_assessment = None
@@ -707,19 +729,22 @@ class ApplicationCore:
 
     def set_demo_stream(self, enabled: bool, *, profile: str | None = None) -> DeviceStatus | None:
         with self._lock:
-            if self.source is not DataSource.SIMULATION:
+            if self.source is not DataSource.SIMULATION or self.firmware_fixture:
                 self._deny("DEMO_STREAM", "simulation demo only available for SIMULATION source")
                 raise ControlDenied("simulation demo only available for SIMULATION source")
             selected = (profile or self.demo_profile).upper()
+            if selected not in CURRENT_SENSOR_PROFILES:
+                raise ControlDenied("historical sensor profile is replay-only")
             if enabled:
                 if (
                     self.sensor is not None
                     and getattr(self.sensor, "connected", False)
-                    and self.demo_profile == selected
+                    and self.sensor.channel_config.sensor_profile == selected
                 ):
                     return self.sensor.status()
                 if self.sensor is not None:
                     self.sensor.close()
+                self.latest_frame = None
                 self.demo_profile = selected
                 self.contact_assessor.clear_baseline()
                 self.last_assessment = None
@@ -766,7 +791,7 @@ class ApplicationCore:
                 return
         except AttributeError:
             return
-        for _ in range(8):
+        for _ in range(64):
             try:
                 frame = self.sensor.read_frame(0.0)
             except FrameValidationError as exc:
@@ -809,12 +834,19 @@ class ApplicationCore:
                 )
                 break
             if frame is None:
+                # HELLO for a new boot invalidates the previous sample and
+                # baseline even before the replacement SAMPLE arrives.
+                if self.latest_frame is not None and self.sensor.last_frame is None:
+                    self.latest_frame = None
+                    self.last_assessment = None
+                    self.contact_assessor.clear_baseline()
+                    self.fsr_history.clear()
                 break
+            self._record_frame_anomalies()
             frame = self._assess_latest_frame(frame)
             self.latest_frame = frame
             self.frames_received += 1
             self.last_sensor_error = None
-            self._record_frame_anomalies()
             if self.trial is not None and self.trial.recording:
                 try:
                     config = self.sensor_configuration()
@@ -1165,6 +1197,7 @@ def build_core(
     port: str | None = None,
     connect: bool = False,
     sensor_file: Path | str | None = None,
+    firmware_fixture: str | None = None,
     sensor_port: str | None = None,
     sensor_baud: int | None = None,
     sensor_config_path: Path | str | None = None,
@@ -1179,7 +1212,11 @@ def build_core(
             hardware_permission=hardware_permission,
         )
     sensor = None
-    if sensor_file is not None:
+    if firmware_fixture is not None:
+        if source is not DataSource.SIMULATION or sensor_file is not None or sensor_port is not None:
+            raise ControlDenied("firmware fixtures require the offline SIMULATION source")
+        sensor = firmware_fixture_adapter(firmware_fixture)
+    elif sensor_file is not None:
         if source is not DataSource.REPLAY:
             raise ControlDenied("sensor_file replay requires --source REPLAY")
         sensor = ReplaySensorAdapter(sensor_file)
@@ -1195,6 +1232,6 @@ def build_core(
             raise ControlDenied("REPLAY cannot connect a gripper")
         core.connect_gripper(port)
         core.begin_manual_session()
-    if connect_sensor:
+    if connect_sensor or firmware_fixture is not None or sensor_file is not None:
         core.connect_sensor()
     return core

@@ -69,7 +69,7 @@ R_fsr  ≈ R_ref × (V_exc / V_AIN − 1)   (R_ref = 10 kΩ，V_exc = 3.3 V)
 | 单行上限 | 8192 字节（固件发送缓冲；实测见 §7） |
 | 命令上限 | 512 字节 |
 
-固件与 `config/*.json` 中的 `serial_baud` 都是 921600。**软件组旧模板里的 115200 必须改为 921600**，否则会收到乱码字节流而不是 JSON。这一项登记为 `docs/ISSUES.md` I-006。
+固件与 `config/*.json` 中的 `serial_baud` 都是 921600。P3-A 的 Dashboard 配置已同步。S3 控制器是另一条链路；实际 Mac 串口尚未验证。
 
 ## 3. Profile 与通道号
 
@@ -264,12 +264,12 @@ print(sample.fsr_values)              # {'FSR_A': 762601, 'FSR_B': 889701}
 
 解析器会拒绝：通道数不符、`valid` 与 `valid_mask` 不一致、无效通道带数值、`valid` 与 `NO_DATA` 矛盾、内部 2.048 V 参考、`adc_status` 不是 4 个、`fsr_layout.validated = true`（在真实标定前宣称已验证）等。软件组可以用它当"客户端是否实现正确"的对照。
 
-## 10. 软件组需要同步的已知缺口
+## 10. P3-A 主机消费路径
 
-1. **`tools/tactile_acq/protocol.py` 仍硬编码 12 通道 / 3 颗 ADC**：`CHANNEL_COUNT = 12`、`ADC_COUNT = 3`，会拒绝 FSR_ONLY 的 2 通道帧与电极 profile 的 12/14 通道帧。需要按 `sensor_profile` 取通道数，并保留旧 12 通道路径；`tools/fsr2/protocol_v2.py` 已按新语义实现，可作为对照。登记为 `docs/ISSUES.md` I-101。
-2. **波特率 115200 → 921600**（I-006）。
-3. 记录器/CSV 列名沿用 `channel_0..channel_N` 时，需按 profile 生成列；FSR 专用列建议 `fsr_a_counts` / `fsr_b_counts`。
-4. 38 通道帧的 `sample_timestamp_us` 各不相同，不要按"整帧同时采样"做微分；滑移判断需要时间对齐或降采样。
+1. Dashboard 直接复用 `tools/fsr2/protocol_v2.py` 校验固件帧并适配现有应用模型。旧 `tools/tactile_acq` 保持 V1 三颗 ADC 协议。
+2. `HELLO` 和 `STATUS` 采用固件 `cmd` 格式，主机处理超时和身份冲突。完整行为见 [接口契约](../INTERFACE_CONTRACT.md)。
+3. Trial 保存原始 wire JSON；CSV 按通道 ID 生成 `ch_N` / `valid_N`，无效数值列留空；导出的文件可只读回放。
+4. 时间戳按通道保留，不把通道样本时刻视为同一个点；滑移判断与现场时序仍需验证。
 
 ## 11. 实机验收清单（现场授权后照做）
 

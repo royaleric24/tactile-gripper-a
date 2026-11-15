@@ -24,7 +24,7 @@ class ChineseMappingTests(unittest.TestCase):
 
     def test_sensor_and_source_terms(self):
         self.assertEqual(sensor_label("SENSOR WAITING"), "等待传感器数据")
-        self.assertEqual(sensor_label("SENSOR STREAMING"), "传感器数据正常")
+        self.assertEqual(sensor_label("SENSOR STREAMING"), "通信在线 · 接收数据")
         self.assertEqual(source_label("SIMULATION"), "仿真（SIMULATION）")
         self.assertEqual(source_label("LIVE"), "真实设备（LIVE）")
         self.assertEqual(source_label("REPLAY"), "只读回放（REPLAY）")

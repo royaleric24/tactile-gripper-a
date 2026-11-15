@@ -217,7 +217,7 @@ def analysis_page(core) -> None:
             return
         try:
             path = core.trial_store.export_csv(trial_id)
-            ui.notify(f"CSV 已导出：{path}", type="positive")
+            ui.notify(f"CSV 已导出：{path.name}", type="positive")
         except Exception as exc:
             ui.notify(error_text(exc), type="negative")
 
@@ -237,7 +237,7 @@ def analysis_page(core) -> None:
         state["channels"] = _channel_ids(record["frames"])[:4]
         play_button.set_text("播放回放")
         replay_status.set_text(f"{trial_id} · {len(record['frames'])} 帧 · 只读回放")
-        analysis_body.refresh()
+        render_body.refresh()
         ui.notify(f"已加载 {trial_id}（只读回放）", type="info")
 
     @ui.refreshable
@@ -258,6 +258,8 @@ def analysis_page(core) -> None:
         parameters = metadata.get("parameters") or {}
         sensor_config = parameters.get("sensor_config") or {}
         sensor_view = matrix_view(sensor_config)
+        if sensor_view == "CELLS":
+            notice("HISTORICAL · 历史矩阵回放。当前 V2 使用被动电极。", "amber")
         integrity = summary.get("integrity") or {}
         status = metadata.get("status", "UNKNOWN")
         if status == "INTERRUPTED":
@@ -315,7 +317,8 @@ def analysis_page(core) -> None:
                             with ui.column().classes("gap-0"):
                                 ui.label(str(label)).classes("card-kicker")
                                 ui.label(str(value)).classes("card-title")
-                    ui.label(str(record.get("directory", ""))).classes("mono").style("color:#94a3b8;word-break:break-all")
+                    directory = Path(record.get("directory") or "")
+                    ui.label("/".join(directory.parts[-3:])).classes("mono").style("color:#94a3b8;word-break:break-all")
 
             if record.get("read_errors"):
                 with ui.element("div").classes("col-12"):
@@ -342,10 +345,9 @@ def analysis_page(core) -> None:
                             if sensor_view == "CELLS" and frame.get("matrix_rows") and frame.get("matrix_cols"):
                                 ui.echart(heatmap_options(frame, sensor_config)).classes("w-full").style("height:300px")
                             elif sensor_view == "ELECTRODES":
-                                ui.echart(bar_options(frame, sensor_config)).classes("w-full").style("height:300px")
+                                ui.echart(bar_options(frame, sensor_config, electrode_only=True)).classes("w-full").style("height:300px")
                                 ui.label(
-                                    "MATRIX_ELECTRODES_12：该试次只保存 12 路行列电极原始 ADC。"
-                                    "R/C→ADC/AIN 映射未确认，不能回放为 36 点压力热图。"
+                                    "R1–R6 / C1–C6 · 12 路电极 ADC 原始计数；FSR（如有）单独展示。"
                                 ).classes("notice notice-amber").style("width:100%")
                             else:
                                 ui.echart(bar_options(frame, sensor_config)).classes("w-full").style("height:300px")
@@ -395,7 +397,14 @@ def analysis_page(core) -> None:
                 with ui.column().classes("card gap-3"):
                     with card_header("实验参数", "实验条件与参数快照"):
                         pass
-                    for title, value in (("实验条件", metadata.get("conditions")), ("参数快照", metadata.get("parameters"))):
+                    parameters = dict(metadata.get("parameters") or {})
+                    if isinstance(parameters.get("pwm_limits"), dict):
+                        limits = dict(parameters["pwm_limits"])
+                        source = limits.get("source")
+                        if isinstance(source, str) and Path(source).is_absolute():
+                            limits["source"] = Path(source).name
+                        parameters["pwm_limits"] = limits
+                    for title, value in (("实验条件", metadata.get("conditions")), ("参数快照", parameters)):
                         ui.label(title).classes("card-kicker")
                         ui.code(
                             json.dumps(value or {}, ensure_ascii=False, indent=2),

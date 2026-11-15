@@ -1,13 +1,13 @@
 // Offline UI screenshot + layout audit for the local NiceGUI dashboard.
 //
 // Requires Node 22+ (built-in fetch/WebSocket) and a local Google Chrome.
-// It only loads http://127.0.0.1:<port> and captures screenshots/metrics; it
-// never opens a serial port, sends PWM, uploads firmware or moves hardware.
+// It loads http://127.0.0.1:<port> and captures screenshots/metrics. Set
+// EXERCISE_TRIAL=1 only for a disposable offline Trial: step and export CSV.
 //
 // Usage:
 //   # terminal 1: offline simulation dashboard (never LIVE)
-//   PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
-//     --demo-profile HYBRID_6X6_FSR2 --data-root /tmp/gripper-ui-audit --port 8095
+//   PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser \
+//     --firmware-fixture electrodes12-fsr2 --record-fixture --data-root /tmp/gripper-ui-audit --port 8095
 //
 //   # terminal 2: capture 3 viewports x 3 pages
 //   AUDIT_BASE=http://127.0.0.1:8095 OUT_DIR=/tmp/ui-audit LABEL=after \
@@ -180,7 +180,16 @@ async function auditPage(cdp, page, width, height, errors) {
       if (button) { button.click(); return true; }
       return false;
     })()`);
-    if (clicked) await sleep(1800);
+    if (clicked) {
+      await sleep(1200);
+      if (process.env.EXERCISE_TRIAL === '1') await evaluate(cdp, `(() => {
+        const buttons = [...document.querySelectorAll('button')];
+        for (const label of ['下一帧', '导出 CSV']) {
+          buttons.find((item) => item.innerText.trim() === label && !item.disabled)?.click();
+        }
+      })()`);
+      await sleep(600);
+    }
   }
   await sleep(600);
   const metrics = await evaluate(cdp, METRICS_JS);
@@ -208,7 +217,8 @@ async function auditPage(cdp, page, width, height, errors) {
   const full = await cdp.send('Page.captureScreenshot', { format: 'png' });
   await writeFile(`${OUT}/${page}-${width}x${height}-full.png`, Buffer.from(full.data, 'base64'));
 
-  return { page, width, height, metrics, consoleErrors: [...errors] };
+  const text = await evaluate(cdp, 'document.body.innerText');
+  return { page, width, height, metrics, text, consoleErrors: [...errors] };
 }
 
 async function main() {

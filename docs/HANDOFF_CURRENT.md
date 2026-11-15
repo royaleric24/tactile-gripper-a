@@ -1,4 +1,21 @@
-# 新对话 / Agent 接续交接（2026-11-15 接线修正版）
+# 当前交接｜P3-A V2 离线集成（2026-11-15）
+
+集成分支 `integrate/hybrid-demo-v2`；独立目录同级 `tactile-gripper-v2-integration`。
+已核对 GitHub 基线：main `633e570623d90777aa204142c269ebe69eb59ac2`、
+硬件 `08275363736aace39ca893b4fb64660df95a7b8b`、
+软件 `2c5a996aacc86d9e100018ce3c4cb8fa77b16aee`。
+旧工作区、WIP 与原始记录未改动。工作区采用锁定依赖，测试 Python 3.13，CI Python 3.11。
+
+接手先查 [验收报告](P3A_ACCEPTANCE.md)、[中文启动指南](DASHBOARD_QUICKSTART_ZH.md)、
+[现行接口](INTERFACE_CONTRACT.md)、[问题台账](ISSUES.md)。完整本地日志、浏览器审计、仿真 CSV/JSONL
+保留在集成工作区 `evidence/p3-a/`；公开分支只保留审查后的证据摘要和截图。
+
+**下一步：总负责人审阅集成 PR → main，P3-A 执行人不合并。**
+真实串口、烧录、真实采样、上电、PWM、真实 AUTO 全部未执行且保持暂停。
+P3-B 要求项目所有者单独授权；先核对实际接线表，避免把合成 R/C 映射写入现场配置。
+`AUTO_REAL_ENABLED=False`；保留原工作区和物理记录。
+
+## P0/P1 文档组交接快照（历史）
 
 ## 项目与唯一入口
 

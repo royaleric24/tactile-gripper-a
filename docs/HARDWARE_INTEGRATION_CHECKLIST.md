@@ -1,4 +1,8 @@
-# 硬件联调前置条件与接口清单（软件 V1.0）
+# 硬件联调前置条件与接口清单（历史 V1 清单）
+
+> P3-A 现行协议见 [V2 接口契约](INTERFACE_CONTRACT.md)；下文 V1 的旧例子和待核项保留历史参考。
+> P3-B 需要单独的真实接线与采集授权；真实 AUTO 保持关闭。
+
 
 日期：2026-11-13。软件侧当前状态：**OFFLINE_FEATURE_COMPLETE**，真实传感器/真实自动控制 **BLOCKED_BY_HARDWARE / NOT_TESTED**。
 

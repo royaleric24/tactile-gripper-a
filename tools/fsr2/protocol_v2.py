@@ -20,6 +20,7 @@ evidence, and every file says so.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -160,7 +161,7 @@ def profile_of(message: Dict[str, Any]) -> str:
             "%s is withdrawn: the cloth has twelve independent electrodes, not a scanned 6x6 matrix"
             % (profile,),
         )
-    if profile not in PROFILE_CHANNEL_COUNTS:
+    if not isinstance(profile, str) or profile not in PROFILE_CHANNEL_COUNTS:
         raise FrameValidationError("UNKNOWN_PROFILE", "unknown sensor_profile %r" % (profile,))
     return profile
 
@@ -236,7 +237,8 @@ def parse_adc_status(message: Dict[str, Any], expected_ids: int = ADC_COUNT) -> 
         state = _require_str(entry, "state", 32)
         if state not in ADC_STATES:
             raise FrameValidationError("UNKNOWN_ADC_STATE", "unknown adc state %r" % (state,))
-        _require_int(entry, "code", 0, len(ADC_STATES) - 1)
+        if _require_int(entry, "code", 0, len(ADC_STATES) - 1) != ADC_STATE_CODES[state]:
+            raise FrameValidationError("ADC_STATE_CODE", "ADC state and code disagree")
         _require_int(entry, "consecutive_errors", 0, 65535)
         _require_int(entry, "total_errors", 0, 65535)
         _require_int(entry, "recovered", 0, 65535)
@@ -310,13 +312,15 @@ def parse_sample(message: Dict[str, Any]) -> SampleFrame:
     frame_seq = _require_int(message, "frame_seq", 0, 0xFFFFFFFF)
     timestamp_us = _require_int(message, "timestamp_us", 0, 0xFFFFFFFF)
     mcu_time_us = _require_int(message, "mcu_time_us", 0, 0xFFFFFFFF)
+    if timestamp_us != mcu_time_us:
+        raise FrameValidationError("TIMESTAMP_CONFLICT", "timestamp_us and mcu_time_us disagree")
     frame_period = message.get("frame_period_us")
     if frame_period is not None:
         if not isinstance(frame_period, int) or isinstance(frame_period, bool) or frame_period <= 0:
             raise FrameValidationError("INVALID_TYPE", "frame_period_us must be a positive integer or null")
 
     channel_ids = _require_list(message, "channel_ids", count)
-    if channel_ids != list(range(count)):
+    if any(type(channel_id) is not int for channel_id in channel_ids) or channel_ids != list(range(count)):
         raise FrameValidationError("CHANNEL_IDS", "channel_ids must be 0..%d in order" % (count - 1,))
 
     raw_adc = _require_list(message, "raw_adc", count)
@@ -360,9 +364,9 @@ def parse_sample(message: Dict[str, Any]) -> SampleFrame:
                 raise FrameValidationError(
                     "CHANNELS_MISMATCH", "channels[%d] must mirror raw_adc[%d]" % (index, index)
                 )
-            if not isinstance(sample_time, int) or isinstance(sample_time, bool) or sample_time <= 0:
+            if type(sample_time) is not int or not 0 <= sample_time <= 0xFFFFFFFF:
                 raise FrameValidationError(
-                    "INVALID_TYPE", "sample_timestamp_us[%d] must be positive when valid" % (index,)
+                    "INVALID_TYPE", "sample_timestamp_us[%d] must be uint32 when valid" % (index,)
                 )
         else:
             if value is not None or mirror is not None:
@@ -385,7 +389,7 @@ def parse_sample(message: Dict[str, Any]) -> SampleFrame:
             "V2 FSR profiles must use AVDD_AVSS, got %r" % (reference_mode,),
         )
     rate = _require(message, "effective_frame_rate_hz")
-    if not isinstance(rate, (int, float)) or isinstance(rate, bool) or rate < 0:
+    if type(rate) not in (int, float) or not 0 <= rate <= 1_000_000 or not math.isfinite(rate):
         raise FrameValidationError("INVALID_TYPE", "effective_frame_rate_hz must be a number")
     adc_status = parse_adc_status(message)
 
@@ -416,6 +420,8 @@ def parse_channel_config(message: Dict[str, Any], profile: str, count: int) -> L
     config = _require(message, "channel_config")
     if not isinstance(config, dict):
         raise FrameValidationError("INVALID_TYPE", "channel_config must be an object")
+    if "sensor_profile" in config and config["sensor_profile"] != profile:
+        raise FrameValidationError("PROFILE_CONFLICT", "top-level and channel_config sensor_profile disagree")
     if config.get("status") not in ("IMPLEMENTED", "IMPLEMENTED_UNVERIFIED"):
         raise FrameValidationError(
             "CHANNEL_CONFIG_STATUS", "unexpected channel_config.status %r" % (config.get("status"),)
@@ -427,11 +433,12 @@ def parse_channel_config(message: Dict[str, Any], profile: str, count: int) -> L
         raise FrameValidationError("ADC_COUNT", "adc_count must be %d" % (ADC_COUNT,))
     entries = _require_list(config, "channels", count)
     layout = expected_layout(profile, count)
+    mapped_pairs = set()
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise FrameValidationError("INVALID_TYPE", "channel_config.channels entries must be objects")
         want = layout[index]
-        if entry.get("channel_id") != want.channel_id:
+        if type(entry.get("channel_id")) is not int or entry["channel_id"] != want.channel_id:
             raise FrameValidationError("CHANNEL_IDS", "channel_config.channels out of order at %d" % (index,))
         if entry.get("sensor_kind") != want.kind:
             raise FrameValidationError(
@@ -439,6 +446,10 @@ def parse_channel_config(message: Dict[str, Any], profile: str, count: int) -> L
             )
         if entry.get("matrix_row") is not None or entry.get("matrix_col") is not None:
             raise FrameValidationError("MATRIX_CELL", "channel %d is not a matrix cell" % (index,))
+        if want.kind == "ELECTRODE" and (
+            entry.get("electrode_role") != want.role or entry.get("electrode_position") != want.position
+        ):
+            raise FrameValidationError("ELECTRODE_LAYOUT", "channel %d role or position mismatch" % index)
         mapped_fields = (entry.get("ads1220_id"), entry.get("adc_input"), entry.get("mux_channel"))
         if all(field is None for field in mapped_fields):
             if want.kind != "ELECTRODE":
@@ -462,11 +473,9 @@ def parse_channel_config(message: Dict[str, Any], profile: str, count: int) -> L
             raise FrameValidationError("ADC_INPUT", "channel %d ADC/AIN out of range" % (index,))
         if entry.get("mux_channel") != 8 + adc_input:
             raise FrameValidationError("MUX_CHANNEL", "channel %d mux_channel must be 8 + AIN" % (index,))
-        if want.kind == "ELECTRODE":
-            if entry.get("electrode_role") != want.role:
-                raise FrameValidationError("ELECTRODE_ROLE", "channel %d role mismatch" % (index,))
-            if entry.get("electrode_position") != want.position:
-                raise FrameValidationError("ELECTRODE_POSITION", "channel %d position mismatch" % (index,))
+        if (ads1220_id, adc_input) in mapped_pairs:
+            raise FrameValidationError("ADC_INDEX", "duplicate ADC/AIN mapping")
+        mapped_pairs.add((ads1220_id, adc_input))
     return layout
 
 
@@ -489,6 +498,8 @@ def parse_electrode_layout(message: Dict[str, Any], count: int) -> List[Dict[str
         raise FrameValidationError(
             "ELECTRODE_VALIDATED", "electrode_layout.validated must stay false until the real map is recorded"
         )
+    if layout.get("gpio_excitation") is not False:
+        raise FrameValidationError("ELECTRODE_LAYOUT", "GPIO excitation is prohibited")
     entries = _require_list(layout, "channels", 12)
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
@@ -500,7 +511,10 @@ def parse_electrode_layout(message: Dict[str, Any], count: int) -> List[Dict[str
             raise FrameValidationError("ELECTRODE_ROLE", "electrode_layout channel %d role mismatch" % (index,))
         if entry.get("position") != index % 6 + 1:
             raise FrameValidationError("ELECTRODE_POSITION", "electrode_layout channel %d position mismatch" % (index,))
-        fields = (entry.get("ads1220_id"), entry.get("adc_input"), entry.get("mux_channel"))
+        fields = (entry.get("adc_id"), entry.get("adc_input"), entry.get("mux_channel"))
+        configured = message["channel_config"]["channels"][index]
+        if fields != tuple(configured.get(key) for key in ("ads1220_id", "adc_input", "mux_channel")):
+            raise FrameValidationError("MAPPING_STATUS", "electrode layout and channel_config disagree")
         if status == "PENDING_REAL_WIRING":
             if any(field is not None for field in fields):
                 raise FrameValidationError(
@@ -561,11 +575,16 @@ def parse_hello(message: Dict[str, Any]) -> Dict[str, Any]:
                 "fsr_layout.validated must stay false until a real bench session is recorded",
             )
         fsr_channels = _require_list(fsr_layout, "channels", 2)
-        for entry in fsr_channels:
+        for index, entry in enumerate(fsr_channels):
             if not isinstance(entry, dict):
                 raise FrameValidationError("INVALID_TYPE", "fsr_layout.channels entries must be objects")
             for key in ("channel_id", "name", "adc_input", "mux_channel"):
                 _require(entry, key)
+            channel_id = count - 2 + index
+            configured = message["channel_config"]["channels"][channel_id]
+            if (entry["channel_id"] != channel_id or entry["name"] != ("FSR_A", "FSR_B")[index]
+                    or any(entry[key] != configured.get(key) for key in ("adc_input", "mux_channel"))):
+                raise FrameValidationError("FSR_LAYOUT", "FSR layout and channel_config disagree")
     if profile == "MATRIX_ELECTRODES_12":
         parse_electrode_layout(message, count)
     parse_adc_status(message)
@@ -582,11 +601,12 @@ def parse_status(message: Dict[str, Any]) -> Dict[str, Any]:
     _require_str(message, "boot_id", 64)
     if message.get("sensor_state") not in ("STREAMING", "STOPPED"):
         raise FrameValidationError("SENSOR_STATE", "sensor_state must be STREAMING or STOPPED")
-    _require_bool(message, "streaming")
+    if _require_bool(message, "streaming") != (message["sensor_state"] == "STREAMING"):
+        raise FrameValidationError("SENSOR_STATE", "streaming flag and sensor_state disagree")
     _require_int(message, "last_frame_seq", 0, 0xFFFFFFFF)
     _require_int(message, "uptime_ms", 0, 0xFFFFFFFF)
     rate = _require(message, "effective_frame_rate_hz")
-    if not isinstance(rate, (int, float)) or isinstance(rate, bool) or rate < 0:
+    if type(rate) not in (int, float) or not 0 <= rate <= 1_000_000 or not math.isfinite(rate):
         raise FrameValidationError("INVALID_TYPE", "effective_frame_rate_hz must be a number")
     if message.get("reference_mode") not in REFERENCE_MODES:
         raise FrameValidationError("REFERENCE_MODE", "STATUS must report AVDD_AVSS")

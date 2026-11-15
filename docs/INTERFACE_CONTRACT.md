@@ -1,3 +1,25 @@
+# V2 软硬件接口契约｜P3-A
+
+**OFFLINE_VERIFIED**：以下以 [V2 固件接口](hardware/FSR_ONLY_INTERFACE_V2.md) 和
+[固件生成样例](../tests/fixtures/fsr2/README.md) 为准。真实采集、时钟同步和标定留待 P3-B。
+
+| 方向 | 当前 V2 采集接口 |
+|---|---|
+| 串口 | 921600 8N1、UTF-8 JSONL、协议版本整数 1、单行上限 8192 B。S3 控制器仍走独立串口和自己的协议。 |
+| HELLO | 固件启动发出；主机主动用 `{"cmd":"HELLO"}` 补取，HELLO 不回显请求 ID。连接后 0.5 s 间隔重询，2 s 仍无有效 HELLO 则离线退避。 |
+| STATUS | 主机用 `{"cmd":"STATUS","request_id":"…"}`；在同一会话匹配回显。2 s 未匹配标为超时。旧 `type: QUERY` 只属历史提案。 |
+| 采集许可 | 启动默认为 STOPPED；只在有单独现场采集授权后明确发 `{"cmd":"STREAM","value":"on","request_id":"…"}`。收到的连接/HELLO 不启动采集。 |
+| 版本与身份 | 新会话需有效 HELLO；SAMPLE 的 device/boot/firmware/profile 与之匹配；STATUS 的 device/boot/profile 与通道配置应一致。顶层与内层 profile 同时出现时必须相同。 |
+| 布局 | `FSR_ONLY`: 0、1 对应 FSR_A/B；`MATRIX_ELECTRODES_12`: 0..5 为 R1–R6，6..11 为 C1–C6，14 通道时 12、13 为 FSR_A/B；无行列交点。映射 PENDING 时 ADC/AIN 与样本为空。 |
+| 数据 | `channels` 镜像 `raw_adc`，单位 ADC counts（有符号 24 位）。`valid` 等于 `valid_mask`。缺失值的数字与通道时间都是 null，`NO_DATA=0x20`；有效的零值仍是测量读数。 |
+| 时间 | `timestamp_us` 与 `mcu_time_us` 同为一帧开始的 MCU uint32 μs。每路采样时间、`frame_period_us`、设备帧率和主机接收时钟各自保存；不假设跨通道同时采样或 MCU 与主机同步。 |
+| AUTO | 离线评估单独记录，任何无效通道、ADC 告警、过期、设备失联或上一条控制命令未确认均不得产生收紧步进。真实开关为 False。 |
+
+历史 `HYBRID_6X6_FSR2` 只用于兼容老 Trial，以 HISTORICAL 标识；当前 LIVE 与新 demo 入口排除它。
+下文保留 V1/S1 接口记录和曾用提案，不用作现行 V2 采集实现依据。
+
+----
+
 > V2 增量入口（2026-11-14）：总体路线见 [DEMO_PLAN_V2.md](DEMO_PLAN_V2.md)，接线基准见 [WIRING_FREEZE_V2.md](WIRING_FREEZE_V2.md)，新增传感 profile 见 [PROTOCOL_V2_PROPOSAL.md](PROTOCOL_V2_PROPOSAL.md)。该提案仍为 PROPOSED；下文实现摘录及历史 S0 占位保持原样，不能解释为 V2 已冻结或联调通过。
 >
 > **2026-11-15 修正**：真实压敏布为 12 电极被动读取（R1–R6 各接 AIN + 各自 10 kΩ 下拉、C1–C6 各接 AIN + 各自 1 kΩ 上拉），**无 GPIO 列激励、无 HI_Z、无 36 点扫描**。下文“6×6/36 感测单元”目标已作废（HISTORICAL），当前接线与 profile 以 WIRING_FREEZE_V2 与 PROTOCOL_V2_PROPOSAL 为准。

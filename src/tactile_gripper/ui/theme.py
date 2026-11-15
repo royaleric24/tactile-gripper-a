@@ -187,7 +187,7 @@ def shell(active: str, title: str, subtitle: str, core, version: str):
                     ui.icon("precision_manufacturing").style("font-size:22px")
                 with ui.column().classes("gap-0"):
                     ui.label("触觉闭环机械爪 A").classes("brand-name")
-                    ui.label("触觉控制台 · V1.0").classes("brand-sub")
+                    ui.label("触觉控制台 · V2").classes("brand-sub")
             ui.label("工作区").classes("nav-group")
             for key, target, icon, label in nav:
                 classes = "nav-item active" if key == active else "nav-item"
@@ -206,7 +206,7 @@ def shell(active: str, title: str, subtitle: str, core, version: str):
                 with ui.element("div").classes("side-row"):
                     ui.label("数据来源").classes("side-name")
                     source = ui.label(source_label("SIMULATION")).classes("side-value")
-                ui.label(f"{version} · PROPOSED v0.1").classes("side-version")
+                ui.label(f"{version} · V2 离线集成").classes("side-version")
         with ui.element("main").classes("main-area"):
             with ui.element("div").classes("page-header"):
                 with ui.column().classes("gap-0"):

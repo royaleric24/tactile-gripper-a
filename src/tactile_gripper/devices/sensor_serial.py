@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ..constants import MAX_SENSOR_LINE_BYTES
 from ..errors import SensorOffline
 from .sensor import SensorAdapter
 
@@ -22,17 +22,17 @@ from .sensor import SensorAdapter
 @dataclass(frozen=True)
 class SerialSensorConfig:
     port: str | None = None
-    baudrate: int = 115200
+    baudrate: int = 921600
     bytesize: int = 8
     parity: str = "N"
     stopbits: int = 1
     read_timeout_s: float = 0.1
     boot_wait_s: float = 0.0
-    max_line_bytes: int = MAX_SENSOR_LINE_BYTES
+    max_line_bytes: int = 8192
     reconnect_enabled: bool = True
     reconnect_initial_s: float = 0.5
     reconnect_max_s: float = 10.0
-    queries_enabled: bool = False
+    queries_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.port is not None and not isinstance(self.port, str):
@@ -110,6 +110,9 @@ class SerialSensorTransport:
         self.oversize_lines = 0
         self.opened_count = 0
         self.last_query = None
+        self._partial = bytearray()
+        self._lines: deque[bytes] = deque()
+        self._discard = False
 
     @property
     def baudrate(self) -> int:
@@ -148,6 +151,9 @@ class SerialSensorTransport:
         self.port = port
         self.connected = True
         self.opened_count += 1
+        self._partial.clear()
+        self._lines.clear()
+        self._discard = False
 
     def write_line(self, payload: bytes) -> None:
         """Explicit, opt-in host query.  Never opens or arms the gripper."""
@@ -156,8 +162,8 @@ class SerialSensorTransport:
         if not self.connected or self.port is None:
             raise SensorOffline("sensor serial port is not connected")
         try:
-            self.port.write(payload)
-            self.port.flush()
+            if self.port.write(payload) != len(payload):
+                raise OSError("short serial write")
             self.last_query = payload
         except Exception as exc:
             raise SensorOffline(f"sensor serial write failed: {exc}") from exc
@@ -173,37 +179,39 @@ class SerialSensorTransport:
     def readline(self, timeout_s: float) -> bytes | None:
         if not self.connected or self.port is None:
             return None
-        if timeout_s <= 0 and not getattr(self.port, "in_waiting", 0):
-            return None
         deadline = self.clock() + max(0.0, timeout_s)
-        buffer = bytearray()
-        discard = False
-        while True:
-            remaining = max(0.0, deadline - self.clock())
-            if remaining <= 0:
-                break
+        # A tick uses timeout=0. Drain only currently available bytes and
+        # keep incomplete lines across ticks; never block the UI on the port.
+        for _ in range(16):
+            if self._lines:
+                return self._lines.popleft()
             try:
-                self.port.timeout = min(max(self.config.read_timeout_s, 0.001), remaining)
-                byte = self.port.read(1)
+                waiting = self.port.in_waiting
+                remaining = max(0.0, deadline - self.clock())
+                if not waiting and remaining == 0:
+                    return None
+                self.port.timeout = 0 if waiting else min(self.config.read_timeout_s, remaining)
+                chunk = self.port.read(min(waiting, 4096) if waiting else 1)
             except Exception as exc:
                 raise SensorOffline(f"sensor serial read failed: {exc}") from exc
-            if not byte:
-                break
-            if byte == b"\n":
-                if discard:
-                    discard = False
-                    buffer.clear()
+            if not chunk:
+                return None
+            for byte in chunk:
+                if byte == 10:
+                    if not self._discard and len(self._partial) < self.config.max_line_bytes:
+                        self._lines.append(bytes(self._partial) + b"\n")
+                    elif not self._discard:
+                        self.oversize_lines += 1
+                    self._discard = False
+                    self._partial.clear()
                     continue
-                buffer.extend(byte)
-                return bytes(buffer)
-            if discard:
-                continue
-            if len(buffer) < self.config.max_line_bytes:
-                buffer.extend(byte)
-            else:
-                discard = True
-                self.oversize_lines += 1
-        return None
+                if not self._discard:
+                    if len(self._partial) < self.config.max_line_bytes:
+                        self._partial.append(byte)
+                    else:
+                        self._discard = True
+                        self.oversize_lines += 1
+        return self._lines.popleft() if self._lines else None
 
 
 def serial_sensor_adapter(
@@ -224,6 +232,9 @@ def serial_sensor_adapter(
         source=DataSource.LIVE,
         clock_ns=clock_ns,
         stale_after_s=stale_after_s,
+        max_line_bytes=min(config.max_line_bytes, 8192),
+        strict_v2=True,
+        request_hello_on_connect=config.queries_enabled,
         transport_factory=(lambda: SerialSensorTransport(config)) if reconnect else None,
         reconnect_initial_s=config.reconnect_initial_s,
         reconnect_max_s=config.reconnect_max_s,

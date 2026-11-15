@@ -205,7 +205,7 @@ def experiments_page(core) -> None:
                 + (f" · 丢帧 {trial.dropped_frames}" if trial.dropped_frames else "")
                 + (f" · 无效通道样本 {trial.invalid_channel_samples}" if trial.invalid_channel_samples else "")
             )
-            active_dir.set_text(str(trial.directory))
+            active_dir.set_text("/".join(trial.directory.parts[-3:]))
             start_button.set_text("记录中（RECORDING）" if recording else "开始记录")
             start_button.set_enabled(not recording and metadata.status in ("CREATED",))
             stop_button.set_enabled(recording)

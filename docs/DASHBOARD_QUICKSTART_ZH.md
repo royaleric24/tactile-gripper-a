@@ -1,18 +1,18 @@
-# Dashboard 中文使用指南（V1.0）
+# Dashboard 中文使用指南（V2）
 
 本指南与当前软件 UI 行为一致。真实硬件操作仍需单独授权；默认模式不会打开真实串口。
 
 ## 1. 启动
 
 ```bash
-cd /home/example/Developer/research/tactile-gripper-a-sw
-UV_CACHE_DIR=/tmp/uv-cache uv sync --locked
+uv sync --locked
 
 # 离线模式：S3 控制器显示离线，传感器等待数据，不会伪造数据
-PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080
+PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080
 
-# 仿真演示：合成传感器 + dry-run 控制器，只写 data/simulated/
-PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port 8080
+# 固件 JSONL → Dashboard → 仿真 Trial / CSV / REPLAY
+PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080 \
+  --firmware-fixture electrodes12-fsr2 --record-fixture --data-root /tmp/gripper-v2-demo
 ```
 
 浏览器打开 `http://127.0.0.1:8080/`。页面：**实时监控**、**实验管理**、**分析与诊断**。
@@ -22,15 +22,16 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port
 查看顶部四张状态卡：
 
 - **控制器状态**：离线（OFFLINE）、已连接、控制会话已建立或故障锁存（FAULT）。
-- **传感器状态**：等待传感器数据、传感器数据正常、数据已过期等。
+- **传感器通信**：等待数据、通信在线、采集已停止、陈旧帧、协议错误或离线。独立的“通道数据质量”显示有效数/总数和故障。
 - **控制模式**：手动模式（MANUAL）、待机（STANDBY）、自动模式（AUTO）或故障锁存（FAULT）。
 - **当前实验**：记录中（RECORDING）、正常完成（COMPLETED）等。
 
 触觉分布显示 ADC 原始计数。无效通道会显示为空隙，不会当作零接触；未标定数据不解释为压力、摩擦力或杯子重量。仿真演示会明确显示 **仿真（SIMULATION）**，不会显示为真实设备（LIVE）。
 
-仿真配置档可选 `MATRIX_6X6`、`FSR_ONLY`、`HYBRID_6X6_FSR2`、`MATRIX_ELECTRODES_12`。
-`MATRIX_ELECTRODES_12` 只显示 R1–R6 / C1–C6 共 12 路原始 ADC 条形图，并提示
-“36 点压力热图不可用”；R/C 到 ADS1220 AIN 的物理映射未确认，界面不推算压力分布。
+固件样例可选 `fsr`、`electrodes12`、`electrodes12-fsr2` 及相应故障场景
+（见 [运行手册](SOFTWARE_RUNBOOK.md)）。12 路电极图只显示 R1–R6 / C1–C6，14 通道中的两路 FSR
+在单独卡片显示。空映射为 `PENDING_REAL_WIRING`，合成映射会明确标注。当前仿真和 LIVE
+只有 `FSR_ONLY` / `MATRIX_ELECTRODES_12`。历史矩阵图只在标为 HISTORICAL 的旧记录里使用。
 
 ### 手动 PWM
 
@@ -97,12 +98,9 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port
 
 ## 6. 视觉验收与截图
 
-离线 SIMULATION 的 1440×900、1280×800、1920×1080 截图、修复前后对比和 12 电极
-视图位于 [docs/screenshots/p2s-ui-audit/](screenshots/p2s-ui-audit/README.md)。
-截图由 `scripts/ui_screenshot_audit.mjs` 驱动本机无头 Chrome 生成，只读取本地页面，
-不打开串口、不发送 PWM、不做机械动作。2026-11-15 最终验收额外补了 1024×768 抽查
-（`narrow-1024/`）。容器或沙箱里 Chrome 自带 sandbox 会被拒绝，此时用
-`CHROME_NO_SANDBOX=1`；普通桌面环境不要设置该变量。
+[P3-A 验收与截图](P3A_ACCEPTANCE.md)包含真正运行的 NiceGUI 页面、六种固件样例和只读 REPLAY。
+本机复跑：`PYTHONPATH=src:. .venv/bin/python scripts/p3a_verify_dashboard.py --out evidence/p3-a/new-audit`。
+需要 Node ≥22 与 Chrome（可用 `CHROME_PATH` 指定）。旧 [P2-S 视觉验收](screenshots/p2s-ui-audit/README.md)保留为历史记录。
 
 ## 7. 常见提示
 

@@ -245,6 +245,7 @@ class ChannelConfiguration:
     scan_mode: str = "UNKNOWN"
     status: str = "PROPOSED"
     sensor_profile: str = "UNKNOWN"
+    mapping_status: str | None = None
 
     def __post_init__(self) -> None:
         if not self.channels:
@@ -306,13 +307,15 @@ class ChannelConfiguration:
             if positions != expected:
                 raise ValueError("HYBRID_6X6_FSR2 matrix map must cover all 36 cells")
         if self.sensor_profile == "MATRIX_ELECTRODES_12":
-            if len(self.channels) != 12:
-                raise ValueError("MATRIX_ELECTRODES_12 requires exactly 12 electrode channels")
-            if self.matrix_rows != 6 or self.matrix_cols != 6:
-                raise ValueError("MATRIX_ELECTRODES_12 reserves a 6x6 logical matrix geometry")
+            if len(self.channels) not in (12, 14):
+                raise ValueError("MATRIX_ELECTRODES_12 requires 12 electrodes with optional two FSR")
+            # The old offline model stored 6x6 dimensions. Read old recordings,
+            # but never interpret the dimensions as intersections.
+            if (self.matrix_rows, self.matrix_cols) not in ((None, None), (6, 6)):
+                raise ValueError("invalid legacy electrode geometry")
             electrodes = [channel for channel in self.channels if self.effective_kind(channel) == "MATRIX_ELECTRODE"]
-            if len(electrodes) != 12:
-                raise ValueError("MATRIX_ELECTRODES_12 accepts only MATRIX_ELECTRODE channels")
+            if len(electrodes) != 12 or len(self.fsr_channels) != len(self.channels) - 12:
+                raise ValueError("expected 12 electrodes and zero or two FSR channels")
             rows = {channel.electrode_index for channel in electrodes if channel.electrode_axis == "ROW"}
             cols = {channel.electrode_index for channel in electrodes if channel.electrode_axis == "COLUMN"}
             if rows != set(range(6)) or cols != set(range(6)):
@@ -390,6 +393,7 @@ class ChannelConfiguration:
             "adc_count": self.adc_count,
             "scan_mode": self.scan_mode,
             "sensor_profile": self.sensor_profile,
+            "mapping_status": self.mapping_status,
             "channels": [channel.to_dict() for channel in self.channels],
         }
 
@@ -408,6 +412,7 @@ class ChannelConfiguration:
             scan_mode=value.get("scan_mode", "UNKNOWN"),
             status=value.get("status", "PROPOSED"),
             sensor_profile=value.get("sensor_profile", "UNKNOWN"),
+            mapping_status=value.get("mapping_status"),
         )
 
 

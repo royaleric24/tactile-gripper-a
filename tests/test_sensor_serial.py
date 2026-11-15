@@ -12,6 +12,7 @@ from tactile_gripper.devices.sensor_serial import (
     SerialSensorTransport,
     serial_sensor_adapter,
 )
+from tactile_gripper.devices.firmware_fixture import FIXTURE_ROOT
 from tactile_gripper.errors import SensorOffline
 from tactile_gripper.sources import DataSource
 
@@ -31,6 +32,7 @@ class FakeSerial:
         self.timeout = kwargs.get("timeout", 0.1)
         self.buffer = bytearray()
         self.in_waiting = 0
+        self.writes = []
         FakeSerial.instances.append(self)
 
     def open(self):
@@ -46,6 +48,14 @@ class FakeSerial:
         del self.buffer[:size]
         self.in_waiting = len(self.buffer)
         return chunk
+
+    def write(self, payload):
+        self.writes.append(json.loads(payload))
+        return len(payload)
+
+    def feed(self, chunk):
+        self.buffer.extend(chunk)
+        self.in_waiting = len(self.buffer)
 
 
 class Clock:
@@ -111,12 +121,23 @@ class SerialTransportTests(unittest.TestCase):
             adapter = serial_sensor_adapter(config)
             adapter.connect()
             fake = FakeSerial.instances[-1]
-            fake.buffer.extend(hello_line() + sample_line(seq=1))
-            fake.in_waiting = len(fake.buffer)
-            parsed = adapter.read_frame(0.5)
+            self.assertEqual(fake.kwargs["baudrate"], 921600)
+            self.assertEqual((fake.kwargs["bytesize"], fake.kwargs["parity"], fake.kwargs["stopbits"]), (8, "N", 1))
+            self.assertEqual(fake.writes, [{"cmd": "HELLO"}])
+            hello = (FIXTURE_ROOT / "hello_fsr_only.json").read_bytes()
+            sample = (FIXTURE_ROOT / "sample_fsr_only_valid.json").read_bytes()
+            fake.feed(hello[:100])
+            self.assertIsNone(adapter.read_frame(0))
+            fake.feed(hello[100:] + sample[:130])
+            self.assertIsNone(adapter.read_frame(0))
+            self.assertEqual(fake.writes[-1]["cmd"], "STATUS")
+            fake.feed(sample[130:])
+            parsed = adapter.read_frame(0)
             self.assertIsNotNone(parsed)
+            self.assertEqual(parsed.channels, (762601, 889701))
             self.assertEqual(parsed.source, DataSource.LIVE)
             self.assertEqual(adapter.status().state, "STREAMING")
+            self.assertNotIn("STREAM", [item["cmd"] for item in fake.writes])
             adapter.close()
 
 

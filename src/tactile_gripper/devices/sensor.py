@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import time
+import uuid
 from pathlib import Path
 from typing import Protocol
 
@@ -23,11 +24,15 @@ from ..protocol import (
     HelloMessage,
     encode_hello,
     encode_sample,
+    is_wire_v2,
     parse_envelope,
     parse_error,
     parse_hello,
     parse_sample,
     parse_status,
+    validate_wire_v2,
+    v2_channel_config,
+    wire_v2,
 )
 from ..sources import DataSource
 
@@ -57,6 +62,8 @@ class SensorAdapter:
         reconnect_initial_s: float = 0.5,
         reconnect_max_s: float = 10.0,
         max_reconnect_attempts: int | None = None,
+        strict_v2: bool = False,
+        request_hello_on_connect: bool = False,
     ):
         self.transport = transport
         self.channel_config = channel_config
@@ -65,6 +72,13 @@ class SensorAdapter:
         self.clock_ns = clock_ns
         self.stale_after_s = stale_after_s
         self.max_line_bytes = max_line_bytes
+        self.strict_v2 = strict_v2
+        self.request_hello_on_connect = request_hello_on_connect
+        self.hello_deadline_ns: int | None = None
+        self.hello_retry_ns: int | None = None
+        self.last_wire_fault = False
+        self.pending_status: tuple[str, int] | None = None
+        self.status_query_result: str | None = None
         self.connected = False
         self.tracker = FrameTracker()
         self.last_frame: TactileFrame | None = None
@@ -103,7 +117,34 @@ class SensorAdapter:
         self.last_error = None
         self.last_reconnect_error = None
         self.next_reconnect_ns = 0
+        self._start_handshake()
         return self.status()
+
+    def _start_handshake(self) -> None:
+        if not self.strict_v2:
+            return
+        self.last_hello = None
+        self.last_status = None
+        self.pending_status = None
+        self.status_query_result = None
+        self.last_frame = None
+        self.channel_config = None
+        self.last_wire_fault = False
+        self.hello_deadline_ns = self.clock_ns() + int(self.stale_after_s * 1e9)
+        self.hello_retry_ns = self.clock_ns() + 500_000_000 if self.request_hello_on_connect else None
+        if self.request_hello_on_connect:
+            self.query_hello()
+
+    def _poll_handshake(self) -> None:
+        if self.last_hello is not None or self.hello_deadline_ns is None:
+            return
+        now = self.clock_ns()
+        if now >= self.hello_deadline_ns:
+            self._mark_offline("HELLO_TIMEOUT: no valid V2 handshake")
+            raise SensorOffline(self.last_error)
+        if self.hello_retry_ns is not None and now >= self.hello_retry_ns:
+            self.query_hello()
+            self.hello_retry_ns = now + 500_000_000
 
     def close(self) -> None:
         try:
@@ -117,6 +158,7 @@ class SensorAdapter:
     def read_frame(self, timeout_s: float = 0.0) -> TactileFrame | None:
         if not self.connected:
             raise SensorOffline("sensor is not connected")
+        self._poll_handshake()
         deadline = time.monotonic() + max(0.0, timeout_s)
         while True:
             remaining = max(0.0, deadline - time.monotonic())
@@ -133,6 +175,7 @@ class SensorAdapter:
             except FrameValidationError as exc:
                 self.invalid_frames += 1
                 self.last_error = f"{exc.code}: {exc}"
+                self.last_wire_fault = True
                 raise
             if result is not None:
                 return result
@@ -178,6 +221,7 @@ class SensorAdapter:
         self.reconnect_count += 1
         self._reconnect_delay = self.reconnect_initial_s
         self.next_reconnect_ns = 0
+        self._start_handshake()
         return True
 
     def _handle_line(self, line: bytes | str) -> TactileFrame | None:
@@ -185,11 +229,31 @@ class SensorAdapter:
         message = parse_envelope(line, max_bytes=self.max_line_bytes)
         message_type = message["type"]
         if message_type == "HELLO":
-            hello = parse_hello(message)
+            hello = parse_hello(message, strict_v2=self.strict_v2)
+            if hello.sensor_profile == "HYBRID_6X6_FSR2" and self.source is not DataSource.REPLAY:
+                raise FrameValidationError("withdrawn profile (HISTORICAL)", code="PROFILE_HISTORICAL")
+            wire_message = self.strict_v2 or is_wire_v2(message)
+            if wire_message and self.source is DataSource.LIVE and hello.channel_config.mapping_status == "SIM_SYNTHETIC_MAPPING":
+                raise FrameValidationError("synthetic electrode mapping in LIVE", code="MAPPING_STATUS")
+            previous = self.last_hello
+            if wire_message and previous is not None and (
+                hello.device_id != previous.device_id or (hello.boot_id == previous.boot_id and (
+                    hello.firmware_version != previous.firmware_version
+                    or hello.channel_config != previous.channel_config
+                ))
+            ):
+                raise FrameValidationError("HELLO changes identity or layout within the same boot", code="HELLO_CONFLICT")
+            if previous is None or hello.boot_id != previous.boot_id:
+                self.last_status = None
+                self.last_frame = None
             self.last_hello = hello
             self.channel_config = hello.channel_config
             self.device_id = hello.device_id
-            self.state = "WAITING"
+            self.hello_deadline_ns = None
+            self.hello_retry_ns = None
+            if wire_message and self.request_hello_on_connect and (previous is None or hello.boot_id != previous.boot_id):
+                self.query_status()
+            self._update_state()
             return None
         if message_type == "SAMPLE":
             if self.channel_config is None:
@@ -197,23 +261,37 @@ class SensorAdapter:
                     "SAMPLE received before channel configuration/HELLO",
                     code="MISSING_CONFIG",
                 )
+            self._require_session(message, require_firmware=True)
             frame = parse_sample(
                 message,
                 self.channel_config,
                 source=self.source,
                 host_received_ns=self.clock_ns(),
+                strict_v2=self.strict_v2,
             )
             anomalies = self.tracker.accept(frame)
             self.last_anomalies = list(anomalies)
             self.last_frame = frame
             self.last_error = None
+            self.last_wire_fault = False
+            # A new valid SAMPLE is newer stream evidence than STOPPED.
+            if self.last_status is not None and self.last_status.state == "STOPPED":
+                self.last_status = None
             self.state = "STREAMING"
             if anomalies:
                 self.last_error = anomalies[-1].detail
             return frame
         if message_type == "STATUS":
+            if self.strict_v2 or is_wire_v2(message):
+                validate_wire_v2(message)
+                self._require_session(message)
+                if self.channel_config is None or v2_channel_config(message) != self.channel_config:
+                    raise FrameValidationError("STATUS layout differs from HELLO", code="PROFILE_CONFLICT")
             status = parse_status(message, source=self.source)
             self.last_status = status
+            if self.pending_status is not None and message.get("request_id") == self.pending_status[0]:
+                self.pending_status = None
+                self.status_query_result = "RECEIVED"
             self.last_error = status.last_error
             if status.state in ("STREAMING", "FAULT", "WAITING"):
                 self.state = status.state
@@ -224,6 +302,7 @@ class SensorAdapter:
             self.last_error_message = error
             self.last_error = f"DEVICE_ERROR {error.code}: {error.message}"
             self.state = "DEVICE_ERROR"
+            self.last_wire_fault = True
             raise ProtocolError(
                 self.last_error,
                 code="DEVICE_ERROR",
@@ -231,17 +310,46 @@ class SensorAdapter:
             )
         raise FrameValidationError(f"unsupported message type {message_type}", code="UNKNOWN_MESSAGE")
 
+    def _require_session(self, message: dict, *, require_firmware: bool = False) -> None:
+        hello = self.last_hello
+        # A Trial replay may have a normalized HELLO synthesized from retained
+        # metadata; old records can span multiple boots without raw HELLOs.
+        if not (self.strict_v2 or (hello and is_wire_v2(hello.raw))):
+            return
+        if hello is None:
+            raise FrameValidationError("V2 frame before HELLO", code="MISSING_CONFIG")
+        if (message.get("device_id"), message.get("boot_id")) != (hello.device_id, hello.boot_id):
+            raise FrameValidationError("frame identity differs from current HELLO", code="SESSION_CONFLICT")
+        if message.get("sensor_profile") != hello.sensor_profile:
+            raise FrameValidationError("frame profile differs from current HELLO", code="PROFILE_CONFLICT")
+        if require_firmware and message.get("firmware_version") != hello.firmware_version:
+            raise FrameValidationError("frame firmware differs from current HELLO", code="SESSION_CONFLICT")
+
     def _update_state(self) -> None:
         if not self.connected:
             self.state = "OFFLINE"
             return
+        if self.last_wire_fault:
+            self.state = "DATA_ERROR"
+            return
+        if getattr(self.transport, "at_end", False) and self.last_frame is not None:
+            if self.source is DataSource.REPLAY:
+                self.state = "REPLAY"
+                return
+            if getattr(self.transport, "scenario", None) is not None:
+                self.state = "FIXTURE_COMPLETE"
+                return
+        if self.last_status is not None and self.last_status.state == "STOPPED":
+            self.state = "STOPPED"
+            return
+        if self.last_frame is None:
+            self.state = "WAITING"
+            return
         now = self.clock_ns()
         if self.tracker.stale(now, timeout_s=self.stale_after_s):
             self.state = "WAITING" if self.tracker.last_host_received_ns is None else "STALE"
-        elif self.last_frame is not None:
-            self.state = "STREAMING"
         else:
-            self.state = "WAITING"
+            self.state = "STREAMING"
 
     # -- introspection -----------------------------------------------------
 
@@ -256,17 +364,30 @@ class SensorAdapter:
         control state and does not wait for a reply.  A missing capability is
         reported, not silently ignored.
         """
-        from ..protocol import encode_status_query
+        return self._request_status("STATUS", request_id=request_id)
 
-        return self._send_query("STATUS", encode_status_query(request_id=request_id))
+    def _request_status(self, command: str, *, value: str | None = None, request_id: str | None = None) -> bool:
+        request_id = request_id or uuid.uuid4().hex
+        if not self._send_query(command, wire_v2.encode_command(command, value=value, request_id=request_id)):
+            return False
+        self.pending_status = (request_id, self.clock_ns() + int(self.stale_after_s * 1e9))
+        self.status_query_result = "PENDING"
+        return True
+
+    def request_stream(self, enabled: bool) -> bool:
+        if self.source is not DataSource.LIVE or not self.strict_v2 or self.last_hello is None or not self.connected:
+            return False
+        return self._request_status("STREAM" if enabled else "STOP", value="on" if enabled else None)
 
     def query_hello(self, *, request_id: str | None = None) -> bool:
         """Ask for a repeat HELLO after a missed boot announcement."""
-        from ..protocol import encode_hello_query
-
-        return self._send_query("HELLO", encode_hello_query(request_id=request_id))
+        # HELLO has no request_id echo on this firmware.
+        return self._send_query("HELLO", wire_v2.encode_command("HELLO"))
 
     def _send_query(self, label: str, payload: bytes) -> bool:
+        if not self.connected:
+            self.last_error = f"{label}: sensor is not connected"
+            return False
         write_line = getattr(self.transport, "write_line", None)
         if write_line is None:
             self.last_error = f"transport does not support {label} query"
@@ -284,7 +405,7 @@ class SensorAdapter:
         return {
             "role": "SENSOR",
             "device_id": self.device_id,
-            "boot_id": self.tracker.last_boot_id,
+            "boot_id": self.last_hello.boot_id if self.last_hello else self.tracker.last_boot_id,
             "firmware_version": self.last_hello.firmware_version if self.last_hello else None,
             "sensor_profile": self.channel_config.sensor_profile if self.channel_config else None,
             "channel_count": (
@@ -297,6 +418,9 @@ class SensorAdapter:
 
     def status(self) -> DeviceStatus:
         self._update_state()
+        if self.pending_status is not None and self.clock_ns() >= self.pending_status[1]:
+            self.pending_status = None
+            self.status_query_result = "TIMEOUT"
         detail = {
             "messages_received": self.messages_received,
             "accepted_frames": self.tracker.accepted_frames,
@@ -341,6 +465,14 @@ class SensorAdapter:
                 "sensor_profile": self.last_hello.sensor_profile,
                 "capabilities": list(self.last_hello.capabilities),
             }
+        wire = self.last_frame.raw if self.last_frame is not None else {}
+        detail["adc_status"] = (wire or {}).get("adc_status", [])
+        detail["channel_flags"] = (wire or {}).get("channel_flags", [])
+        detail["mapping_status"] = self.channel_config.mapping_status if self.channel_config else None
+        detail["status_query_result"] = self.status_query_result
+        rate = (wire or {}).get("effective_frame_rate_hz")
+        if rate is None and self.last_hello is not None:
+            rate = self.last_hello.sample_rate_hz
         return DeviceStatus(
             device_id=self.device_id,
             kind="SENSOR",
@@ -349,12 +481,12 @@ class SensorAdapter:
             state=self.state,
             protocol_version=PROTOCOL_VERSION,
             firmware_version=self.last_hello.firmware_version if self.last_hello else None,
-            boot_id=self.tracker.last_boot_id,
+            boot_id=self.last_hello.boot_id if self.last_hello else self.tracker.last_boot_id,
             channel_count=(
                 self.channel_config.expected_channel_count if self.channel_config else None
             ),
             scan_mode=self.channel_config.scan_mode if self.channel_config else None,
-            sample_rate_hz=self.last_hello.sample_rate_hz if self.last_hello else None,
+            sample_rate_hz=rate,
             last_frame_seq=self.tracker.last_seq,
             last_mcu_time_us=self.tracker.last_mcu_time_us,
             last_host_received_ns=self.tracker.last_host_received_ns,
@@ -444,6 +576,10 @@ class JsonlReplayTransport:
     def connect(self) -> None:
         if not self.path.is_file():
             raise FileNotFoundError(str(self.path))
+
+    @property
+    def at_end(self) -> bool:
+        return self.offset >= len(self.lines)
 
     def close(self) -> None:
         pass

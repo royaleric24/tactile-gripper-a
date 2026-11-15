@@ -2,7 +2,16 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
-## 最近状态（P2-S 软件，2026-11-15）
+## 最近状态（P3-A V2 集成，2026-11-15）
+
+在独立 `integrate/hybrid-demo-v2` 合入 main `633e570`、硬件 `0827536` 与软件 `2c5a996`。
+P3-A 已按 [Issue #3](https://github.com/royaleric24/tactile-gripper-a/issues/3) 完成离线实现与验证，
+集成 PR 由总负责人评审。V2 采集只接受 `FSR_ONLY`（2）与 `MATRIX_ELECTRODES_12`（12/14）；
+`HYBRID_6X6_FSR2` 仅用于标为 HISTORICAL 的旧记录。Dashboard 样例必须经过真实适配/记录链路。
+看 [验收](docs/P3A_ACCEPTANCE.md)、[交接](docs/HANDOFF_CURRENT.md) 和 [问题](docs/ISSUES.md)。
+真实操作仍暂停；`AUTO_REAL_ENABLED=False`。日志、真实原件和工具缓存只留本地。
+
+## 软件组状态（P2-S 历史，2026-11-15）
 
 `sw/fsr-live-v2` 已完成 FSR_ONLY / HYBRID_6X6_FSR2 离线适配、两路 FSR 相对接触评估、
 矩阵/FSR 分流、双设备身份与 Trial/CSV/REPLAY 扩展。2026-11-15 追加
@@ -69,7 +78,7 @@ ADC1 = CS GPIO21 / MISO GPIO34；ADC2 = CS GPIO22 / MISO GPIO35；ADC3 = CS GPIO
 - **没有 ESP32 GPIO 列激励、没有 HI_Z、没有 36 点扫描**。原 GPIO4/13/14/25/27/19 “逐列驱动 + 未选中列 HI_Z + 拼 36 点”方案已被 2026-11-15 修正取代（HISTORICAL），不得再用于施工、固件或演示。
 - 12 个电极电压 = **12 个测量值，不是 36 个压力点**；不得绘制 36 点热图、不得命名为 RrCc 交点、不得宣称 6×6 扫描可用。
 - **电极 → ADC/AIN 映射 PENDING_REAL_WIRING**：必须由真实焊接/台架记录填写 `docs/WIRING_FREEZE_V2.md` §4.1 空白表；填表前不得写任何 ADC/AIN 编号或“示例映射”，不得假设行优先。
-- 协议侧以 `FSR_ONLY` 为当前可用 profile；`MATRIX_ELECTRODES_12` 是 PROPOSED（12 逻辑通道，`validated=false`）；`HYBRID_6X6_FSR2` 已撤回为 HISTORICAL。4 ADS1220 共 16 个单端输入，12 电极 + 2 FSR = 14 逻辑通道是未来合并变体，当前不实现。
+- 协议侧支持 `FSR_ONLY`（2 通道）及 `MATRIX_ELECTRODES_12`（12 电极，可选 FSR_A/B 合计 14 通道）；仅完成离线验证，现场映射保持 `validated=false`。
 - 所有真实串口、烧录、采样、PWM 与 AUTO 工作**暂停**，等待项目所有者明确授权与真实接线记录。
 
 ## 每个开发进展的强制文档同步

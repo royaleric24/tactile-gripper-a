@@ -42,12 +42,15 @@ FIXTURE_NAMES = {
     ("fsr", 0): "hello_fsr_only.json",
     ("fsr", 1): "sample_fsr_only_valid.json",
     ("fsr", 2): "sample_fsr_only_no_adc4.json",
+    ("fsr", 3): "status_fsr_only_no_adc4.json",
     ("electrodes_unmapped", 0): "hello_electrodes12_fsr2_unmapped.json",
     ("electrodes_unmapped", 1): "sample_electrodes12_fsr2_unmapped.json",
     ("electrodes_unmapped", 2): "sample_electrodes12_fsr2_fsr_absent.json",
+    ("electrodes_unmapped", 3): "status_electrodes12_fsr2_fsr_absent.json",
     ("electrodes_mapped", 0): "hello_electrodes12_mapped_synthetic.json",
     ("electrodes_mapped", 1): "sample_electrodes12_mapped_synthetic.json",
     ("electrodes_mapped", 2): "sample_electrodes12_mapped_adc_absent.json",
+    ("electrodes_mapped", 3): "status_electrodes12_mapped_adc_absent.json",
 }
 RETIRED_FIXTURES = (
     "hello_hybrid.json",
@@ -217,11 +220,16 @@ def main(argv: list[str]) -> int:
     try:
         for name, key in EMITTERS:
             lines = emit_lines(binaries[name])
-            check(len(lines) == 3, "%s emitted HELLO plus two SAMPLE frames" % (key,))
+            check(len(lines) == 4, "%s emitted HELLO, two SAMPLE frames and STATUS" % (key,))
             parsed = [proto.parse_message(line) for line in lines]
             types = [describe(frame) for frame in parsed]
             print("  frames:", "; ".join(types))
-            VALIDATORS[key](parsed)
+            VALIDATORS[key](parsed[:3])
+            status = parsed[3]
+            check(status["type"] == "STATUS" and status["request_id"] == "fixture-status-1"
+                  and status["last_frame_seq"] == parsed[2].frame_seq
+                  and status["adc_status"] == parsed[2].adc_status,
+                  "%s STATUS matches sample identity and ADC faults" % key)
 
             for index, line in enumerate(lines):
                 fixture_name = FIXTURE_NAMES[(key, index)]

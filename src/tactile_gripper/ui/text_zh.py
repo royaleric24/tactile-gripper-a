@@ -48,13 +48,16 @@ STATUS_LABELS = {
 
 SENSOR_LABELS = {
     "SENSOR WAITING": "等待传感器数据",
-    "SENSOR STREAMING": "传感器数据正常",
+    "SENSOR STREAMING": "通信在线 · 接收数据",
     "SENSOR OFFLINE": "传感器离线",
     "SENSOR STALE": "传感器数据已过期",
     "SENSOR ERROR": "传感器错误",
     "SENSOR REPLAY": "只读回放数据",
     "WAITING": "等待传感器数据",
-    "STREAMING": "传感器数据正常",
+    "STREAMING": "通信在线 · 接收数据",
+    "STOPPED": "设备在线 · 采集已停止",
+    "DATA_ERROR": "协议异常 · 帧已拒绝",
+    "FIXTURE_COMPLETE": "离线固件帧已读完",
     "OFFLINE": "传感器离线",
     "STALE": "传感器数据已过期",
     "DEVICE_ERROR": "传感器错误",
