@@ -1,3 +1,76 @@
+# 当前交接｜P3-B1 真实 FSR 接管（2026-11-15）
+
+- **工作区/分支**：`~/Developer/research/tactile-gripper-v2-p3b1`，`hw/p3b1-fsr-real`，
+  基线 `af1758e`（main 已合入 PR #5）。`git status -sb` 仅 `.venv` 为未跟踪符号链接。
+- **已完成的真实采集**：`tactile-fsr2-0.3.0` / `FSR_ONLY` / ADC4 AIN0 MUX8，CP2102 921600 8N1，
+  约 85.0 s、5247 SAMPLE、61.74 Hz、帧序 1–5247 无缺帧、ADC4 全程 OK、无饱和。
+  原始 JSONL/CSV 与旧分析在 `evidence/p3b1/private/real_20261115_2314/`（`evidence/` 已 gitignore，未提交）。
+- **分析结论**：操作者没有按三段式计划；4.6 s 首次持续下降 −470k counts、48.8 s 大幅下降 −1.72M、
+  70 s 后方差下降并缓慢回升；85 s 内未回到初始基线。接触变化清晰，**FSR 初步响应验证成功**，
+  不需要重做手指三段式。详见 [P3-B1 分析](P3B1_FSR_REAL_ANALYSIS.md) 与
+  [曲线图](screenshots/p3b1/fsr_a_real_curve_v2.png)。
+- **极性**：原始 capture 起点很可能是第一处按压已在进行（0–4.2 s 的 4.16M）；事后 15:37Z
+  空载基线中位 1.7k counts（≈0），与“未载≈0、按压≈4.16M”一致，支持
+  `VOLTAGE_RISES_WITH_FORCE`。原始 capture 不是同一 trial 的连续空载→夹持→释放，极性标为
+  **SUPPORTED（非单 trial 验证）**；空杯 trial 必须在夹持前采连续空载基线。
+- **S3 已恢复（2026-11-16）**：真实端口 `/dev/cu.usbserial-A5069RR4`，ESP32-S3 QFN56 r0.2、
+  8 MB PSRAM、MAC `c4:9e:7e:08:25:78`。已用 `python3 scripts/build_firmware.py s3` 构建
+  `gripper-control-s3-0.9b26.0`，并以 **460800、无全片擦除** 上传；每段 `Hash of data verified`。
+  app SHA `d20782…`（历史验收 `04c77eed…`；同源同配置，16 B 差异为构建路径/工具链非确定性，
+  见 I-216）。真实 STATUS 只发 `GET_STATUS`：`DISARMED`、GPIO4、50 Hz、14-bit、
+  `output_state=DISABLED_UNMEASURED`、`commanded_pulse_us=null`、`bench_capable=true`、
+  0 ERROR/0 FAULT/0 timeout。详见 [S3 恢复记录](P3B1_S3_FIRMWARE_RECOVERY.md)。
+- **2026-11-16 两次空杯 MANUAL 控制台失败**：均在 BEGIN_BENCH/模式选择后 `response_timeout`。
+  最后命令分别为 HEARTBEAT seq 30（request_id `e4fddfe2…`）与 BENCH_HOLD_MODE seq 4
+  （request_id `4d0c5503…`）；两次都收到约 950 B 的正确 ACK，但中间有 12/13 个 NUL，
+  JSON 解析失败后主机 3 s 超时。根因是 `respond()` 的 900 B TX 阈值小于实测 942–963 B 应答。
+  已修复为 `measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR。
+  修复 app `bd039a8…`（317840 B）已 **460800 重烧**，真实无 PWM 验证 **PASS**：
+  64/64 应答匹配、64 条应答 0 NUL、0 `corrupt_response`、0 COMM_ERROR、0 FAULT；
+  5 次连续会话 + 20 次背靠背 HEARTBEAT 全部 PASS；最终 DISARMED / DISABLED_UNMEASURED。
+  日志 `logs/real/bench/s3_txfix_verify_20261116T004448/transport.jsonl`。
+  两份失败日志与失败 FSR 原始数据已保存（17,392 SAMPLE，无 PWM，非空杯结果）；详见
+  [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)。
+- **2026-11-16 第二次空杯 MANUAL（真实 PWM，未成功）**：1500/1450 均 ACK；**1500 时舵机确实运动，
+  1450 ACK 后舵机突然停止、之后不再运动**；准备输入 1400 时 heartbeat seq 31 的 ACK 含 **7 个 NUL**，
+  主机 `corrupt_response` 后 3 s `response_timeout`。1450 停止比主机超时早约 11 s、比 S3 5 s
+  通信超时早约 13 s，**不是通信超时/PWM off 造成的**；最可能是目标到位/机械限位，舵机供电/
+  连接失稳不能排除。**1400 未发送**（日志无 1400 COMMAND）。
+  会话内 `boot_id=ba1412…` 未变、无 ESP-ROM、无设备 FAULT；1450 ACK 为
+  ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED，无输出 API 错误，未运动最可能是
+  机械限位/堵转（精确限位 UNKNOWN）。无 PWM 64/64 验证应答 0 NUL，本轮唯一新增因素是
+  舵机真实输出并可能堵转；PWM 期间 NUL 的机制为 **LEADING_HYPOTHESIS：舵机电流/地弹/EMI
+  耦合 UART**，未证实。16:56 只读 STATUS 查询（PM15S 动力断开）导致端口打开复位，
+  新 boot_id `caff3b25…`、uptime 1919 ms、DISARMED、BOOT、DISABLED_UNMEASURED；
+  这不是 PWM 期间重启证据。FSR/console 日志已保存，未标记成功。**当前暂停真实 PWM。**
+- **仍存环境限制**：本会话沙箱无 PTY，`pwm_console.py --real` 不能由代理直接运行（I-211）；
+  用户需在自己的 Terminal 运行 console，本进程独占 FSR 串口采集。
+- **FSR 当前状态**：已释放；15:37Z 近零空载基线有效（中位 1.7k counts，230/494 帧 flag 0x04
+  是 0 附近零点噪声，ADC4 仍 OK）。15:34Z 的 0–650k 是释放过程中的余压。空杯前重采 8 s 基线即可。
+- **Dashboard LIVE 握手（暂停）**：真实复测仍未拿到完整 HELLO；后续 DTR/RTS、flush、同步 prime
+  尝试均未成功。未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，
+  **未提交、未合并**；Dashboard 不再作为空杯前置条件，后续单独集中修复（I-215）。
+- **空杯实验预案（已授权范围，尚未执行）**：PWM **1300–1500 μs、50 μs 步进、1300 为下限，不进 1270**；
+  先无杯 1500→1450→1400→1350→1500 验证方向，再空杯 1500→1450→1400→1350→1300，
+  首次接触即停，保持并观察，释放回 1500；2 次（最多 3 次）抓取/释放。
+  `AUTO_REAL_ENABLED=False`；FSR 只记录，不闭环。
+- **数据分工**：用户 terminal 的 `pwm_console.py --target s3` 独占 S3 串口并写
+  `logs/real/bench/<id>/transport.jsonl`；本进程用独立采集脚本独占 FSR 串口写
+  `evidence/p3b1/private/cup_*`。两个进程不得打开同一设备。
+- **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。S3 修复固件已重烧并通过无 PWM 验证；未触碰旧 ESP32 FSR 固件。
+- **测试 A（2026-11-16，PASS）**：PM15S 5V 关、信号线断开；GPIO4 输出 1500/1450 + 120 次
+  PWM 期间心跳；151/151 应答匹配、0 NUL、0 ERROR/FAULT，最终 DISARMED。说明纯 GPIO4 PWM +
+  S3 Serial/UART 路径不足以造成真实 PWM 故障；故障与舵机接通/通电或机械负载相关。
+  详见 [测试 A 报告](P3B1_TEST_A_NO_SERVO_PWM.md)。
+- **2026-11-16 重开 console 失败（新证据）**：成功 1040 会话 `cab808…` 409/409、0 NUL，
+  操作者确认 1040 稳定夹杯、无明显形变/下滑；但 `a1790d/296054/ab8d2f` 重开后均 NUL+timeout。
+  **`ab8d2f` 无任何 PWM 命令**，仅 GET_STATUS×2 + BEGIN_BENCH，BEGIN_BENCH ACK 含 12 NUL；
+  最后有效 STATUS DISARMED/DISABLED_UNMEASURED。**重开直接闭合不是软件 PWM 命令**（I-220）。
+  串口损坏可发生在舵机连接/通电但无 PWM 时，指向舵机 5V/共地/线束/EMI 或闭合堵转状态；
+  未实测证实。FSR 同步未成功，数据已保存。
+- **下一步顺序**：**暂停真实 PWM** → 先测舵机 5V/地电位/电流/线束 → 做“舵机通电但无 PWM”的
+  no-PWM 会话 → 1500-only → 1040；链路稳定前不继续夹杯、不自动重试 PWM、不改固件/范围。
+
 # 当前交接｜P3-A V2 离线集成（2026-11-15）
 
 集成分支 `integrate/hybrid-demo-v2`；独立目录同级 `tactile-gripper-v2-integration`。

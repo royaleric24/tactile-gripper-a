@@ -71,6 +71,16 @@ struct LedcOutput:Output {
 Limits limits;
 SafetyCore* safety;
 char bootId[33];char buffer[CFG_MAX_LINE_BYTES];size_t used=0;bool oversized=false;uint32_t lastByte=0;
+static const uint32_t kTxWaitMs=150;      // host timeout is 3 s; a max ~950 B frame drains in ~82 ms at 115200
+static const size_t kTxMaxFrame=1800;    // keep below the 2048 B TX buffer
+static bool waitForTxSpace(size_t need,uint32_t timeout_ms){
+ const uint32_t start=millis();
+ while(Serial.availableForWrite()<(int)need){
+  if(uint32_t(millis()-start)>=timeout_ms)return false;
+  delay(5);
+ }
+ return true;
+}
 void respond(const char* id,const char* type,const char* error=nullptr){
  JsonDocument d;d["protocol_version"]=1;d["firmware_version"]=CFG_FIRMWARE_VERSION;
  d["board_target"]=BOARD_TARGET;d["pwm_gpio"]=CFG_GPIO;d["pwm_frequency_hz"]=CFG_FREQUENCY_HZ;d["pwm_resolution_bits"]=CFG_RESOLUTION_BITS;
@@ -94,7 +104,20 @@ void respond(const char* id,const char* type,const char* error=nullptr){
   d["output_expected_duty"]=pwm.lastExpectedDuty;d["output_actual_duty"]=pwm.lastActualDuty;
   d["output_expected_freq_hz"]=pwm.lastExpectedFreq;d["output_actual_freq_hz"]=pwm.lastActualFreq;
  }
- if(Serial.availableForWrite()<900){safety->fault("TX_BACKPRESSURE");return;}
+ const size_t need=measureJson(d)+2;  // JSON plus CRLF
+ if(need>kTxMaxFrame || !waitForTxSpace(need,kTxWaitMs)){
+  // Return a compact matched ERROR if any room remains, so the host sees a
+  // device error instead of a 3 s response_timeout.  Do not serialize a
+  // partial normal frame into a short TX buffer (NUL holes break JSON).
+  JsonDocument e;
+  e["protocol_version"]=1;e["firmware_version"]=CFG_FIRMWARE_VERSION;
+  e["type"]="ERROR";e["error"]="TX_BACKPRESSURE";
+  if(id)e["request_id"]=id;else e["request_id"]=nullptr;
+  const size_t need_error=measureJson(e)+2;
+  if(Serial.availableForWrite()>=(int)need_error){serializeJson(e,Serial);Serial.println();}
+  safety->fault("TX_BACKPRESSURE");
+  return;
+ }
  serializeJson(d,Serial);Serial.println();
 }
 struct Reader {size_t pos=0;int read(){return pos<used?(unsigned char)buffer[pos++]:-1;}int peek(){return pos<used?(unsigned char)buffer[pos]:-1;}size_t readBytes(char* dst,size_t n){size_t i=0;while(i<n && pos<used)dst[i++]=buffer[pos++];return i;}};

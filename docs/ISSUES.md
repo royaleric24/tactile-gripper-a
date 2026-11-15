@@ -16,6 +16,25 @@
 | I-206 | OFFLINE_VERIFIED | 36 格仅在独立 SIMULATION 演示和历史矩阵回放中显示，现行采集保留 12 电极原始 ADC 条形图。 |
 | I-203 | OPEN | P3-B 需核对实际波特率、包吞吐、真实时间基准、FSR 极性与阈值、滑移代理、杯体机械风险。负责人：总负责人 / 现场硬件与软件组。 |
 
+## P3-B1 当前问题（2026-11-15 真实 FSR 接管）
+
+| 编号 | 状态 | 问题 / 证据 / 下一步 |
+|---|---|---|
+| I-207 | **SUPPORTED（非单 trial）** | 原始 capture 起点很可能是第一处按压已在进行（0–4.2 s 的 4.16M）；事后 15:37Z 空载基线中位 1.7k counts（≈0），与“未载≈0、按压≈4.16M”一致，支持 `VOLTAGE_RISES_WITH_FORCE`。但原始 capture 不是同一 trial 的连续空载→夹持→释放；空杯 trial 仍需在夹持前采连续空载基线。Dashboard 接触评分仍只认正向增量，未做单 trial 确认前不当唯一判据。`AUTO_REAL_ENABLED=False`。 |
+| I-208 | **RESOLVED（分析已纠正）** | 采集脚本预写的三段式 marker 与实际操作不符；旧 `capture_analysis.json` 的窗口统计无效。已保留为 `capture_analysis_schedule_assumed.json`，用数据驱动分段生成 `capture_analysis_v2.json`。后续采集不得再写计划 marker 冒充真实事件。 |
+| I-209 | **OPEN（低优先级，零点噪声）** | 原 capture 68.734/68.750/68.766 s 有 3 帧 flag `0x04`；15:37Z 空载基线 494 帧中 230 帧负单端（值约 −12k…+16k counts，中位 1.7k），是 0 附近零点噪声而非通信故障，ADC4 全程 `OK`。分析时把 `0x04` 当基线噪声/无效样本，不解释为负力；空杯 trial 监控是否出现远离零点的负跳变。 |
+| I-210 | **RESOLVED（2026-11-16）** | S3 真实端口 `/dev/cu.usbserial-A5069RR4` 已识别（ESP32-S3 QFN56 r0.2、8 MB PSRAM、MAC c4:9e:7e:08:25:78）。已构建并上传 `gripper-control-s3-0.9b26.0`（460800、无全片擦除、每段 hash verified），只读 STATUS 返回 DISARMED、GPIO4、50 Hz、14-bit、`output_state=DISABLED_UNMEASURED`、0 ERROR/FAULT/timeout。未发 PWM。 |
+| I-211 | **OPEN（环境限制）** | 本会话沙箱无 PTY（`openpty: Operation not permitted`），`pwm_console.py --real` 的交互终端无法由代理运行。下一步：用户在自己的真实 Terminal 运行 console，本进程独占 FSR 串口采集；或经用户明确同意改用 Dashboard LIVE 手动入口。不得修改 `isatty` 安全检查。 |
+| I-212 | **OPEN（影响重复性）** | 末段 S4 从约 1.1M 回升到 2.3M，85 s 内未回到初始 4.16M；S3 段还有 −61.6k counts/s 的慢漂移。释放恢复/蠕变时间常数未知。每个 trial 必须重新采空载基线，并保留足够长的释放后窗口。 |
+| I-213 | **ACCEPTED_LIMITATION** | 历史验收 app 二进制 `04c77eed…`（316272 B）仍不在本 worktree；2026-11-16 已用同源同配置重新构建 `d20782…`（316288 B）并上传，bootloader/分区表哈希与历史一致，生成头/源码/配置哈希与历史清单一致。历史二进制继续从独立备份保留，不作为当前运行版本。 |
+| I-214 | **OPEN（待 LIVE 实测）** | Dashboard `fsr_history` 仅保留 180 帧（约 2.9 s @61.7 Hz），对空杯夹持/释放观察可能偏短。先跑真实 LIVE 看是否够用；若不够，仅做最小修改（增大窗口/改时间轴），不重构。 |
+| I-215 | **OPEN（真实复测失败，暂停）** | Dashboard LIVE 真实连接仍拿不到完整 HELLO；后续尝试 DTR/RTS 释放、write flush、同步 prime 均未成功。未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，**未提交、未合并**；Dashboard 不再作为空杯前置条件。下一步单独集中修复。 |
+| I-216 | **ACCEPTED_LIMITATION** | 2026-11-16 恢复构建 app SHA `d20782808447385a2ad090e63082f55e7f824652220441f07230f9dbf89830c4`（316288 B）与历史验收 `04c77eed…`（316272 B）不是逐字节相同。bootloader/分区表/生成头/源码/配置均一致，版本字符串与 GPIO/频率/位数已从新二进制和真实 STATUS 确认；16 B 差异与构建路径/工具链非确定性一致，不视为源码变更。 |
+| I-217 | **RESOLVED（VERIFIED_REAL，无 PWM）** | 两次 S3 控制台 `response_timeout` 根因：`respond()` 的 900 B TX 阈值小于实测 942–963 B 的 ACK/STATUS；连续命令时 TX 空间不足，`serializeJson` 写出 12/13 个 NUL，主机 JSON 解析失败后 3 s 超时。修复：`measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR；主机记录 `corrupt_response`。修复版 `bd039a8…` 已 460800 重烧；真实无 PWM 验证 64/64 应答匹配、0 NUL、0 corrupt_response、0 COMM_ERROR、0 FAULT；5 次连续会话 + 20 次背靠背 HEARTBEAT 全部 PASS；最终 DISARMED/DISABLED_UNMEASURED。 |
+| I-218 | **OPEN（1040 机械成功，FSR 同步未完成）** | 操作者已实测 1500 全开、1040 稳定夹住空杯、无明显形变/下滑；`cab808…` 会话 409/409、0 NUL、最终 DISARMED，但**该会话无 FSR 同步**。随后重开 console 的 `a1790d/296054/ab8d2f` 均出现 NUL ACK + timeout；`ab8d2f` 无 PWM 命令却损坏，重开直接闭合不是 PWM 命令。1040 + FSR 同步仍 **NOT_TESTED**。 |
+| I-219 | **OPEN（Test A PASS；新证据：无 PWM 也会损坏）** | 真实 PWM 会话 heartbeat ACK 曾 7/12/24 NUL；Test A（PM15S 5V 关、信号线断开）151/151、0 NUL；成功 1040 会话 409/409、0 NUL；但重开的 `ab8d2f` **没有任何 PWM 命令**却在 BEGIN_BENCH ACK 出现 12 NUL。说明损坏可发生在舵机连接/通电但无 PWM 时，**不是 S3 产生 PWM 本身**；指向舵机 5V/共地/线束/EMI 或闭合堵转状态，尚未实测证实。下一步：舵机通电但无 PWM 的 no-PWM 会话 → 1500-only → 1040；测 5V/地电位/电流；不改固件、不自动重试 PWM。 |
+| I-220 | **ACCEPTED_LIMITATION（操作风险）** | `STOP`/`DISARM` 不保证保持夹持：舵机失电后机械爪可能因弹簧/残余位置闭合。`ab8d2f` 日志证明重开后的闭合**没有 PWM 命令**（仅 GET_STATUS×2 + BEGIN_BENCH，无 BENCH_HOLD/PULSE），最后有效 STATUS 为 DISARMED/DISABLED_UNMEASURED。处理：需要保持张开时不要 1040 后 `stop`/退出；先回 1500 并保持会话，或物理支撑/手动张开；重开后第一条 1500 必须等串口链路稳定。**不增加自动开爪 PWM。** |
+
 > 状态为 OPEN / WAITING / RESOLVED / ACCEPTED_LIMITATION。解决后留历史记录，不直接删掉。每个开发进展后检查是否需要更新。
 
 | ID | 问题 | 状态 | 当前判断与下一步 |

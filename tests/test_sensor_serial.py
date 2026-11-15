@@ -21,6 +21,7 @@ from support import FakeLineTransport, channel_config, hello_line, sample_line
 
 class FakeSerial:
     instances = []
+    boot_prefix = b""
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -37,6 +38,9 @@ class FakeSerial:
 
     def open(self):
         self.opened = True
+        if self.boot_prefix:
+            self.buffer.extend(self.boot_prefix)
+            self.in_waiting = len(self.buffer)
 
     def close(self):
         self.closed = True
@@ -52,6 +56,11 @@ class FakeSerial:
     def write(self, payload):
         self.writes.append(json.loads(payload))
         return len(payload)
+
+    def reset_input_buffer(self):
+        self.resets = getattr(self, "resets", 0) + 1
+        self.buffer.clear()
+        self.in_waiting = 0
 
     def feed(self, chunk):
         self.buffer.extend(chunk)
@@ -69,9 +78,11 @@ class Clock:
 class SerialTransportTests(unittest.TestCase):
     def setUp(self):
         FakeSerial.instances.clear()
+        FakeSerial.boot_prefix = b""
 
     def config(self, **kwargs):
-        return SerialSensorConfig(port="/dev/cu.fake-sensor", boot_wait_s=0, **kwargs)
+        boot_wait_s = kwargs.pop("boot_wait_s", 0)
+        return SerialSensorConfig(port="/dev/cu.fake-sensor", boot_wait_s=boot_wait_s, **kwargs)
 
     def test_connect_sets_dtr_rts_false_and_reads_bounded_lines(self):
         with patch("serial.Serial", FakeSerial):
@@ -88,6 +99,16 @@ class SerialTransportTests(unittest.TestCase):
             self.assertEqual(transport.readline(0.5), b'{"b":2}\n')
             transport.close()
             self.assertTrue(fake.closed)
+
+    def test_boot_wait_discards_startup_bytes(self):
+        with patch("serial.Serial", FakeSerial):
+            FakeSerial.boot_prefix = b"\x80\x00boot garbage\n"
+            transport = SerialSensorTransport(self.config(boot_wait_s=1.25))
+            transport.connect()
+            fake = FakeSerial.instances[-1]
+            self.assertEqual(fake.resets, 1)
+            self.assertIsNone(transport.readline(0.1))
+            transport.close()
 
     def test_no_port_is_refused_without_serial_import(self):
         with patch("serial.Serial", side_effect=AssertionError("must not open")):

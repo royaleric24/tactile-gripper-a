@@ -49,6 +49,14 @@
 | S3 构建目标 | `evidence/stage09b26/build_s3/build.options.json` | FQBN `esp32:esp32:esp32s3...` | — | `c0955ffad92da18e95ee294355aab1ed14168cc58aeac7f230cdb2301be35716` | 是 |
 | 板级配置（当前） | `config/board_s3.json` | 板型、Flash/PSRAM、串口 | — | `9dfb68696159b9f65747a9e40c70b9dc26b16ca57d35cb7870a230b5d7c350b7` | 是 |
 
+> **2026-11-16 恢复构建（当前运行）**：同源同配置重建并上传 app `d20782808447385a2ad090e63082f55e7f824652220441f07230f9dbf89830c4`（316288 B），
+> 上传 460800、无全片擦除，真实 STATUS 为 `gripper-control-s3-0.9b26.0` / DISARMED / GPIO4 / 50 Hz / 14-bit。
+> 历史验收 app `04c77eed…`（316272 B）保留为历史；bootloader/分区表/生成头/源码/配置哈希与上表一致。
+> 详见 [P3-B1 S3 恢复记录](P3B1_S3_FIRMWARE_RECOVERY.md)（I-216）。
+> **2026-11-16 TX 背压修复版（当前运行）**：app `bd039a8ae54bb908c3d8afefcf1eb60326ff7c80d9fd3cca9620faec05cb48ee`（317840 B），
+> 已 460800 重烧并通过真实无 PWM 验证（64/64 应答、0 NUL、5 次连续会话 + 20 次背靠背心跳）；
+> `d20782…` 为上一版。详见 [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)（I-217）。
+
 注意：`config/board_s3.json` 当前哈希与 `evidence/stage09b26/sha256_after.txt` 记录的历史值 `b8079273...` 不同（S3 部署后更新了板级/上传描述字段）；控制参数以 `config/gripper_s3.json`（`b4929f...`）和 `generated_config_s3.h`（`83c8af...`）为准，不把当前板级描述反推为部署时快照。
 
 ## 4. PWM Console 与关键上位机工具
