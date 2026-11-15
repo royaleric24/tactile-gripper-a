@@ -1,5 +1,26 @@
 # 现场演示 / 快速排错 V2（流程提案）
 
+## P3-B4 当前优先流程（覆盖下方旧 AUTO 演示顺序）
+
+当前先验证通信与持续记录，`AUTO_REAL_ENABLED=False`。现场授权后运行：
+
+```bash
+cd ~/Developer/research/tactile-gripper-v2-p3b-monitor
+PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+```
+
+1. 确认杯子未进入夹爪运动范围，舵机独立 5V、S3 供电和共地连接按现状固定；测量 5V 动态压降、
+   S3/舵机地电位差与电流，记录仪表量程和测点。
+2. 选择机械模式 `1`，建立会话后 **60 s 不输入 PWM**。Dashboard 应继续显示 FSR；记录 NUL、
+   `COMMAND_RETRY`、boot_id、FAULT 与 output_state。
+3. 若出现通信故障，停止输入：console 退出 2，launcher 保持 FSR/Dashboard；观察并记录后按 Ctrl+C。
+   核对 `<session>/trial.json` 为 `INTERRUPTED`，CSV/REPLAY 存在，无残留子进程。
+4. no-PWM 会话稳定后，另开新会话只输入 `1500`，保持 60 s，再输入 `stop`。1500 ACK 只表示
+   固件接受目标，现场另记实际运动。
+5. no-PWM 与 1500-only 均稳定后，再安排 1500→1040 空杯夹持；加水与 AUTO 继续保持禁用。
+
+若 no-PWM 条件复现 NUL，优先检查电源/地/线束并用示波器观察 S3 TX 与地参考；无需先改固件。
+
 > P3-A 离线入口见 [中文指南](DASHBOARD_QUICKSTART_ZH.md)。本页实物步骤留待 P3-B 获得现场授权后执行。
 
 **状态：脚本入口与板卡参数尚未完成 V2 联调，以下不是可直接执行的硬件指令；且 2026-11-15 起真实串口/烧录/采样/PWM/AUTO 暂停，需项目所有者明确授权与真实接线记录才能执行。**

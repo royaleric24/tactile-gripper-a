@@ -25,6 +25,18 @@ class SerialTests(unittest.TestCase):
   c=self.make();p=c.port
   with self.assertRaises(CommunicationError):c.exchange(b'test\n','id')
   self.assertTrue(p.closed)
+ def test_retryable_timeout_keeps_port_open(self):
+  c=self.make();p=c.port
+  with self.assertRaises(CommunicationError):c.exchange(b'test\n','id',close_on_error=False)
+  self.assertFalse(p.closed)
+  self.assertTrue(any(e=='COMMUNICATION_ERROR' for e,v in self.events))
+
+ def test_corrupt_response_without_close_keeps_port_open(self):
+  corrupt=b'{"protocol_version":1,"type":"PONG","x":"'+b'\x00'*6+b'"}\n'
+  c=self.make(corrupt);p=c.port
+  with self.assertRaises(CommunicationError):c.exchange(b'test\n','id',close_on_error=False)
+  self.assertFalse(p.closed)
+
  def test_disconnect_closes(self):
   c=self.make(fail=True);p=c.port
   with self.assertRaises(CommunicationError):c.exchange(b'test\n','id')
@@ -41,6 +53,18 @@ class SerialTests(unittest.TestCase):
   self.assertEqual(c.exchange(b'test\n','id')['type'],'PONG')
   ignored=[v for e,v in self.events if e=='IGNORED']
   self.assertTrue(any(v.get('reason')=='corrupt_response' and v.get('nul_count')==12 for v in ignored),ignored)
+ def test_fail_fast_corrupt_raises_without_timeout(self):
+  good=dict(protocol_version=1,request_id='id',type='PONG',firmware_version='serial-test-0.8.0',pad='x'*300)
+  wire=json.dumps(good).encode()+b'\n'
+  corrupt=wire[:30]+b'\x00'*12+wire[42:]
+  c=self.make(corrupt+self.wire())
+  with self.assertRaises(CommunicationError) as ctx:
+   c.exchange(b'test\n','id',close_on_error=False,fail_fast_on_corrupt=True)
+  self.assertEqual(str(ctx.exception),'corrupt_response')
+  self.assertFalse(c.port.closed)
+  ignored=[v for e,v in self.events if e=='IGNORED']
+  self.assertTrue(any(v.get('reason')=='corrupt_response' for v in ignored),ignored)
+
  def test_no_motion(self):
   c=self.make()
   with self.assertRaises(ValueError):c.request('ARM')

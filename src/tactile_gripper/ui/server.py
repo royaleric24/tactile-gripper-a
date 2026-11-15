@@ -8,6 +8,7 @@ gripper adapter or open another serial port.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import threading
 from pathlib import Path
@@ -17,11 +18,20 @@ from nicegui import app, ui
 from ..constants import SOFTWARE_VERSION
 from ..control import build_core
 from ..devices.firmware_fixture import FIXTURE_STREAMS
+from ..models import utc_now_iso
 from ..paths import PROJECT_ROOT
 from ..protocol import CURRENT_SENSOR_PROFILES
 from ..sources import DataSource, parse_source
 from .pages import analysis_page, experiments_page, live_page
 from .pages.demo_grid import demo_grid_page
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Write a sidecar atomically so a reader never sees half JSON."""
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def start_ticker(core, interval_s: float = 0.25) -> threading.Event:
@@ -104,6 +114,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sensor-baud", type=int, help="传感器波特率（默认取配置文件）")
     parser.add_argument("--sensor-config", type=Path, default=PROJECT_ROOT / "config" / "sensor_serial.json")
     parser.add_argument("--connect-sensor", action="store_true", help="启动时打开传感器串口")
+    parser.add_argument("--follow-pwm-log", type=Path, help="只读跟随 pwm_console 的 transport.jsonl（不打开串口）")
+    parser.add_argument("--follow-fsr-log", type=Path, help="只读跟随 FSR 采集 JSONL（不打开串口）")
+    parser.add_argument("--follow-session", type=Path, help="会话目录：transport.jsonl + fsr/fsr_stream.jsonl")
+    parser.add_argument("--follow-record", action="store_true", help="跟随模式自动创建并记录一个 Trial，退出时导出 CSV")
     parser.add_argument("--demo", action="store_true", help="仅 SIMULATION 的 Dashboard 演示数据")
     parser.add_argument(
         "--demo-profile",
@@ -114,7 +128,47 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     source = parse_source(args.source)
-    if source is DataSource.LIVE:
+    follow_pwm = args.follow_pwm_log
+    follow_fsr = args.follow_fsr_log
+    pwm_expected = False
+    if args.follow_session is not None:
+        session = args.follow_session
+        # The launcher starts this Dashboard before the interactive console
+        # creates transport.jsonl.  Follow the expected path and wait for it.
+        if follow_pwm is None:
+            follow_pwm = session / "transport.jsonl"
+            pwm_expected = True
+        candidate = session / "fsr" / "fsr_stream.jsonl"
+        if not candidate.is_file():
+            candidate = session / "fsr_stream.jsonl"
+        if candidate.is_file():
+            follow_fsr = follow_fsr or candidate
+    follow_mode = follow_pwm is not None or follow_fsr is not None
+    if args.follow_session is not None and not follow_mode:
+        parser.error(
+            f"会话目录里没有 transport.jsonl 或 fsr/fsr_stream.jsonl：{args.follow_session}"
+        )
+    if args.follow_record and not follow_mode:
+        parser.error("--follow-record 需要 --follow-session / --follow-pwm-log / --follow-fsr-log")
+    if follow_mode:
+        if source is not DataSource.LIVE:
+            parser.error("--follow-* 需要 --source LIVE（只读监控仍是真实数据）")
+        if args.hardware_permission:
+            parser.error("--follow-* 不打开串口；不要同时传 --hardware-permission")
+        if args.connect or args.connect_sensor or args.connect_port or args.sensor_port:
+            parser.error("--follow-* 与串口连接参数互斥")
+        if follow_pwm is not None and not follow_pwm.is_file() and not pwm_expected:
+            parser.error(f"PWM 日志不存在：{follow_pwm}")
+        if pwm_expected and not follow_pwm.is_file():
+            print(
+                f"[follow] 等待 console 创建 PWM 日志：{follow_pwm}",
+                flush=True,
+            )
+        if follow_fsr is not None and not follow_fsr.is_file():
+            parser.error(f"FSR 日志不存在：{follow_fsr}")
+        if not args.follow_record:
+            print("[follow] 未启用 --follow-record：不会写 Trial。", flush=True)
+    elif source is DataSource.LIVE:
         if not args.hardware_permission:
             parser.error("--source LIVE 需要 --hardware-permission")
         if args.connect and not args.connect_port:
@@ -145,7 +199,44 @@ def main(argv: list[str] | None = None) -> None:
         sensor_baud=args.sensor_baud,
         sensor_config_path=args.sensor_config,
         connect_sensor=args.connect_sensor,
+        follow_pwm_log=follow_pwm if follow_mode else None,
+        follow_fsr_log=follow_fsr if follow_mode else None,
+        follow_allow_missing=pwm_expected,
     )
+    follow_trial_id = None
+    trial_sidecar = None
+    session_dir = args.follow_session if follow_mode else None
+    if follow_mode and args.follow_record:
+        name = "LIVE 双日志 · " + (args.follow_session.name if args.follow_session else "monitor")
+        metadata = core.create_trial(
+            name,
+            conditions={
+                "object": "manual bench",
+                "source_kind": "LIVE_LOG_FOLLOW",
+                "pwm_log": str(follow_pwm) if follow_pwm else None,
+                "fsr_log": str(follow_fsr) if follow_fsr else None,
+            },
+            notes="Dashboard 只读跟随 console/FSR 日志；PWM 由 pwm_console 独占发送。",
+            operator="operator",
+            tags=["LIVE", "LOG_FOLLOW"],
+        )
+        follow_trial_id = metadata["trial_id"]
+        core.start_trial()
+        print(f"[follow] Trial 记录中：{follow_trial_id}", flush=True)
+        if session_dir is not None:
+            trial_sidecar = session_dir / "trial.json"
+            _write_json_atomic(
+                trial_sidecar,
+                {
+                    "trial_id": follow_trial_id,
+                    "directory": str(core.trial.directory) if core.trial is not None else None,
+                    "status": "RECORDING",
+                    "csv": None,
+                    "replay": None,
+                    "started_utc": utc_now_iso(),
+                    "updated_utc": utc_now_iso(),
+                },
+            )
     if args.demo:
         _demo_setup(core, args.demo_profile)
     if args.firmware_fixture:
@@ -166,8 +257,63 @@ def main(argv: list[str] | None = None) -> None:
             print(f"SIMULATION Trial: {trial_id}; REPLAY: {replay}", flush=True)
     stop = start_ticker(core)
 
+    def _export_follow_trial() -> dict | None:
+        """Drain JSONL, stop the Trial, then export CSV + REPLAY.
+
+        The drain happens inside ``finish_log_follow_trial`` before the Trial
+        is stopped, so records flushed by the collectors at exit are included.
+        If the operator already stopped the Trial in the UI, the same Trial id
+        is re-exported instead of guessing a different one.
+        """
+        if follow_trial_id is None:
+            return None
+        try:
+            if core.trial is not None and core.trial.recording:
+                result = core.finish_log_follow_trial("monitor shutdown")
+                if result is not None:
+                    return result
+            record = core.trial_store.load(follow_trial_id)
+            csv_path = core.trial_store.export_csv(follow_trial_id)
+            replay_path = core.trial_store.export_replay_jsonl(follow_trial_id)
+            return {
+                "trial_id": follow_trial_id,
+                "directory": str(record.directory),
+                "csv": str(csv_path),
+                "replay": str(replay_path),
+                "status": record.metadata.status,
+            }
+        except Exception as exc:  # pragma: no cover - shutdown best effort
+            print(
+                f"[follow] Trial 保存失败：{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return {"trial_id": follow_trial_id, "status": "ERROR", "error": str(exc)}
+
     def shutdown() -> None:
         stop.set()
+        if follow_mode:
+            result = _export_follow_trial()
+            if trial_sidecar is not None and follow_trial_id is not None:
+                payload = {
+                    "trial_id": follow_trial_id,
+                    "status": "UNKNOWN",
+                    "csv": None,
+                    "replay": None,
+                    "updated_utc": utc_now_iso(),
+                }
+                if result is not None:
+                    payload.update(result)
+                try:
+                    _write_json_atomic(trial_sidecar, payload)
+                except OSError as exc:
+                    print(f"[follow] trial.json 写入失败：{exc}", file=sys.stderr, flush=True)
+            if result is not None:
+                print(f"[follow] Trial 已保存：{result.get('trial_id')}", flush=True)
+                if result.get("csv"):
+                    print(f"[follow] CSV: {result['csv']}", flush=True)
+                if result.get("replay"):
+                    print(f"[follow] REPLAY: {result['replay']}", flush=True)
         try:
             core.shutdown()
         except Exception as exc:  # pragma: no cover - shutdown best effort
@@ -175,11 +321,15 @@ def main(argv: list[str] | None = None) -> None:
 
     app.on_shutdown(shutdown)
     create_ui(core)
+    mode = "LOG_FOLLOW（只读，不打开串口）" if follow_mode else "DIRECT"
     print(
-        f"触觉闭环机械爪 A · 控制台 · source={source.value} · "
+        f"触觉闭环机械爪 A · 控制台 · source={source.value} · {mode} · "
         f"http://{args.host}:{args.port}",
         flush=True,
     )
+    if follow_mode:
+        print(f"  PWM 日志: {follow_pwm}", flush=True)
+        print(f"  FSR 日志: {follow_fsr}", flush=True)
     ui.run(
         host=args.host,
         port=args.port,

@@ -170,8 +170,20 @@ class SensorAdapter:
             if line is None:
                 break
             self.messages_received += 1
+            host_received_ns = None
+            host_received_utc = None
+            stamp = getattr(self.transport, "last_line_timestamp", None)
+            if callable(stamp):
+                try:
+                    host_received_ns, host_received_utc = stamp()
+                except Exception:
+                    host_received_ns, host_received_utc = None, None
             try:
-                result = self._handle_line(line)
+                result = self._handle_line(
+                    line,
+                    host_received_ns=host_received_ns,
+                    host_received_utc=host_received_utc,
+                )
             except FrameValidationError as exc:
                 self.invalid_frames += 1
                 self.last_error = f"{exc.code}: {exc}"
@@ -180,6 +192,12 @@ class SensorAdapter:
             if result is not None:
                 return result
             if time.monotonic() >= deadline:
+                # A file/queue transport can already hold complete lines; with
+                # timeout 0 they must be drained instead of returning after the
+                # first HELLO line and leaving the SAMPLE until the next tick.
+                pending = getattr(self.transport, "has_pending", None)
+                if callable(pending) and pending():
+                    continue
                 break
         self._update_state()
         return None
@@ -224,7 +242,13 @@ class SensorAdapter:
         self._start_handshake()
         return True
 
-    def _handle_line(self, line: bytes | str) -> TactileFrame | None:
+    def _handle_line(
+        self,
+        line: bytes | str,
+        *,
+        host_received_ns: int | None = None,
+        host_received_utc: str | None = None,
+    ) -> TactileFrame | None:
         self.last_anomalies = []
         message = parse_envelope(line, max_bytes=self.max_line_bytes)
         message_type = message["type"]
@@ -270,7 +294,10 @@ class SensorAdapter:
                 message,
                 self.channel_config,
                 source=self.source,
-                host_received_ns=self.clock_ns(),
+                host_received_ns=host_received_ns
+                if host_received_ns is not None
+                else self.clock_ns(),
+                host_received_utc=host_received_utc,
                 strict_v2=self.strict_v2,
             )
             anomalies = self.tracker.accept(frame)

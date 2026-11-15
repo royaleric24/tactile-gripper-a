@@ -1,5 +1,112 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B4 控制台故障隔离与持续监控｜sw/p3b-live-monitor
+
+- **真实日志定责（VERIFIED_REAL）**：`034325_f7e4` 最后为 `STOP` seq26 / `550e186d…`，
+  26 COMMAND=26 TX；返回 934 B / 46 NUL 的同 request_id ACK，未损坏字段为
+  `DISARMED / STOP / DISABLED_UNMEASURED`。`034413_94b4` 最后为 `BENCH_HOLD 1500`
+  seq8 / `cb028f57…`，8 COMMAND=8 TX；返回 955 B / 2 NUL 的同 request_id ACK，未损坏字段为
+  `ACTIVE / TARGET_COMMANDED / PWM_COMMANDED_UNMEASURED / 1500`。两会话 boot_id 各自稳定，
+  无设备 ERROR、FAULT 或重启。控制状态已改变；ACK 损坏；机械位置 UNKNOWN。
+- **旧生命周期缺陷**：console 将通信故障以退出码 0 结束，launcher 随即停止 FSR/Dashboard；自动
+  follow Trial 因此错误保存为 `COMPLETED`。两份历史 sidecar 保留原始证据，不回写；验收解释为异常中断。
+- **修复（OFFLINE_VERIFIED）**：console 以 0/2 区分正常/通信故障并写 `CONSOLE_EXIT`；launcher
+  检测非零后禁止新 PWM，保持 FSR + Dashboard，等待操作者 Ctrl+C；不自动重连或重发。最终仍按
+  console→FSR→Dashboard 顺序清理，无孤儿进程。
+- **Dashboard / Trial**：log-follow 锁存 `COMMUNICATION_ERROR / FAULT / UNKNOWN`；故障时间之后
+  清除 PWM 帧上下文，不把旧目标当输出；FSR 继续进入同一 Trial；结束时 drain 尾部 JSONL，导出
+  CSV/REPLAY，状态为 `INTERRUPTED`。正常结束仍为 `COMPLETED`，写入失败为 `ERROR`。
+- **重试审核**：只对 HEARTBEAT/无目标 mode 的 `corrupt_response` 与 `response_timeout` 有界重试；
+  设备 ERROR、boot_id 改变、非通信异常不重试；PWM/STOP/DISARM/BEGIN_BENCH 不重试。
+- **FSR 完整性**：A 1900 SAMPLE（1–1900，0 丢帧），B 656 SAMPLE（1–656，0 丢帧）；均 100%
+  有效、0 device ERROR。旧 launcher 在 console 退出后立即结束采集，故这两次不能验证“故障后继续采集”；
+  新行为已由离线生命周期测试验证。
+- **测试**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` → **443 tests OK**。
+  覆盖 PWM/STOP ACK 损坏、HEARTBEAT 恢复/耗尽、设备 ERROR/boot 变化不重试、console 非零退出、
+  launcher 持续监控、故障后 FSR 继续入 Trial、`INTERRUPTED`、尾部 drain、无旧 PWM 上下文。
+- **未执行**：未打开真实串口、未发 PWM、未上电/断电、未烧录、未改接线、未启用 AUTO。
+- **现场下一步**：先测 5V/地/电流/线束，再做舵机通电无 PWM 60 s A/B；链路稳定后才做
+  1500-only，再考虑 1040 夹杯。详见 [P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)。
+
+## 2026-11-16｜P3-B4 真实会话故障分析：ACK NUL 替换、FSR 波动、最小重试｜sw/p3b-live-monitor
+
+- **真实会话**：0fce（54.6 s，3080 FSR，无 PWM）、a804（24.9 s，1247 FSR，1500 保持）。
+- **S3 直接原因**：ACK 字段中间被 0x00 替换 → JSON 无效 → 主机按设计拒绝，3 s 后 timeout。
+  0fce：BENCH_HOLD_MODE seq4 `e8529db8…`，953 B、13 NUL @192–204，`pwm_first_readback_settle_ms` 被破坏；
+  a804：HEARTBEAT seq13 `7d9de5bc…`，957 B、4 NUL @897/899–901，`commanded_pulse_us` 被破坏。
+  去 NUL 可解析但字段名错误，不能安全修复。boot_id 稳定、无 FAULT、无重启、无 TX_BACKPRESSURE。
+- **区分**：主机 JSON 解析正确；设备未失联；TX 缓冲/主机读取证据不足；供电/地/EMI 与 NUL break 形态一致
+  但未证实（0fce 无 PWM 命令也损坏；Test A 舵机断电 151/151 0 NUL）。根因 **UNKNOWN**。
+- **修复**：`SerialClient.exchange` 支持 `close_on_error=False` + `fail_fast_on_corrupt=True`；
+  `GripperController._send` 对 HEARTBEAT 和无目标时的 mode 命令有界重试（默认 2 次/200 ms，最多 3 次），
+  PWM/STOP/DISARM/BEGIN_BENCH 不重试；耗尽后 FAULT/UNKNOWN/close。真实 corrupt ACK 快速失败 0.2 ms。
+  **未改固件、未重烧**；缩短 HEARTBEAT ACK 评估为“暂不必要”，见报告 §5。
+- **Dashboard 缺陷**：两个会话 `dashboard.log` 都是 `PWM 日志: None`——Dashboard 先于 console 启动，
+  `transport.jsonl` 尚不存在。修复：`--follow-session` 始终跟随预期路径，`LogFollowGripper` 允许缺失并等待，
+  文件出现后自动接入；页面显示等待状态。新增端到端测试确认晚创建日志的 `SET_PWM` 进入 Trial。
+- **FSR**：0fce 3080/3080 valid、61.74 Hz、0 丢帧、min −188,890/max 6,230,947/median 4,957/P5 −7,205/P95 5,561,476、
+  flag 0x04 983；a804 1247/1247、61.69 Hz、1 丢帧、min −20,559/max 4,754,595/median 1,117,686/P5 50,557/P95 4,000,021、
+  1 s range 中位 1.73M（历史 FSR-only 约 0.14–0.20M）。0fce 大幅变化与按压/释放平台一致；a804 高频波动
+  在 S3 命令前已存在，与 PWM/损坏时间无唯一相关；机械 vs 电气 **UNKNOWN**，不作力推断。
+- **Dashboard 平滑**：新增 `moving_median` + “短窗平滑（仅显示）”开关（5 帧），原始曲线半透明保留；
+  Trial/CSV/REPLAY 不变。
+- **测试**：**435 tests OK（skipped=1）**；新增 retry/fail-fast/mode/PWM-no-retry、晚接 PWM 日志、
+  FSR 平滑测试。真实 a804 会话只读 Dashboard 截图 `cards=10 errors=0`。
+- **未执行**：未打开真实串口、未发 PWM、未烧录、未改 PWM 范围、未启用 AUTO。
+- **下一步**：舵机通电无 PWM 60 s → 1500-only 60 s → 1500→1040+FSR；同步测 5V/地/电流/线束；
+  观察 `COMMAND_RETRY` 与 NUL 是否复现。报告见 [P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)。
+
+## 2026-11-16｜P3-B4 联调前修复：FSR 门控、退出 drain、本会话 Trial 路径｜sw/p3b-live-monitor
+
+- **① FSR 未就绪不启动 PWM Console**：`run_live_monitor.py` 的 `wait_for_fsr_hello()` 返回
+  `(ready, reason)`；HELLO 超时或采集进程退出（含写 HELLO 后立即退出）→ 退出码 3，
+  不启动 Dashboard/console；`session.json` 记录 `aborted`；Dashboard 就绪后再检查一次
+  FSR 进程，若已退出仍不启动 console；会话中 FSR 退出只打印警告，不自动停 PWM。
+  `--no-fsr` 是显式只跟 console 的路径，跳过门控。
+- **② 退出先 drain 再结束 Trial**：`ApplicationCore.drain_log_follow()` 连续两轮无新增才停
+  （上限 3 s）；`finish_log_follow_trial()` 先 drain、再 `stop_trial`、再导出 CSV/REPLAY。
+  Dashboard 退出回调走该路径；启动器顺序改为 console → FSR（SIGINT，写 summary）→
+  Dashboard，且 Dashboard 以 `start_new_session=True` 启动，避免终端 Ctrl+C 抢先结束导出。
+- **③ 只打印本次 Trial 路径**：Dashboard 在 `<session>/trial.json` 原子写入
+  `trial_id/directory/status/csv/replay/counts`；启动器只读该 sidecar，删除全局最新 CSV
+  逻辑；无 sidecar 时明确提示，不用其它会话代替。
+- **验证**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` →
+  **420 tests OK（skipped=1）**。新增 `tests/test_live_launcher.py` 8 项（HELLO/进程退出/
+  超时/只读 sidecar/启动中止集成）、`test_log_follow.py` drain-before-export 2 项、
+  Dashboard `--follow-record` sidecar 端到端 1 项。手工 smoke：launcher 以
+  `/dev/cu.p3b-does-not-exist` 退出 3 且无 `dashboard.log`/`transport.jsonl`；正常
+  `--no-fsr --no-console` 会话打印本会话 `T-…` 的 CSV/REPLAY。
+- **未执行**：未打开真实串口、未发 PWM、未重烧、未改 PWM 范围、未启用 AUTO。
+- **文档**：更新 AGENTS/PROGRESS/ISSUES（I-222）/HANDOFF/QUICKSTART/RUNBOOK/
+  P3B2_LIVE_MONITOR/ASSET_MANIFEST。
+
+## 2026-11-16｜P3-B 双日志实时监控（真实 FSR + 真实 PWM，只读）｜sw/p3b-live-monitor
+
+- **分支/worktree**：`sw/p3b-live-monitor`，独立 worktree `tactile-gripper-v2-p3b-monitor`，
+  基线 `622ef97`（P3-B1 已核实 HEAD）。未改动旧三个工作区；HW worktree 的 4 个未提交
+  文件已先备份到 `evidence/p3b1/private/protect_20261116/`（sha256 记录）。
+- **实现**：`devices/log_follow.py`（`JsonlTail` 增量 tail；`LogFollowGripper` 只读命令/ACK
+  状态机；`LogFollowSensorAdapter` 复用严格 V2 解析；mid-file attach 提取 HELLO；
+  截断/轮转/半行/超长/NUL 容错）。`ApplicationCore` 增加 log-follow 事件落盘、按帧时间
+  回溯 PWM 上下文、`fsr_timeline`（8000 帧）与 `monitor` 快照。UI 增加只读 PWM 面板、
+  统一时间轴、STALE/OFFLINE 与 FSR 质量提示；手动 PWM 面板在 log-follow 下隐藏且
+  `execute/stop` 被拒绝。`capture_fsr_live.py`、`run_live_monitor.py` 新增；
+  `pwm_console.py` 增加 `--log-dir`。
+- **验证（离线）**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` →
+  **409 tests OK（skipped=1）**；新增 `tests/test_log_follow.py` 28 项 + Dashboard
+  `--follow-session` 启动测试。私有真实日志回放：`d499e640` 53/53 应答匹配、8/8 PWM
+  ACK、0 NUL、STOP→`OUTPUT_OFF`；旧 FSR capture 1,719 帧、末帧 −996 counts/0x04。
+  Chrome 无头截图：`cards=10 errors=0`，无 server Traceback。
+- **启动闭合审计**：`d499e640` 打开 console 时收到 `rst:0x1 (POWERON)` + 首个 STATUS
+  `uptime_ms=1920`；首个 1500 之前 17 s 只有 GET_STATUS/BEGIN_BENCH/BENCH_HOLD_MODE/
+  HEARTBEAT，**无 PWM 命令**。代码审计确认 connect/begin/close 均不发 PWM，无自动恢复
+  旧目标。可排除本会话主机 PWM 命令；复位/失信号/机械失持为未验证假设，不写根因（I-221）。
+- **未执行**：未打开真实串口、未发 PWM、未烧录、未做机械动作、未启用 AUTO。
+- **下一步（现场授权后）**：按 `run_live_monitor.py` 跑同一 Trial；先 no-PWM 会话确认
+  双日志时间轴与 STALE，再 1500-only，最后 1040 + FSR 同步；链路稳定前不夹杯。
+- **文档**：新增 [P3B2_LIVE_MONITOR.md](P3B2_LIVE_MONITOR.md)；更新 AGENTS/PROGRESS/
+  ISSUES（I-214/I-215/I-221）/HANDOFF/QUICKSTART/RUNBOOK/ASSET_MANIFEST/PWM_CONSOLE。
+
 ## 2026-11-16｜重开 console 后直接闭合与再次 NUL 超时｜hw/p3b1-fsr-real
 
 - **成功机械 1040（无 FSR 同步）**：`cab808…` 会话 409/409、0 NUL、0 timeout/FAULT，

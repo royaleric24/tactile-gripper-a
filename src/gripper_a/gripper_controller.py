@@ -1,6 +1,11 @@
 """Offline hardware abstraction. No real transport is implemented."""
 from typing import Protocol
 
+from .serial_client import CommunicationError
+
+
+RETRYABLE_COMMUNICATION_ERRORS = frozenset(("corrupt_response", "response_timeout"))
+
 class Gripper(Protocol):
     def set_target(self, target): ...
     def inhibit_closing(self, reason): ...
@@ -67,25 +72,62 @@ class GripperController:
             raise RuntimeError('device_not_disarmed')
         return status
     def _send(self, command, **payload):
-        import uuid,json
+        import json,time,uuid
         if not self.connected:raise RuntimeError('not_connected')
-        self.sequence+=1;rid=uuid.uuid4().hex
-        request=dict(protocol_version=1,request_id=rid,command=command,sequence=self.sequence,boot_id=self.boot_id,**payload)
-        self.log('COMMAND',request=request)
-        if self.dry_run:
-            self.fake.record(command,**payload)
-            next_state={'ARM':'ARMED','SET_PULSE_US':'ACTIVE','STOP':'DISARMED','DISARM':'DISARMED'}.get(command,self.state)
-            response=dict(protocol_version=1,request_id=rid,type='STATUS' if command=='GET_STATUS' else 'PONG' if command=='PING' else 'ACK',firmware_version=self.config['firmware_version'],boot_id='SIMULATED_BOOT',state=next_state,output_state='SIMULATED_UNMEASURED',actual_angle_deg=None,actual_opening=None)
-        else:
+        serial_cfg=self.config.get('serial') or {}
+        # Only non-motion, idempotent commands may be retried.  PWM/STOP/DISARM
+        # and BEGIN_BENCH are never resent automatically.
+        mode_retry = (
+            command in ('BENCH_HOLD_MODE','BENCH_PULSE_MODE')
+            and getattr(self,'target',None) is None
+            and getattr(self,'last_pulse',None) is None
+        )
+        retryable = command=='HEARTBEAT' or mode_retry
+        attempts=1
+        if retryable:
+            raw=serial_cfg.get('heartbeat_retry_attempts',2)
+            attempts=raw if type(raw) is int else 2
+            attempts=max(1,min(3,attempts))
+        raw_delay=serial_cfg.get('heartbeat_retry_delay_ms',200)
+        delay_ms=float(raw_delay) if type(raw_delay) in (int,float) else 200.0
+        delay_ms=max(0.0,min(1000.0,delay_ms))
+        response=None
+        for attempt in range(attempts):
+            self.sequence+=1;rid=uuid.uuid4().hex
+            request=dict(protocol_version=1,request_id=rid,command=command,sequence=self.sequence,boot_id=self.boot_id,**payload)
+            self.log('COMMAND',request=request)
+            if self.dry_run:
+                self.fake.record(command,**payload)
+                next_state={'ARM':'ARMED','SET_PULSE_US':'ACTIVE','STOP':'DISARMED','DISARM':'DISARMED'}.get(command,self.state)
+                response=dict(protocol_version=1,request_id=rid,type='STATUS' if command=='GET_STATUS' else 'PONG' if command=='PING' else 'ACK',firmware_version=self.config['firmware_version'],boot_id='SIMULATED_BOOT',state=next_state,output_state='SIMULATED_UNMEASURED',actual_angle_deg=None,actual_opening=None)
+                break
             try:
-                response=self.transport.exchange((json.dumps(request)+'\n').encode(),rid)
+                raw=(json.dumps(request)+'\n').encode()
+                if getattr(self.transport,'supports_retryable_exchange',False):
+                    response=self.transport.exchange(
+                        raw,rid,
+                        close_on_error=(attempt==attempts-1),
+                        fail_fast_on_corrupt=retryable,
+                    )
+                else:
+                    response=self.transport.exchange(raw,rid)
                 if response['type']=='ERROR':raise RuntimeError(response.get('error','device_error'))
                 expected='STATUS' if command=='GET_STATUS' else 'PONG' if command=='PING' else 'ACK'
                 if response['type']!=expected:raise RuntimeError('unexpected_response_type')
                 if self.boot_id is not None and response.get('boot_id')!=self.boot_id:raise RuntimeError('device_restarted')
+                break
             except Exception as exc:
+                recoverable = (
+                    isinstance(exc, CommunicationError)
+                    and str(exc) in RETRYABLE_COMMUNICATION_ERRORS
+                )
+                if attempt<attempts-1 and recoverable:
+                    self.log('COMMAND_RETRY',command=command,attempt=attempt+1,request_id=rid,reason=str(exc),delay_ms=delay_ms)
+                    time.sleep(delay_ms/1000.0)
+                    continue
                 self.state='FAULT';self.output_state='UNKNOWN';self.connected=False
                 self.transport.close();self.log('FAULT',reason=str(exc),output_state='UNKNOWN');raise
+        if response is None:raise RuntimeError('no_response')
         if response.get('boot_id'):self.boot_id=response['boot_id']
         if type(response.get('last_sequence')) is int:self.sequence=max(self.sequence,response['last_sequence'])
         self.state=response.get('state','FAULT');self.output_state=response.get('output_state','UNKNOWN')

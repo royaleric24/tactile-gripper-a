@@ -29,6 +29,7 @@ STATUS_LABELS = {
     "STREAMING": "数据正常",
     "STALE": "数据已过期",
     "DEVICE_ERROR": "设备错误",
+    "COMMUNICATION_ERROR": "通信错误（COMMUNICATION_ERROR）",
     "REPLAY": "只读回放（REPLAY）",
     "SIMULATED": "仿真（SIMULATION）",
     "SIMULATION": "仿真（SIMULATION）",
@@ -39,6 +40,11 @@ STATUS_LABELS = {
     "INTERRUPTED": "异常中断（INTERRUPTED）",
     "ERROR": "写入错误（ERROR）",
     "UNKNOWN": "未知",
+    "LOG_WAITING": "等待 console 日志",
+    "LOG_FOLLOW": "日志跟随（只读）",
+    "DISARMED": "已撤防（DISARMED）",
+    "ARMED": "已授权（ARMED）",
+    "ACTIVE": "固件输出中（ACTIVE）",
     "NO TRIAL": "暂无实验",
     "NO FRAME": "暂无数据",
     "NO PWM COMMANDS": "无 PWM 目标",
@@ -134,11 +140,27 @@ RECORD_TYPE_LABELS = {
     "SENSOR_FRAME": "触觉帧",
 }
 
+TARGET_STATUS_LABELS = {
+    "NO_PWM": "无 PWM 目标",
+    "SENT_UNACKED": "已发送 · 等待 ACK",
+    "ACKED": "已 ACK · 目标已确认",
+    "ACKED_UNKNOWN_OUTPUT": "已 ACK · 输出状态未知",
+    "ACK_STALE": "ACK 已过期 · 不视为当前输出",
+    "TIMEOUT": "未确认 · ACK 超时",
+    "UNCONFIRMED": "未确认 · 应答损坏",
+    "FAILED": "失败",
+    "OUTPUT_OFF": "输出已关闭（STOP ACK）",
+    "STOP_UNCONFIRMED": "STOP 未确认 · 输出状态未知",
+    "OFFLINE": "日志已结束 · 输出状态未知",
+}
+
 FIRMWARE_STATE_LABELS = {
+    "LOG_WAITING": "等待 console 日志",
     "DISARMED": "已撤防（DISARMED）",
     "ARMED": "已授权（ARMED）",
     "ACTIVE": "输出中（ACTIVE）",
     "FAULT": "固件故障（FAULT）",
+    "COMMUNICATION_ERROR": "通信错误（COMMUNICATION_ERROR）",
     "SIMULATED_ACTIVE": "仿真输出中",
     "UNKNOWN": "未知",
 }
@@ -166,6 +188,10 @@ def source_label(value) -> str:
 
 def source_short(value) -> str:
     return _lookup(SOURCE_SHORT, value)
+
+
+def target_status_label(value) -> str:
+    return _lookup(TARGET_STATUS_LABELS, value, "未知状态")
 
 
 def status_label(value) -> str:
@@ -266,6 +292,19 @@ def event_detail_label(text: str | None) -> str:
         return "当前模式不是手动模式（MANUAL）"
     if value.startswith("gripper is in FAULT"):
         return "控制器处于故障锁存（FAULT），需要重新连接/授权"
+    if value == "PROBE_OR_CONFIG_READBACK_FAILED":
+        return "ADC 探测/配置回读失败（FSR_ONLY 下 ADC1–3 未接时属预期；ADC4 仍 OK）"
+    if value.startswith("PROBE_OR_CONFIG_READBACK_FAILED"):
+        return "ADC 探测/配置回读失败（FSR_ONLY 下 ADC1–3 未接时属预期；ADC4 仍 OK）"
+    if value.startswith("pwm_console log"):
+        suffix = value.split("·", 1)[-1].strip()
+        return "pwm_console 日志：" + {
+            "pwm_console ACK; target is not measured position": "已 ACK；目标不是实测位置",
+            "no matched ACK before the console timeout; output not confirmed": "console 超时前未收到匹配 ACK；输出未确认",
+            "response corrupted (NUL/parse); ACK not confirmed": "应答损坏（NUL/解析失败）；ACK 未确认",
+        }.get(suffix, suffix)
+    if value.startswith("LOG-FOLLOW"):
+        return "只读监控：PWM 只能由独占串口的 pwm_console 发送"
     if value.startswith("connection/command failure"):
         return "通信或命令失败：" + value.split(":", 1)[-1].strip()
     if value.startswith("communication/command failure"):

@@ -104,6 +104,29 @@ PYTHONPATH=src .venv/bin/python scripts/pwm_console.py \
   --target s3 --real --port /dev/cu.usbserial-EXAMPLE_S3 --authorize
 ```
 
+**S3 心跳重试（P3-B4）**：`HEARTBEAT` 与“尚无目标时的 `BENCH_HOLD_MODE`/`BENCH_PULSE_MODE`”
+允许有界重试（默认共 2 次、200 ms；`serial.heartbeat_retry_attempts`/`heartbeat_retry_delay_ms`）。
+只对 `corrupt_response`/`response_timeout` 重试；设备 ERROR、boot_id 改变及其它异常不重试。
+长帧 NUL 损坏会立即失败并重试；**PWM/STOP/DISARM/BEGIN_BENCH 永不自动重发**。重试耗尽后
+FAULT/UNKNOWN 并关闭。日志含 `COMMAND_RETRY`，用于与 `transport.jsonl` 对齐。
+
+**退出状态（P3-B4）**：正常退出为 0；连接或会话通信故障为 2，并在日志写
+`CONSOLE_EXIT status=COMMUNICATION_ERROR`。由 `run_live_monitor.py` 启动时，退出码 2 不会结束
+FSR/Dashboard；launcher 禁止后续 PWM，等待操作者 Ctrl+C。独立运行 console 时，调用者也应把 2
+视为故障，不自动重新启动或重放最后目标。
+
+**P3-B 双日志监控**：与只读 Dashboard 同用时，把 console 日志固定到会话目录，Dashboard 只 tail 该文件：
+
+```sh
+PYTHONPATH=src:. .venv/bin/python scripts/pwm_console.py \
+  --target s3 --real --port /dev/cu.usbserial-A5069RR4 --authorize \
+  --log-dir logs/real/sessions/<session>
+```
+
+`--log-dir` 目录内不能已有 `transport.jsonl`（拒绝覆盖旧会话）；首次进入会新建。
+Dashboard 只读同一目录，不打开 S3 串口，也不发送 PWM。一键启动见
+[运行手册](SOFTWARE_RUNBOOK.md) 2.1 与 `scripts/run_live_monitor.py`。
+
 旧 ESP32 目标仍用 `--target esp32 --port /dev/cu.usbserial-EXAMPLE_ESP32`；不带 `--target` 时为向后兼容默认 `esp32`。握手按配置中的 `firmware_version` 精确匹配，S3 固件版本不同，混用会被拒绝。
 
 S3 设备 STATUS 额外回报：`board_target`、`pwm_gpio`、`pwm_frequency_hz`、`pwm_resolution_bits`、`pwm_readback_settle_ms`、`pwm_first_readback_settle_ms`、`chip_model`、`flash_size_bytes`、`psram_size_bytes`。这些是设备回报，不替代实际波形或机械位置观察。

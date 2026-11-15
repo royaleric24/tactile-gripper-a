@@ -45,7 +45,7 @@
 | 应用源码 | `firmware/gripper_control/gripper_control.ino` | 当前 S3 源码 | 同上 | `7f709f1d5560fd8c1ca8a6ef1a28cb6a4509890044e0e0c95832e6b41dee97e5` | 是 |
 | 安全核心源码 | `firmware/gripper_control/SafetyCore.h` | 当前 S3 安全核心 | 同上 | `dc083e6f9f83d35a1399c9e00646f240354eb89430a04e33d6abec9280c98c47` | 是 |
 | S3 生成配置 | `firmware/gripper_control/generated_config_s3.h` | GPIO4/50 Hz/14-bit 构建配置 | 同上 | `83c8af394eb2ff8fd41b5fb0572077a000270612b31ffa880cadeaefffa08c64` | 是 |
-| S3 运行配置 | `config/gripper_s3.json` | S3 控制/串口/Bench 参数 | 同上 | `b4929f059940365a67df7dccf8df6c838c55b4e5f9bb3cbcaff3ddf51db44b78` | 是 |
+| S3 运行配置 | `config/gripper_s3.json` | S3 控制/串口/Bench 参数 | 同上 | `6ca4307aae26a259bce0fe52a4691a4e9fbf884d1e5b59888d31c5999912cff0` | 是 |
 | S3 构建目标 | `evidence/stage09b26/build_s3/build.options.json` | FQBN `esp32:esp32:esp32s3...` | — | `c0955ffad92da18e95ee294355aab1ed14168cc58aeac7f230cdb2301be35716` | 是 |
 | 板级配置（当前） | `config/board_s3.json` | 板型、Flash/PSRAM、串口 | — | `9dfb68696159b9f65747a9e40c70b9dc26b16ca57d35cb7870a230b5d7c350b7` | 是 |
 
@@ -57,14 +57,14 @@
 > 已 460800 重烧并通过真实无 PWM 验证（64/64 应答、0 NUL、5 次连续会话 + 20 次背靠背心跳）；
 > `d20782…` 为上一版。详见 [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)（I-217）。
 
-注意：`config/board_s3.json` 当前哈希与 `evidence/stage09b26/sha256_after.txt` 记录的历史值 `b8079273...` 不同（S3 部署后更新了板级/上传描述字段）；控制参数以 `config/gripper_s3.json`（`b4929f...`）和 `generated_config_s3.h`（`83c8af...`）为准，不把当前板级描述反推为部署时快照。
+注意：`config/board_s3.json` 当前哈希与 `evidence/stage09b26/sha256_after.txt` 记录的历史值 `b8079273...` 不同（S3 部署后更新了板级/上传描述字段）；控制参数以当前 `config/gripper_s3.json`（`6ca430...`；P3-B4 前为 `b4929f...`）和 `generated_config_s3.h`（`83c8af...`）为准，不把当前板级描述反推为部署时快照。
 
 ## 4. PWM Console 与关键上位机工具
 
 | 资产 | 路径 | 用途 | SHA-256 | 独立备份 |
 |---|---|---|---|---|
-| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；本 S0 未修改其行为 | `4423b0c546207c08b2b47997f85e18f77ffb0a77a5a3a8403b5eb880c14473e4` | 是 |
-| Console 文档 | `docs/PWM_CONSOLE.md` | 使用与安全约束 | `afa44a8a851e1bd990c61f1e0c415cadd9f3954f45529fea606ba0a834d4c2b6` | 是 |
+| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；支持 `--log-dir`；正常/通信故障退出码 0/2 + `CONSOLE_EXIT` | `ffc69ef0263a7accfce0481179270c35514db5d4aca84b66d2fd6da949824baa` | 是 |
+| Console 文档 | `docs/PWM_CONSOLE.md` | 使用、安全约束、重试边界与退出状态 | `4402f574875cd0973c8f4954f2b2a213e19eec31e05c941bd260248696f1d152` | 是 |
 | Bench 适配 | `src/gripper_a/bench.py` | Console 的设备端交互与日志 | `c70e6e93e176e8455cf621477ec12871373c08d49d23272685b8cf4604c2e755` | 是 |
 | 串口客户端 | `src/gripper_a/serial_client.py` | JSONL/超时/日志传输 | `c26c7a225131d2b7af9db0b7f07293b6d338497d7ce7662264277e8af7b04367` | 是 |
 | 固件构建脚本 | `scripts/build_firmware.py` | `esp32`/`s3` 独立构建目标 | `af31cd1cc9fc1a0345a0f24edb2ea64f0d7186cb467e7cfa7599c4288358d5c9` | 是 |
@@ -81,7 +81,7 @@
 | `config/first_motion_record.template.json` | `4ee4909163479401ac3bab46c9b5697826ef59e1df3d6ccff94121aab5ba3f60` | 首次运动记录模板 |
 | `config/gripper_bench.json` | `9aa3f6f58b9bf81c374def9f9c1b1ec06032104db3ff23a233b1266be40e2acd` | 旧 ESP32 0.9b24 Bench 配置 |
 | `config/gripper_control.json` | `0853b322ade89638944c7907e260143e32635d103f2d63d81d533ed0aea948c9` | 通用控制配置 |
-| `config/gripper_s3.json` | `b4929f059940365a67df7dccf8df6c838c55b4e5f9bb3cbcaff3ddf51db44b78` | S3 0.9b26 配置 |
+| `config/gripper_s3.json` | `6ca4307aae26a259bce0fe52a4691a4e9fbf884d1e5b59888d31c5999912cff0` | S3 0.9b26 配置（含 P3-B4 心跳/模式有界重试） |
 | `config/gripper_trial.json` | `7fa5f3f688f2b6363c74d1b09a94c62d7969dca0913a69d8c35fb24f399713d3` | Trial 配置 |
 | `config/serial_test.json` | `a6856151ddf5448e5376257c883d7fd36f7571b501831a86ce7571c08839c202` | 串口测试配置 |
 | `config/simulated.json` | `c8092dcd99b53c1a3d60590d36c5be59a49ef49647bae1527d36ca32e27e0566` | 模拟配置 |
@@ -97,7 +97,28 @@
 | S3 迁移前 Flash | `evidence/stage09b26/s3_pre_migration_flash_16MB_460800.bin` | 迁移前 16 MB 只读备份 | `cd0f30ac9491da499eaf2167f07b5accf23cf6779c506110431aa766f346273e` | 是（`flash-backups/`） |
 | 旧 ESP32 Stage 0.8 Flash | `evidence/stage08/flash_backup_original.bin` / `flash_backup_verify.bin` | 原始/校验 4 MB 备份 | 见 `evidence/stage08/backup_manifest.json` | 是（`flash-backups/`） |
 
-## 7. 未改动与未执行声明
+## 8. P3-B 双日志监控资产（2026-11-16）
+
+只读 Dashboard 新增的文件（源码随 Git 保存；真实日志/证据仍只在本地）：
+
+| 资产 | 路径 | 用途 | SHA-256（源码） |
+|---|---|---|---|
+| FSR 采集脚本 | `scripts/capture_fsr_live.py` | 独占 FSR 串口，写 `fsr_stream.jsonl`（host UTC + monotonic + raw/message） | `fa9862879dc584d6b37dbe1ade095d48b4215aece6f4a7abd34fa89d0263a589` |
+| 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR + 只读 Dashboard + console；console 故障后保持监控到人工 Ctrl+C；最终有序清理 | `b6bfe0b1ed99df486a8bad7cfe8ee5a62366df3c2d1ed056ae0daad1f9f8e31b` |
+| 只读适配器 | `src/tactile_gripper/devices/log_follow.py` | JSONL tail、故障锁存、UNKNOWN 输出、故障后 PWM 上下文清除、FSR 严格解析 | `456831d88de1d1ac32709aad1d6c705cdbdd85f0648ef01d18eae5533de0ac81` |
+| Trial 生命周期 | `src/tactile_gripper/control/core.py` / `src/tactile_gripper/experiments/store.py` | 故障 Trial=`INTERRUPTED`；drain 后导出 CSV/REPLAY | `52060c746abcd389efb642042cb9579f622ccd9e7b50042b9457c468c22da4ae` / `d22e84285c06de64b5ccc83dd18e58fd6e486bc16f0c86de2646214cb2021ff8` |
+| S3 通信重试 | `src/gripper_a/serial_client.py` / `src/gripper_a/gripper_controller.py` | 仅明确通信错误有界重试；设备 ERROR/boot 变化/PWM/STOP 不重试 | `3119b26862b076688762d0a74d9151776ec039e015a701abbda9048f09c81d06` / `5938e474d01fc1d2dbaf6fa58bc27555d5affb39150ae398b75302608b63c988` |
+
+| 会话目录 | `logs/real/sessions/session_<UTC>_<id>/` | `session.json`、`transport.jsonl`、`fsr/fsr_stream.jsonl`、两份 `.log` | 本地（`logs/` 已 gitignore） |
+| 测试 | `tests/test_log_follow.py` | 正常/无 ACK/STOP/陈旧/轮转/半行/截断/NUL/0x04/CSV/回放 | 随 Git 提交 |
+
+FSR 流字段：`host_time_utc`、`host_monotonic_ns`、`direction`、`raw`、`message`；
+`MARKER` 记录标记 `CAPTURE_START/END`。PWM 流沿用既有 `transport.jsonl` 事件
+（`COMMAND/TX/RX/IGNORED/MATCHED/RESPONSE/COMMUNICATION_ERROR/FAULT/CONSOLE_EXIT/BENCH_ACTION/CLOSED`）。
+真实会话日志不得提交到公开仓库。
+
+## 9. 未改动与未执行声明
+
 
 - 本轮未修改、覆盖、删除任何稳定固件、PWM Console 行为或现有实验记录。
 - 本轮未打开真实串口、未发 PWM、未烧录 ESP32、未进行机械运动或接线/上电。

@@ -13,6 +13,8 @@ MENU = """Select mode:
   2 - detached servo test (DETACHED_BENCH, pulse <=500ms)
   0 - exit"""
 HELP = "number (500..2500, any step) | status | stop | help | quit"
+EXIT_OK = 0
+EXIT_COMMUNICATION_ERROR = 2
 
 
 class Lines:
@@ -116,6 +118,7 @@ def main():
     p.add_argument("--list-ports", action="store_true", help="list serial ports and exit without opening one")
     p.add_argument("--authorize", action="store_true", help="Authorize this console session")
     p.add_argument("--authorize-detached-bench", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--log-dir", help="explicit session log directory; defaults to logs/real/bench/<uuid>")
     a = p.parse_args()
     if a.list_ports:
         from serial.tools import list_ports
@@ -136,8 +139,14 @@ def main():
     except (OSError, ValueError) as e:
         p.error(f"cannot load config {config_path}: {e}")
     kind = "REAL_SERIAL" if a.real else "SIMULATED"
-    folder = Path("logs/real" if a.real else "logs/simulated") / "bench" / uuid.uuid4().hex
-    folder.mkdir(parents=True)
+    if a.log_dir:
+        folder = Path(a.log_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        if (folder / "transport.jsonl").exists():
+            p.error(f"--log-dir already contains transport.jsonl: {folder}")
+    else:
+        folder = Path("logs/real" if a.real else "logs/simulated") / "bench" / uuid.uuid4().hex
+        folder.mkdir(parents=True)
     g = BenchController(
         config=config,
         dry_run=not a.real,
@@ -153,7 +162,16 @@ def main():
         print(json.dumps(g.connect(a.port), ensure_ascii=False))
     except Exception as e:
         print("Connect failed:", e)
-        return
+        try:
+            g.log("CONSOLE_EXIT", status="COMMUNICATION_ERROR", exit_code=EXIT_COMMUNICATION_ERROR, reason=str(e))
+        except Exception:
+            pass
+        try:
+            g.close()
+        except Exception:
+            pass
+        return EXIT_COMMUNICATION_ERROR
+    exit_code = EXIT_OK
     try:
         while True:
             mode = choose_menu(lines)
@@ -171,16 +189,27 @@ def main():
             if result == "quit":
                 break
             if result == "error":
+                exit_code = EXIT_COMMUNICATION_ERROR
                 break
     except KeyboardInterrupt:
         print("\nCtrl+C: stopping.")
     finally:
         try:
+            g.log(
+                "CONSOLE_EXIT",
+                status="NORMAL" if exit_code == EXIT_OK else "COMMUNICATION_ERROR",
+                exit_code=exit_code,
+            )
+        except Exception:
+            pass
+        try:
             g.close()
         except Exception as e:
             print("Close failed; output UNKNOWN:", e)
+            exit_code = EXIT_COMMUNICATION_ERROR
         print("Console closed; STOP/DISARM does not cut servo power.")
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -1,3 +1,106 @@
+# 当前交接｜P3-B4 真实故障分析（2026-11-16）
+
+## 置顶更新｜034325/034413 故障隔离已完成（2026-11-16）
+
+- **工作区**：`~/Developer/research/tactile-gripper-v2-p3b-monitor`，分支 `sw/p3b-live-monitor`，
+  PR #8 DRAFT；禁止合并。提交后以 `git rev-parse HEAD` 为准。
+- **真实结论**：A 的 `STOP` 与 B 的 `BENCH_HOLD 1500` 均有完整 COMMAND/TX 和同 request_id、
+  同 boot_id 的损坏 ACK。A 剩余字段证明固件已到 `DISARMED/STOP/DISABLED_UNMEASURED`；B 剩余
+  字段证明固件已到 `ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED/1500`。ACK 不是位置反馈，
+  所以机械状态仍 UNKNOWN。无设备 ERROR/FAULT/重启。
+- **当前软件行为**：console 通信故障退出 2；launcher 不再随 console 故障结束，而是保持 FSR 和
+  Dashboard 到操作者 Ctrl+C；不重连、不重发。Dashboard 显示 `COMMUNICATION_ERROR / FAULT /
+  UNKNOWN`，清除故障后的 PWM 帧上下文；Trial drain 后保存 `INTERRUPTED` + CSV/REPLAY。
+- **重试边界**：仅 HEARTBEAT/无目标 mode 且错误为 `corrupt_response`/`response_timeout` 时有界重试；
+  设备 ERROR、boot_id 改变不重试；PWM/STOP/DISARM/BEGIN_BENCH 永不自动重发。
+- **验证**：全套 **443 tests OK**；用两份真实日志只读回放，新解析结果分别为
+  `FAULT + STOP_UNCONFIRMED + UNKNOWN` 与 `FAULT + PWM TIMEOUT + UNKNOWN`。
+- **固件**：本轮无需修改或重烧。电气根因仍 UNKNOWN；最小现场检查见故障报告 §7。
+- **下次命令**：
+  ```bash
+  cd ~/Developer/research/tactile-gripper-v2-p3b-monitor
+  PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+  ```
+  先只选机械模式并保持无 PWM 60 s；出现故障后不要再输入 PWM，继续观察 FSR/Dashboard，按 Ctrl+C
+  结束并核对 `trial.json` 为 `INTERRUPTED`。链路稳定后另开新会话做 1500-only。
+
+- **分支/worktree**：`sw/p3b-live-monitor`，`~/Developer/research/tactile-gripper-v2-p3b-monitor`；
+  PR #8 DRAFT（base `hw/p3b1-fsr-real`）。HEAD 以提交后 `git rev-parse HEAD` 为准。
+- **S3 结论**：`0fce`/`a804` 均为 ACK 被 0x00 替换字段中间字节（953 B/13 NUL；957 B/4 NUL），
+  JSON 无效 → 3 s timeout；去 NUL 会得到错字段名，禁止修复式解析。设备未失联、boot_id 未变、无 FAULT；
+  主机 JSON/读取和已证 TX 缓冲耗尽可排除；供电/地/EMI/线束为 **UNKNOWN/LEADING_HYPOTHESIS**。
+- **修复**：HEARTBEAT 与无目标时 mode 命令有界重试（默认 2 次/200 ms，最多 3 次）；长帧损坏 0.2 ms 快速失败；
+  PWM/STOP/DISARM/BEGIN_BENCH 不重发；耗尽后 FAULT/UNKNOWN/close。**未改固件、未重烧**；
+  缩短 HEARTBEAT ACK 评估为暂不必要（见报告 §5）。
+- **Dashboard 缺陷已修**：先启动 Dashboard 后创建 `transport.jsonl` 时，旧代码漏接 PWM（两会话日志显示 None）；
+  现在等待预期路径并自动接入，页面显示等待状态；端到端测试确认晚创建日志的 `SET_PWM` 进入 Trial。
+- **FSR**：100% valid、61.7 Hz、0/1 丢帧、ADC4 OK；0fce 大幅变化与按压/释放平台一致；a804 高频波动显著，
+  与 S3 命令/损坏无唯一相关；机械 vs 电气 **UNKNOWN**。新增“短窗平滑（仅显示）”开关，原始 counts 保留。
+- **测试**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` → **435 tests OK (skipped=1)**；
+  真实 a804 只读 Dashboard 截图 `cards=10 errors=0`。
+- **下一步**：舵机通电但无 PWM 60 s → 1500-only 60 s → 1500→1040+FSR；同步测 5V/地/电流/线束；
+  观察 `COMMAND_RETRY` 与 NUL 是否复现；链路稳定前不夹杯、不自动重试 PWM。
+- **报告**：[P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)、[问题 I-219/I-223/I-224](ISSUES.md)。
+
+# 当前交接｜P3-B4 联调前修复（2026-11-16）
+
+- **分支/worktree/HEAD**：`sw/p3b-live-monitor`，worktree
+  `~/Developer/research/tactile-gripper-v2-p3b-monitor`；PR #8 DRAFT（base
+  `hw/p3b1-fsr-real`）。本阶段 HEAD 以提交后 `git rev-parse HEAD` 为准。
+- **本轮修复**：
+  1. FSR HELLO 超时或采集进程退出 → 启动器退出码 3，**不启动 Dashboard、不启动 PWM Console**；
+     Dashboard 就绪后再次检查 FSR；会话中 FSR 退出只警告。`--no-fsr` 才允许只跟 console。
+  2. 退出顺序：console → FSR（SIGINT 写 summary）→ Dashboard；Dashboard 先
+     `drain_log_follow()` 读完尾部 JSONL，再 `stop_trial` + CSV/REPLAY。Dashboard 以
+     独立 session 启动，避免终端 Ctrl+C 抢先结束导出。
+  3. 启动器只读 `<session>/trial.json`（本会话 trial_id/CSV/REPLAY），删除全局最新 CSV。
+- **测试**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` → **420 OK
+  （skipped=1）**；新增 `tests/test_live_launcher.py` 8 项、drain 2 项、sidecar 端到端 1 项。
+  手工 smoke：伪造缺失 FSR 端口 → 退出 3、无 dashboard/transport；`--no-fsr --no-console`
+  正常结束打印本会话 `T-…` CSV/REPLAY。
+- **未执行**：未打开真实串口、未发 PWM、未重烧、未改 PWM 范围、未启用 AUTO。
+- **下一步（现场授权后）**：no-PWM 会话确认门控与双日志 → 1500-only → 1040+FSR；
+  FSR 未就绪时启动器现在会直接拒绝进入 console，不再“带病联调”。
+- **文档**：[P3B2_LIVE_MONITOR.md](P3B2_LIVE_MONITOR.md)、[快速开始](DASHBOARD_QUICKSTART_ZH.md)、
+  [运行手册](SOFTWARE_RUNBOOK.md)、[问题 I-222](ISSUES.md)。
+
+# 当前交接｜P3-B 双日志实时监控（2026-11-16）
+
+- **分支/worktree/HEAD**：`sw/p3b-live-monitor`，独立 worktree
+  `~/Developer/research/tactile-gripper-v2-p3b-monitor`，基线 `622ef97`
+  （`hw/p3b1-fsr-real` 已核实 HEAD）。旧三个工作区未改动；HW worktree 的 4 个未提交文件
+  （`config/sensor_serial.json`、`devices/sensor.py`、`devices/sensor_serial.py`、
+  `tests/test_sensor_serial.py`）已先备份到
+  `evidence/p3b1/private/protect_20261116/`（含 patch 与 sha256），仍留在原 worktree。
+- **本轮交付**：Dashboard 只读跟随两个 JSONL：`pwm_console` 的 `transport.jsonl` 与
+  `capture_fsr_live.py` 的 `fsr/fsr_stream.jsonl`。Dashboard **不打开串口**，PWM 只由
+  console 写入；`LogFollowGripper.execute()` 永远拒绝，`request_pwm()/stop()` 返回
+  REJECTED。同屏显示 FSR_A counts/趋势、PWM 已发送/已 ACK/失败/未确认、固件状态/输出状态/
+  通信错误/STALE、统一主机时间轴；同一 Trial 保存 FSR 帧 + PWM 命令/ACK + 事件，退出自动
+  导出 CSV + REPLAY。
+- **一键启动（Mac，一个终端）**：
+  ```bash
+  cd ~/Developer/research/tactile-gripper-v2-p3b-monitor
+  PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+  ```
+  默认 PWM `/dev/cu.usbserial-A5069RR4`、FSR `/dev/cu.usbserial-0001`；会创建
+  `logs/real/sessions/session_<UTC>_<id>/`，后台启动 FSR 采集与 Dashboard，再在当前终端
+  运行 `pwm_console --real --log-dir <session>`。只观察：`--no-console`。
+- **验收（离线）**：全套 **409 tests OK（skipped=1）**；新增 `tests/test_log_follow.py`
+  27 项 + Dashboard `--follow-session` 启动测试。私有真实日志回放：`d499e640`
+  53/53 应答匹配、8/8 PWM ACK、0 NUL、STOP→`OUTPUT_OFF`；旧 FSR capture 1,719 帧、
+  末帧 −996 counts/flag `0x04`。Chrome 无头截图 `cards=10 errors=0`，无 server Traceback。
+- **启动闭合审计（I-221）**：`d499e640` 打开串口时 ESP-ROM `rst:0x1 (POWERON)` +
+  首个 STATUS `uptime_ms=1920`；首个 1500 前 17 s 只有 GET_STATUS/BEGIN_BENCH/
+  BENCH_HOLD_MODE/HEARTBEAT，**无 PWM 命令**。代码审计 connect/begin/close 均不发 PWM、
+  无自动恢复旧目标。**可排除本会话主机 PWM 命令**；复位/失信号/5V/地/线束/机械失持为
+  未验证假设，不写根因。
+- **未执行**：未打开真实串口、未发 PWM、未烧录、未做机械动作、未启用 AUTO。
+- **下一步（现场授权后）**：① no-PWM 会话确认双日志时间轴 + STALE；② 1500-only；
+  ③ 1040 + FSR 同步；④ 链路稳定前不夹杯。`AUTO_REAL_ENABLED=False` 保持。
+- **文档**：[P3B2_LIVE_MONITOR.md](P3B2_LIVE_MONITOR.md)、[快速开始](DASHBOARD_QUICKSTART_ZH.md)、
+  [运行手册](SOFTWARE_RUNBOOK.md)、[问题 I-221](ISSUES.md)。
+
 # 当前交接｜P3-B1 真实 FSR 接管（2026-11-15）
 
 - **工作区/分支**：`~/Developer/research/tactile-gripper-v2-p3b1`，`hw/p3b1-fsr-real`，

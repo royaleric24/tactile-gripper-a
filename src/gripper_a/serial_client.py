@@ -16,6 +16,9 @@ class JsonlLog:
     def close(self): self.file.close()
 
 class SerialClient:
+    #: A caller may retry a non-motion command on the same open port.
+    supports_retryable_exchange = True
+
     def __init__(self, config, log, clock=time.monotonic, sleeper=time.sleep):
         self.config=config;self.log=log;self.clock=clock;self.sleeper=sleeper;self.port=None
     def connect(self, path):
@@ -49,7 +52,7 @@ class SerialClient:
         rid=uuid.uuid4().hex
         raw=(json.dumps(dict(protocol_version=1,request_id=rid,command=command))+'\n').encode()
         return self.exchange(raw,rid)
-    def exchange(self, raw, request_id):
+    def exchange(self, raw, request_id, *, close_on_error=True, fail_fast_on_corrupt=False):
         if self.port is None:raise CommunicationError('not_connected')
         self.log('TX',raw_hex=raw.hex(),request_id=request_id)
         try:
@@ -72,6 +75,11 @@ class SerialClient:
                     # Keep the same resync/timeout behavior but make it auditable.
                     looks_like_frame=wire.startswith(b'{"protocol_version"') and len(wire)>128
                     self.log('IGNORED',reason='corrupt_response' if looks_like_frame else 'boot_or_invalid_json',length=len(wire),nul_count=wire.count(b'\x00'))
+                    if fail_fast_on_corrupt and looks_like_frame:
+                        # A long frame that fails JSON is not boot noise.  For a
+                        # retryable non-motion command, fail now so the caller
+                        # can retry instead of waiting the full 3 s timeout.
+                        raise CommunicationError('corrupt_response')
                     continue
                 if not isinstance(obj,dict) or obj.get('protocol_version')!=1 or obj.get('request_id')!=request_id or obj.get('firmware_version')!=self.config['firmware_version']:
                     self.log('IGNORED',reason='envelope_or_id');continue
@@ -79,6 +87,8 @@ class SerialClient:
                 self.log('MATCHED',response=obj);return obj
             raise CommunicationError('response_timeout')
         except Exception as exc:
-            self.log('COMMUNICATION_ERROR',error=str(exc));self.close()
+            self.log('COMMUNICATION_ERROR',error=str(exc))
+            if close_on_error:
+                self.close()
             if isinstance(exc,CommunicationError):raise
             raise CommunicationError(str(exc)) from exc

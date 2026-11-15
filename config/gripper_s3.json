@@ -27,6 +27,8 @@
     "read_timeout_s": 0.1,
     "write_timeout_s": 1,
     "request_timeout_s": 3,
+    "heartbeat_retry_attempts": 2,
+    "heartbeat_retry_delay_ms": 200,
     "max_response_bytes": 1536,
     "firmware_version": "gripper-control-s3-0.9b26.0",
     "boot_wait_s": 2

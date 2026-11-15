@@ -2,6 +2,78 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-B4 监控生命周期修复，2026-11-16）
+
+真实会话 `session_20261116T034325_f7e4` / `session_20261116T034413_94b4` 已逐字节分析。
+前者最后 `STOP` seq26（request_id `550e186d…`）收到 934 B / 46 NUL 的损坏 ACK；未损坏字段显示
+`DISARMED / STOP / DISABLED_UNMEASURED`。后者 `BENCH_HOLD 1500` seq8（`cb028f57…`）收到
+955 B / 2 NUL 的损坏 ACK；未损坏字段显示 `ACTIVE / TARGET_COMMANDED /
+PWM_COMMANDED_UNMEASURED / 1500`。两者 TX 完整、request_id/boot_id 匹配、无设备 ERROR/FAULT/
+重启。结论：命令已进入固件处理并改变控制状态；ACK 受损导致主机无法确认；机械位置仍 UNKNOWN。
+
+生命周期已修复：`pwm_console` 正常退出 0、通信故障退出 2 并写 `CONSOLE_EXIT`；launcher 遇到
+非零退出后禁止新 PWM，不重连、不重发，FSR + Dashboard 继续到操作者 Ctrl+C。Dashboard 锁存
+`COMMUNICATION_ERROR / FAULT / UNKNOWN`，故障后的 FSR 帧不沿用旧 PWM 上下文；最终 drain 后导出，
+故障 Trial 标 `INTERRUPTED`。重试只接受 `CommunicationError(corrupt_response/response_timeout)`；
+设备 ERROR、boot_id 改变不重试；PWM/STOP/DISARM/BEGIN_BENCH 仍永不自动重发。全套离线测试
+**443 tests OK**。未打开串口、未发 PWM、未改固件、未重烧；真实生命周期行为待下次现场验证。
+详见 [P3B4 故障分析](docs/P3B4_FAULT_ANALYSIS.md)、[进度](docs/PROGRESS.md)、
+[问题 I-219/I-225](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
+## 最近状态（P3-B4 真实故障分析，2026-11-16）
+
+两个真实会话 `session_20261116T032219_0fce` / `session_20261116T032328_a804` 均 `response_timeout`。
+逐字节分析：S3 的 ACK 在传输中被 **0x00 替换**了字段中间一段（0fce：953 B，13 NUL @192–204，
+`pwm_first_readback_settle_ms` → `pwm_firettle_ms`；a804：957 B，4 NUL @897/899–901，
+`commanded_pulse_us` → `commanded_puss`）。去 NUL 后 JSON 可解析但字段名已错，**不能**用剥 NUL 恢复。
+设备有完整 request_id、boot_id 不变、无 FAULT/重启；固件 TX 背压保护存在且无 `TX_BACKPRESSURE`；
+主机逐字节读取远快于 3 s。**可排除**“主机 JSON 误判 / 设备失联 / TX 缓冲耗尽”
+作为已证原因；**UNKNOWN/LEADING_HYPOTHESIS**：UART break/地弹/舵机供电/共地/线束/EMI（两次都有舵机供电；
+Test A 舵机断电时 151/151、0 NUL；但 0fce 无 PWM 命令也损坏，故共同因素不是 PWM 输出本身）。
+最小主机修复：HEARTBEAT 与“无目标时的 BENCH_HOLD_MODE/PULSE_MODE”有界重试（默认 2 次，最多 3 次），
+长帧损坏 **0.2 ms 快速失败**，首次失败不关端口；**PWM/STOP/DISARM/BEGIN_BENCH 永不重发**；
+耗尽后仍 FAULT/UNKNOWN/close。未改固件、未重烧。另修 Dashboard 在 `transport.jsonl` 晚创建时漏接 PWM 的缺陷
+（等待预期路径并自动接入），并加 FSR “短窗平滑（仅显示）”开关；Trial/CSV/REPLAY 保留原始 counts。
+FSR 两会话 100% valid、61.7 Hz、0/1 丢帧、ADC4 OK；0fce 大幅变化与按压/释放平台一致，a804 高频波动显著
+高于历史 FSR-only（残差 239k vs 84k、1 s range 1.73M vs 0.20M），但机械 vs 电气来源 **UNKNOWN**，
+不能从 counts 推断牛顿/摩擦/杯重。离线测试 **435 tests OK（skipped=1）**；真实 a804 只读 Dashboard 截图
+`cards=10 errors=0`。详见 [P3B4 故障分析](docs/P3B4_FAULT_ANALYSIS.md)、[进度](docs/PROGRESS.md)、
+[问题 I-219/I-223/I-224](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
+## 最近状态（P3-B4 联调前修复，2026-11-16）
+
+分支 `sw/p3b-live-monitor`（PR #8 DRAFT，栈在 P3-B1 `622ef97` 上）。完成联调前三项安全修复：
+① **FSR 未就绪不启动 PWM Console**：启动器等待 HELLO，超时或采集进程退出时以退出码 3
+中止，既不启动 Dashboard 也不启动 console；Dashboard 启动后还会二次检查 FSR 进程；
+会话中 FSR 退出只警告、不自动停 PWM。② **先 drain 再结束 Trial**：Dashboard 退出时先
+`drain_log_follow()` 读完采集器最后 flush 的 JSONL，再 `stop_trial` + CSV/REPLAY；
+启动器先停 console → 再停 FSR（SIGINT 让采集写 summary）→ 最后停 Dashboard（独立 session，
+不受终端 Ctrl+C 影响），保证尾部帧/ACK 进入导出。③ **Trial 路径只认本会话**：
+Dashboard 在 `<session>/trial.json` 写本会话 trial_id/CSV/REPLAY，启动器只读该 sidecar，
+不再用全局最新 CSV。离线测试 **420 tests OK（skipped=1）**，新增 FSR 门控、
+drain-before-export、session sidecar 测试。未操作硬件、未重烧、PWM 范围未变、
+`AUTO_REAL_ENABLED=False`。详见 [P3B2 报告](docs/P3B2_LIVE_MONITOR.md)、
+[进度](docs/PROGRESS.md)、[问题 I-222](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
+## 最近状态（P3-B 双日志实时监控，2026-11-16）
+
+分支 `sw/p3b-live-monitor`（独立 worktree `tactile-gripper-v2-p3b-monitor`，基线 P3-B1 `622ef97`）。
+完成 **只读双日志 LIVE**：`pwm_console` 独占 S3 串口并写 `transport.jsonl`，新
+`scripts/capture_fsr_live.py` 独占 FSR 串口并写 `fsr_stream.jsonl`；Dashboard 用
+`--source LIVE --follow-session <dir>` **只 tail 文件，不打开任何串口**，同屏显示真实
+FSR_A counts/趋势、PWM 已发送/已 ACK/失败/未确认、固件状态/输出状态/通信错误/STALE、
+统一主机时间轴，并可在同一 Trial 保存帧+命令+ACK+事件、导出 CSV、回放。
+`LogFollowGripper.execute()` 永远拒绝，`core.request_pwm()/stop()` 返回 REJECTED；
+Dashboard 仍不发送 PWM。新增一键 Mac 启动 `scripts/run_live_monitor.py`（一个终端完成
+FSR 采集 + Dashboard + console）。离线测试 **409 tests OK（skipped=1，含新增 28 项）**；
+用私有真实 P3-B1 日志离线回放验证：`d499e640` 8/8 PWM ACK、0 NUL、STOP→`OUTPUT_OFF`；
+旧 FSR capture 1,719 帧、末帧 −996 counts/flag `0x04`。**未打开真实串口、未发 PWM、
+未烧录、未启用 AUTO；真实硬件联调待现场授权。** 启动闭合离线审计：`d499e640` 打开
+console 时 S3 有 `rst:0x1 (POWERON)` + `uptime_ms=1920`，而首个 1500 前 17 s 无任何
+PWM 命令，可排除本会话主机 PWM 命令；复位/失信号/机械失持机制仍 UNKNOWN，未定根因。
+详见 [P3B2 报告](docs/P3B2_LIVE_MONITOR.md)、[进度](docs/PROGRESS.md)、
+[问题](docs/ISSUES.md)（I-221）、[交接](docs/HANDOFF_CURRENT.md)。
+
 ## 最近状态（P3-B1 真实 FSR 接管，2026-11-15）
 
 已完成 `hw/p3b1-fsr-real` 上的真实 FSR_A 数据接管与探索性分析：固件 `tactile-fsr2-0.3.0`、

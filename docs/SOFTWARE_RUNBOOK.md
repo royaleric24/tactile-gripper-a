@@ -32,6 +32,80 @@ PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --no-browser \
 历史双 FSR 场景 `fsr`、`electrodes12-fsr2` 及其故障版本可继续离线运行。
 `--record-fixture` 在读完 HELLO 后开始记录，在文件结束后结束 Trial 并输出回放路径。
 
+### 2.1 真实双日志只读监控（P3-B）
+
+真实 FSR + 真实 PWM 时，Dashboard 不打开串口，只 tail 两个 JSONL：
+
+| 写入者 | 文件 | 说明 |
+|---|---|---|
+| `scripts/pwm_console.py --real --log-dir <session>` | `<session>/transport.jsonl` | 唯一 PWM 写入者，既有事件格式 |
+| `scripts/capture_fsr_live.py` | `<session>/fsr/fsr_stream.jsonl` | 唯一 FSR 串口读者，含 host UTC/monotonic |
+
+一条命令完成（一个终端）：
+
+```bash
+PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+```
+
+它启动 FSR 采集 → 等 HELLO → 启动只读 Dashboard（`--follow-session` +
+`--follow-record`）→ 在当前终端运行 console。
+
+**启动门控（P3-B4）**：HELLO 超时（`--fsr-timeout`，默认 15 s）或 FSR 采集进程退出时，
+启动器以 **退出码 3** 中止，不启动 Dashboard，也**不会启动 PWM Console**；`session.json`
+记录 `aborted`。Dashboard 就绪后还会再检查一次 FSR 进程。会话中 FSR 退出只打印警告，
+PWM Console 不会自动停止（由操作者 `stop`/`quit`）。`--no-fsr` 是显式跳过 FSR 的门控例外。
+
+**S3 心跳重试（P3-B4）**：控制台对 `HEARTBEAT` 和“尚无 PWM 目标时的 `BENCH_HOLD_MODE`/
+`BENCH_PULSE_MODE`”做有界重试：默认共 2 次（`config/gripper_s3.json` 的
+`serial.heartbeat_retry_attempts`，1–3），间隔 200 ms（`serial.heartbeat_retry_delay_ms`，0–1000）。
+长帧 NUL 损坏会快速失败（约 0.2 ms），首次失败保持端口打开后重试；**PWM/STOP/DISARM/BEGIN_BENCH
+不会自动重发**。重试耗尽后控制器进入 FAULT/UNKNOWN 并关闭，不会无限期维持未知输出。
+日志中会出现 `COMMAND_RETRY`。
+
+**等待 PWM 日志**：Dashboard 先启动时，`--follow-session` 会等待预期的
+`<session>/transport.jsonl`，页面显示“等待 pwm_console 创建 transport.jsonl”；console 创建后自动接入。
+显式 `--follow-pwm-log` 仍要求文件存在。
+
+**退出顺序**：console → FSR（SIGINT，采集写 summary）→ Dashboard。Dashboard 先 drain
+尾部 JSONL，再结束 Trial 并导出 CSV/REPLAY；它运行在独立 session，终端 Ctrl+C 不会抢先
+结束导出。结束时会打印 `<session>/trial.json` 记录的**本会话** Trial CSV/REPLAY，不会
+使用全局最新 CSV。
+
+常用选项：
+
+```bash
+--pwm-port /dev/cu.usbserial-A5069RR4   # S3
+--fsr-port /dev/cu.usbserial-0001       # ESP32 FSR
+--no-console                            # 只观察（Ctrl+C 结束）
+--no-fsr                                # 只跟随 console
+--no-record                             # 不自动建 Trial
+--web-port 8080
+```
+
+也可以分开启动：
+
+```bash
+PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --source LIVE --follow-session \
+  logs/real/sessions/<session> --follow-record --port 8080
+PYTHONPATH=src:. .venv/bin/python -m tactile_gripper.ui --source LIVE --follow-pwm-log \
+  <path>/transport.jsonl --follow-fsr-log <path>/fsr_stream.jsonl
+```
+
+`--follow-*` 要求 `--source LIVE`，但**不需要** `--hardware-permission`（不打开串口）；
+与 `--connect/--connect-sensor/--sensor-port` 互斥。Dashboard 的 Apply/STOP 在
+log-follow 下被拒绝，`core.request_pwm()/stop()` 返回 REJECTED。只读面板的
+“已 ACK”只表示收到匹配应答，不是位置；STOP 后不显示旧目标；日志 3 s 不更新显示 STALE。
+
+排障：
+
+- 页面 FSR 一直“等待/离线”：看 `<session>/fsr_capture.log`；启动器会等 HELLO 12 s。
+- 页面 PWM 一直“STALE”：console 是否仍在运行；`transport.jsonl` 是否被另一个
+  `--log-dir` 覆盖（同一目录只允许一次）。
+- `--follow-session` 找不到 FSR：期望 `<session>/fsr/fsr_stream.jsonl`；也可用
+  `--follow-fsr-log` 显式指定。
+- 端口被占用：Dashboard 报 permission/Resource busy；不要同时运行两个 console，
+  也不要让 Dashboard 直连同一串口。
+
 打开 `http://127.0.0.1:8080/`：
 
 - `/` Live Monitor
