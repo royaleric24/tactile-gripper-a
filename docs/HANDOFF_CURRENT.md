@@ -31,6 +31,16 @@
   日志 `logs/real/bench/s3_txfix_verify_20261116T004448/transport.jsonl`。
   两份失败日志与失败 FSR 原始数据已保存（17,392 SAMPLE，无 PWM，非空杯结果）；详见
   [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)。
+- **2026-11-16 第二次空杯 MANUAL（真实 PWM，未成功）**：1500/1450 均 ACK；1450 后操作者观察
+  机械爪不再运动；准备输入 1400 时 heartbeat seq 31 的 ACK 含 **7 个 NUL**，主机
+  `corrupt_response` 后 3 s `response_timeout`。**1400 未发送**（日志无 1400 COMMAND）。
+  会话内 `boot_id=ba1412…` 未变、无 ESP-ROM、无设备 FAULT；1450 ACK 为
+  ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED，无输出 API 错误，未运动最可能是
+  机械限位/堵转（精确限位 UNKNOWN）。无 PWM 64/64 验证应答 0 NUL，本轮唯一新增因素是
+  舵机真实输出并可能堵转；PWM 期间 NUL 的机制为 **LEADING_HYPOTHESIS：舵机电流/地弹/EMI
+  耦合 UART**，未证实。16:56 只读 STATUS 查询（PM15S 动力断开）导致端口打开复位，
+  新 boot_id `caff3b25…`、uptime 1919 ms、DISARMED、BOOT、DISABLED_UNMEASURED；
+  这不是 PWM 期间重启证据。FSR/console 日志已保存，未标记成功。**当前暂停真实 PWM。**
 - **仍存环境限制**：本会话沙箱无 PTY，`pwm_console.py --real` 不能由代理直接运行（I-211）；
   用户需在自己的 Terminal 运行 console，本进程独占 FSR 串口采集。
 - **FSR 当前状态**：已释放；15:37Z 近零空载基线有效（中位 1.7k counts，230/494 帧 flag 0x04
@@ -46,9 +56,9 @@
   `logs/real/bench/<id>/transport.jsonl`；本进程用独立采集脚本独占 FSR 串口写
   `evidence/p3b1/private/cup_*`。两个进程不得打开同一设备。
 - **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。S3 修复固件已重烧并通过无 PWM 验证；未触碰旧 ESP32 FSR 固件。
-- **下一步顺序**：S3 已重烧并通过无 PWM 验证 → **等待用户明确恢复空杯运动** → 用户在自己的
-  Terminal 重跑 console → 无杯方向 → 空杯抓取 + FSR 同步采集（每 trial 前连续空载基线）→
-  保存/分析/文档/commit/push/更新 Draft PR（不合并）。暂不自行开始运动。
+- **下一步顺序**：**暂停真实 PWM** → 先隔离 PWM 期间 NUL：PM15S 断电只发命令、PM15S 上电但
+  机械空载、检查独立电源/共地/体电容/线束走向；确认机制前不重跑 console、不自动重试 PWM、
+  不盲目扩大超时。机制确认后再决定空杯 MANUAL 恢复。
 
 # 当前交接｜P3-A V2 离线集成（2026-11-15）
 

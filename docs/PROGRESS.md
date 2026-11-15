@@ -1,5 +1,36 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B1 真实 PWM 期间串口应答损坏（空杯未成功）｜hw/p3b1-fsr-real
+
+- **实际过程**：console 选择模式 1 成功；`1500` ACK、`1450` ACK；操作者观察 1450 附近机械爪不再运动；
+  准备输入 `1400` 时出现 `response_timeout`。**日志中没有 1400 的 COMMAND/TX，1400 未发送。**
+- **最后命令**：`HEARTBEAT` seq 31，request_id `1584ec4baf6f487eb61c3f759459b7b6`，
+  16:51:24.861Z；最后 PWM 命令是 `BENCH_HOLD` 1450 μs seq 23（16:51:16.506Z），
+  ACK `ACTIVE / TARGET_COMMANDED / PWM_COMMANDED_UNMEASURED`，无输出 API 错误。
+- **超时直接原因**：16:51:24.961Z RX 957 B ACK 含 **7 个 NUL**（首个偏移 364），
+  `state`/`fault_reason` 字符串被 NUL 替换；request_id 与最后 heartbeat 一致，
+  `json.loads` 失败后主机记录 `corrupt_response`，3 s 后超时。
+  **不是无 RX、不是 request_id 不匹配、不是会话内重启（boot_id `ba1412…` 未变）、
+  不是设备 FAULT（损坏 ACK 仍 ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED）。**
+- **关键对比**：无 PWM 验证 64/64 应答 0 NUL；本轮真实 1500/1450 输出后 heartbeat ACK 出现 7 NUL。
+  唯一新增因素是舵机真实输出并可能在 1450 处堵转。**LEADING_HYPOTHESIS：舵机电流/地弹/EMI 耦合
+  S3 UART TX**；TX 预留修复把 NUL 从 12/13 降到 7，但无法防止电气损坏。机制未证实。
+- **1450 后不运动**：控制侧已接受并施加 1450（无 `output_api_stage`/写失败/频率失败），
+  最可能是机械闭合限位/堵转；精确限位 **UNKNOWN**。FSR 1450 附近约 0.2–0.9M counts（高于近零基线），
+  但本轮 capture 起点在 1500 之后，**没有干净空载基线**；FSR 最大值 2,614,877 出现在 16:54:17
+  （超时之后），不能归因于 1450。
+- **设备状态**：会话内 boot_id `ba1412…` 从连接到损坏 ACK 未变；16:56:15 只读 STATUS 查询
+  （PM15S 动力断开）得到新 boot_id `caff3b25…`、uptime 1919 ms、DISARMED、BOOT、DISABLED_UNMEASURED。
+  **打开 S3 串口会复位板子**，新 boot_id 是查询造成的，不是 PWM 期间重启证据；查询后通信正常。
+- **数据保存（未标记成功）**：console 日志
+  `logs/real/bench/2cedfa9ef4e342dda5431b9556a61b44/transport.jsonl`（SHA `a22cbd6f…`）；
+  FSR `evidence/p3b1/private/cup_manual_real_20261115T165114Z/`（14,268 SAMPLE、100% valid、
+  231.7 s）；失败证据包 `evidence/p3b1/private/pwm_timeout_20261116/summary.json`。
+- **未执行**：未发送 1400、未继续 PWM/运动、未自动重试、未扩大超时、未启用 AUTO/Dashboard。
+- **文档**：新增 [PWM 期间串口损坏诊断](P3B1_PWM_ACTIVE_SERIAL_CORRUPTION.md)；问题 I-218/I-219。
+- **下一步（待授权/现场）**：隔离 PM15S 断电只发命令、PM15S 上电但机械空载、检查独立电源/共地/
+  体电容/线束走向；确认机制前不继续真实空杯运动。
+
 ## 2026-11-16｜S3 修复固件重烧与无 PWM 验证 PASS｜hw/p3b1-fsr-real
 
 - **重烧**：用户授权仅 `/dev/cu.usbserial-A5069RR4`，PM15S 独立动力电源断开；Arduino CLI 1.5.1 +

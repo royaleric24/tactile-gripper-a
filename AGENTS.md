@@ -28,8 +28,17 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 最终 DISARMED/DISABLED_UNMEASURED）。两次失败会话均**未发 PWM、无 BENCH_ACTION、无机械运动**；
 失败 FSR 原始数据已保存（17,392 SAMPLE，非空杯结果）。Dashboard LIVE 握手仍未修好，
 未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，未提交、未合并，
-不再作为空杯前置条件。**下一步：修复版已重烧并验证 PASS；按用户指示暂不自行开始运动，
-等待用户明确恢复后重跑 console。**
+不再作为空杯前置条件。
+
+**2026-11-16 第二次空杯 MANUAL（真实 PWM）**：1500/1450 均 ACK，操作者观察 1450 附近机械爪
+不再运动；准备输入 1400 时 heartbeat seq 31 的 ACK 出现 **7 个 NUL**，主机
+`corrupt_response` 后 3 s `response_timeout`。**1400 未发送**（日志无 1400 COMMAND）；
+会话内 `boot_id=ba1412…` 未变、无 ESP-ROM、无设备 FAULT；1450 控制侧已接受
+（ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED，无输出 API 错误），未运动最可能是
+机械限位/堵转（精确限位 UNKNOWN）。无 PWM 64/64 验证应答 0 NUL，本轮唯一新增因素是舵机
+真实输出并可能堵转；PWM 期间 NUL 的机制为 **LEADING_HYPOTHESIS：舵机电流/地弹/EMI 耦合
+UART**，未证实。**当前暂停真实 PWM**；下一步隔离测试（PM15S 断电只发命令、PM15S 上电但
+机械空载、检查独立电源/共地/体电容/线束），确认机制前不重跑 console、不自动重试 PWM。
 
 ## 最近状态（P3-A V2 集成，2026-11-15）
 

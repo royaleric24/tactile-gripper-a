@@ -31,7 +31,8 @@
 | I-215 | **OPEN（真实复测失败，暂停）** | Dashboard LIVE 真实连接仍拿不到完整 HELLO；后续尝试 DTR/RTS 释放、write flush、同步 prime 均未成功。未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，**未提交、未合并**；Dashboard 不再作为空杯前置条件。下一步单独集中修复。 |
 | I-216 | **ACCEPTED_LIMITATION** | 2026-11-16 恢复构建 app SHA `d20782808447385a2ad090e63082f55e7f824652220441f07230f9dbf89830c4`（316288 B）与历史验收 `04c77eed…`（316272 B）不是逐字节相同。bootloader/分区表/生成头/源码/配置均一致，版本字符串与 GPIO/频率/位数已从新二进制和真实 STATUS 确认；16 B 差异与构建路径/工具链非确定性一致，不视为源码变更。 |
 | I-217 | **RESOLVED（VERIFIED_REAL，无 PWM）** | 两次 S3 控制台 `response_timeout` 根因：`respond()` 的 900 B TX 阈值小于实测 942–963 B 的 ACK/STATUS；连续命令时 TX 空间不足，`serializeJson` 写出 12/13 个 NUL，主机 JSON 解析失败后 3 s 超时。修复：`measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR；主机记录 `corrupt_response`。修复版 `bd039a8…` 已 460800 重烧；真实无 PWM 验证 64/64 应答匹配、0 NUL、0 corrupt_response、0 COMM_ERROR、0 FAULT；5 次连续会话 + 20 次背靠背 HEARTBEAT 全部 PASS；最终 DISARMED/DISABLED_UNMEASURED。 |
-| I-218 | **OPEN（等待用户恢复空杯）** | 两次空杯 MANUAL 会话均在 BEGIN_BENCH/模式选择后 `response_timeout`，**未发送 PWM、无 BENCH_ACTION、无机械运动**。失败 FSR 原始数据与两份 console 日志已保存；这不是空杯抓取结果。S3 修复版已重烧并通过无 PWM 验证；按用户指示暂不自行开始运动，等待用户重新运行 console。 |
+| I-218 | **OPEN（本轮空杯未成功）** | 第二次空杯 MANUAL：1500/1450 均 ACK，1450 后机械爪不再运动；随后 heartbeat seq 31 的 ACK 含 7 个 NUL，主机 `response_timeout`。**1400 未发送**（日志无 1400 COMMAND）；未完成夹持/释放，不标记成功。FSR 原始数据与 console 日志已保存。1450 控制侧已接受，未运动最可能是机械限位/堵转（精确限位 UNKNOWN）。 |
+| I-219 | **OPEN（LEADING_HYPOTHESIS：PWM 期间串口 NUL 损坏）** | 真实 PWM 1500/1450 时，heartbeat ACK 957 B 含 7 个 NUL（偏移 364，`state`/`fault_reason` 字符串被替换），JSON 解析失败后 3 s 超时；会话内 `boot_id=ba1412…` 未变、无 ESP-ROM、无设备 FAULT，损坏 ACK 仍为 ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED。无 PWM 64/64 验证应答 0 NUL。直接原因（损坏导致超时）**VERIFIED_REAL**；机制（舵机电流/地弹/EMI 耦合 UART）为 **LEADING_HYPOTHESIS**。下一步隔离：PM15S 断电只发命令、PM15S 上电但机械空载、检查独立电源/共地/体电容/线束走向；禁止盲目扩大超时或自动重试 PWM。 |
 
 > 状态为 OPEN / WAITING / RESOLVED / ACCEPTED_LIMITATION。解决后留历史记录，不直接删掉。每个开发进展后检查是否需要更新。
 
