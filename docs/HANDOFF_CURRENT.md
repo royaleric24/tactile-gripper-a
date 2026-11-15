@@ -13,22 +13,31 @@
   空载基线中位 1.7k counts（≈0），与“未载≈0、按压≈4.16M”一致，支持
   `VOLTAGE_RISES_WITH_FORCE`。原始 capture 不是同一 trial 的连续空载→夹持→释放，极性标为
   **SUPPORTED（非单 trial 验证）**；空杯 trial 必须在夹持前采连续空载基线。
-- **当前硬件阻塞（一项）**：Mac 只枚举到旧 ESP32 CP2102 `/dev/cu.usbserial-0001`；S3 的
-  FT232R 串口多次重枚举仍未出现（ioreg 无 FTDI/FT232R，I-210）。本会话沙箱无 PTY，
-  `pwm_console.py --real` 不能由代理直接运行（I-211）。需要用户确认 S3 板上的 USB **数据**口
-  已用数据线直连 Mac，然后在自己的 Terminal 运行 console。
+- **S3 已恢复（2026-11-16）**：真实端口 `/dev/cu.usbserial-A5069RR4`，ESP32-S3 QFN56 r0.2、
+  8 MB PSRAM、MAC `c4:9e:7e:08:25:78`。已用 `python3 scripts/build_firmware.py s3` 构建
+  `gripper-control-s3-0.9b26.0`，并以 **460800、无全片擦除** 上传；每段 `Hash of data verified`。
+  app SHA `d20782…`（历史验收 `04c77eed…`；同源同配置，16 B 差异为构建路径/工具链非确定性，
+  见 I-216）。真实 STATUS 只发 `GET_STATUS`：`DISARMED`、GPIO4、50 Hz、14-bit、
+  `output_state=DISABLED_UNMEASURED`、`commanded_pulse_us=null`、`bench_capable=true`、
+  0 ERROR/0 FAULT/0 timeout。详见 [S3 恢复记录](P3B1_S3_FIRMWARE_RECOVERY.md)。
+- **仍存环境限制**：本会话沙箱无 PTY，`pwm_console.py --real` 不能由代理直接运行（I-211）；
+  用户需在自己的 Terminal 运行 console，本进程独占 FSR 串口采集。
 - **FSR 当前状态**：已释放；15:37Z 近零空载基线有效（中位 1.7k counts，230/494 帧 flag 0x04
   是 0 附近零点噪声，ADC4 仍 OK）。15:34Z 的 0–650k 是释放过程中的余压。空杯前重采 8 s 基线即可。
-- **空杯实验预案（尚未授权）**：PWM **1300–1500 μs、50 μs 步进、1300 为下限，不进 1270**；
+- **Dashboard LIVE 修复**：首次真实 LIVE 显示“协议异常 · 帧已拒绝”；根因是串口打开复位 ESP32
+  后 boot HELLO 半行 + 2 s HELLO 截止。已改 `config/sensor_serial.json` `boot_wait_s=2.5`，并在
+  boot wait 后清空输入缓冲/丢弃半行；27 项离线测试 OK。真实复测需要再次独占 FSR 串口，
+  本次升级请求被拒绝，故 **REAL 复测 NOT_TESTED**。
+- **空杯实验预案（已授权范围，尚未执行）**：PWM **1300–1500 μs、50 μs 步进、1300 为下限，不进 1270**；
   先无杯 1500→1450→1400→1350→1500 验证方向，再空杯 1500→1450→1400→1350→1300，
   首次接触即停，保持并观察，释放回 1500；2 次（最多 3 次）抓取/释放。
   `AUTO_REAL_ENABLED=False`；FSR 只记录，不闭环。
 - **数据分工**：用户 terminal 的 `pwm_console.py --target s3` 独占 S3 串口并写
   `logs/real/bench/<id>/transport.jsonl`；本进程用独立采集脚本独占 FSR 串口写
   `evidence/p3b1/private/cup_*`。两个进程不得打开同一设备。
-- **未执行**：未发 PWM、未做机械动作、未重烧 S3、未做 AUTO、未做加水。
-- **下一步顺序**：S3 端口出现 → 只读 STATUS 核对 0.9b26.0/board_target/pwm_gpio=4/50 Hz/14-bit/
-  DISARMED → 用户一次授权 → 无杯方向 → 空杯抓取 → Dashboard LIVE FSR 曲线 → 保存/分析/文档/
+- **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。本轮已按授权重烧 S3（仅 `/dev/cu.usbserial-A5069RR4`），未触碰旧 ESP32 FSR 固件。
+- **下一步顺序**：S3 已恢复且 STATUS 已核对 → 用户在自己的 Terminal 启动 console → 无杯方向 →
+  空杯抓取 + FSR 同步采集（每 trial 前连续空载基线）→ Dashboard LIVE FSR 曲线 → 保存/分析/文档/
   commit/push/PR（不合并）。
 
 # 当前交接｜P3-A V2 离线集成（2026-11-15）

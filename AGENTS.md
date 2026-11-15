@@ -14,10 +14,15 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 [P3-B1 分析](docs/P3B1_FSR_REAL_ANALYSIS.md) 与 [问题](docs/ISSUES.md)（I-207 起）。
 
 事后 15:37Z 空载基线中位 1.7k counts（≈0）与 0–4.2 s 的 4.16M 一致，230/494 帧 flag 0x04
-是零点噪声，不是通信故障。当前唯一硬件阻塞是 S3 的 FT232R 串口多次重枚举仍未出现；本会话无 PTY，
-`pwm_console.py --real` 需用户在自己的 Terminal 运行。空杯 MANUAL 仍 **NOT_TESTED**，
-未发 PWM、未做机械动作、未重烧 S3、`AUTO_REAL_ENABLED=False`。下一步：连接并核对 S3 →
-一次授权 **1300–1500 μs、50 μs 步进、1300 下限（不进 1270）** → 无杯方向 → 空杯抓取 →
+是零点噪声，不是通信故障。**S3 已于 2026-11-16 恢复**：真实端口 `/dev/cu.usbserial-A5069RR4`，
+构建并上传 `gripper-control-s3-0.9b26.0`（460800、无全片擦除、每段 hash verified），
+真实 STATUS 为 **DISARMED**、GPIO4、50 Hz、14-bit、`output_state=DISABLED_UNMEASURED`、
+0 ERROR/0 FAULT/0 timeout；app SHA `d20782…`（历史 `04c77eed…`，同源同配置，见 I-216）。
+仍无 PTY，`pwm_console.py --real` 需用户在自己的 Terminal 运行。Dashboard LIVE 首次真实连接曾因
+串口打开复位 ESP32、boot HELLO 半行和 2 s 截止而报“协议异常”；已最小修复 `boot_wait_s=2.5` +
+boot 后清缓冲/半行，27 项离线测试 OK，真实复测 **NOT_TESTED**。空杯 MANUAL 仍 **NOT_TESTED**，
+未发 PWM、未做机械动作、`AUTO_REAL_ENABLED=False`。下一步：按已授权
+**1300–1500 μs、50 μs 步进、1300 下限（不进 1270）** 做无杯方向 → 空杯抓取 + FSR 同步采集 →
 Dashboard LIVE FSR_A 曲线 → 文档/commit/push/PR。原始 JSONL/CSV 留在本地 `evidence/`，不提交。
 
 ## 最近状态（P3-A V2 集成，2026-11-15）

@@ -1,5 +1,34 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B1 S3 控制固件恢复与真实 STATUS｜hw/p3b1-fsr-real
+
+- **授权/范围**：仅 `/dev/cu.usbserial-A5069RR4` 的 ESP32-S3 恢复；PM15S 独立动力电源断开
+  （用户确认）；未发 PWM、未启动 AUTO、未操作旧 ESP32 FSR 固件、未做机械动作。
+- **构建**：`python3 scripts/build_firmware.py s3` **PASS**（app 316139 B，10%）。
+  完整 FQBN `esp32:esp32:esp32s3:FlashSize=16M,FlashMode=qio,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,
+  UploadSpeed=921600,USBMode=hwcdc,CDCOnBoot=default,UploadMode=default,EraseFlash=none`。
+  生成头 `generated_config_s3.h` 与构建前逐字节一致，SHA `83c8af…`；`config/gripper_s3.json`
+  `b4929f…`；`.ino` `7f709f…`；`SafetyCore.h` `dc083e…`，均与历史清单一致。
+  `CFG_FIRMWARE_VERSION=gripper-control-s3-0.9b26.0`、GPIO4、50 Hz、14-bit、
+  `HARDWARE_ENABLED=false`、`BENCH_ENABLED=true`、`CALIBRATED=false`。
+- **产物**：app `d20782808447385a2ad090e63082f55e7f824652220441f07230f9dbf89830c4`（316288 B）；
+  bootloader `a9e464…`；partitions `ace025…`；merged `71da3c…`；ELF `8bb2c8…`。
+  历史验收 app `04c77eed…`（316272 B）与本次不是逐字节相同；bootloader/分区表/生成头/源码/
+  配置一致，16 B 差异与构建路径/工具链非确定性一致，已从新二进制确认版本字符串。
+- **上传**：项目 Arduino CLI 1.5.1 + esptool 5.1.0，端口 `/dev/cu.usbserial-A5069RR4`，
+  **460800**（历史成功值），无全片擦除；每一段 `Hash of data verified`，**PASS**。
+  日志 `evidence/stage09b26/upload_s3_20261115T235933.log`，SHA `76175d…`。
+- **真实 STATUS（只发 GET_STATUS）**：`gripper-control-s3-0.9b26.0`、`board_target=esp32s3`、
+  `pwm_gpio=4`、`pwm_frequency_hz=50`、`pwm_resolution_bits=14`、`chip_model=ESP32-S3`、
+  Flash 16 MB、PSRAM 8 MB、**DISARMED**、`hardware_enabled=false`、`UNCALIBRATED`、
+  `bench_capable=true`、`bench_active=false`、`output_state=DISABLED_UNMEASURED`、
+  `commanded_pulse_us=null`、`fault_reason=BOOT`（启动原因，不是故障）。
+  通信：1 次 GET_STATUS 匹配，159 条启动 banner 被过滤，0 ERROR/0 FAULT/0 timeout。
+  完整 JSON `evidence/stage09b26/s3_status_20261116T000018.json`，SHA `6f8d1e…`。
+- **文档**：新增 [S3 固件恢复记录](P3B1_S3_FIRMWARE_RECOVERY.md)。
+- **下一步**：S3 已可进入 MANUAL；按已授权 **1300–1500 μs、50 μs 步进、1300 下限（不进 1270）**
+  做无杯方向与空杯抓取，FSR 只记录不闭环；每 trial 前采连续空载基线。
+
 ## 2026-11-15｜P3-B1 真实 FSR_A 数据接管与探索性分析｜hw/p3b1-fsr-real
 
 - **现场继承**：分支基线 `af1758e`（main 合入 PR #5 后）。Codex 已完成的真实采集在本地
@@ -30,6 +59,12 @@
   中位 1.7k、值约 −12k…+16k counts → 已释放的近零空载基线。ADC4 仍 `OK`，负帧是 0 附近
   零点噪声（±15k counts ≈ ±6mV），不是通信故障。**FSR_A 工作正常；空杯 trial 仍需在夹持前
   重新采连续空载基线。**
+- **Dashboard LIVE 连接修复（OFFLINE_VERIFIED；REAL 复测 NOT_TESTED）**：真实 LIVE 首次启动显示
+  “协议异常 · 帧已拒绝”。根因是 macOS 打开 FSR 串口会复位 ESP32；`SerialSensorTransport`
+  在 `boot_wait_s=0` 时立即发 HELLO，2 s 握手窗口内只读到 boot HELLO 的半行，严格解析器拒绝后
+  超时。最小修复：`config/sensor_serial.json` 的 `boot_wait_s` 改为 2.5 s；transport 在 boot wait 后
+  清空输入缓冲并丢弃半行。离线测试 27 项 OK（含新增 boot 半行测试）。真实复测需要再次独占
+  FSR 串口，本次升级请求被用户拒绝，故 REAL 复测 **NOT_TESTED**。
 - **未执行**：未打开舵机串口、未发 PWM、未做机械动作、未重新烧录、未做 AUTO。
   当前 Mac 只枚举到旧 ESP32 的 CP2102；S3 的 FT232R 串口未出现，空杯实验暂不能开始。
 - **下一步**：唯一硬件阻塞是 S3 FT232R 端口未枚举；确认 S3 板上的 USB **数据**口直连 Mac 后，

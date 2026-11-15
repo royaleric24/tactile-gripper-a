@@ -142,6 +142,17 @@ class SerialSensorTransport:
             port.open()
             if self.config.boot_wait_s:
                 self.sleeper(self.config.boot_wait_s)
+            # macOS opening the port resets the ESP32. Discard boot text that
+            # arrived during the wait so the V2 handshake sees only the HELLO
+            # response instead of treating boot noise as a rejected frame.
+            reset_input = getattr(port, "reset_input_buffer", None)
+            if reset_input is not None:
+                reset_input()
+            # A line may have been mid-transmission when the buffer was reset;
+            # drop that partial line so the first parsed line is a full frame.
+            self._partial.clear()
+            self._lines.clear()
+            self._discard = False
         except BaseException as exc:
             try:
                 port.close()
