@@ -63,7 +63,7 @@
 
 | 资产 | 路径 | 用途 | SHA-256 | 独立备份 |
 |---|---|---|---|---|
-| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；本 S0 未修改其行为 | `759e013b5664b6f4abccffdbc3c7faba6dbc9eb3e51ffc77818f6e8df31d7363` | 是 |
+| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；2026-11-16 仅新增可选 `--log-dir`（不传时行为不变） | `759e013b5664b6f4abccffdbc3c7faba6dbc9eb3e51ffc77818f6e8df31d7363` | 是 |
 | Console 文档 | `docs/PWM_CONSOLE.md` | 使用与安全约束 | `afa44a8a851e1bd990c61f1e0c415cadd9f3954f45529fea606ba0a834d4c2b6` | 是 |
 | Bench 适配 | `src/gripper_a/bench.py` | Console 的设备端交互与日志 | `c70e6e93e176e8455cf621477ec12871373c08d49d23272685b8cf4604c2e755` | 是 |
 | 串口客户端 | `src/gripper_a/serial_client.py` | JSONL/超时/日志传输 | `c26c7a225131d2b7af9db0b7f07293b6d338497d7ce7662264277e8af7b04367` | 是 |
