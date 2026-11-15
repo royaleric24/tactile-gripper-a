@@ -145,8 +145,8 @@ CHROME_NO_SANDBOX=1 AUDIT_BASE=http://127.0.0.1:8095 OUT_DIR=/tmp/audit-final/na
 |---|---|
 | 目标分支 | `feat/dashboard-zh-v1`（公开软件历史祖先，已确认） |
 | 远程分支 | `origin/sw/fsr-live-v2`（本轮新建） |
-| PR | 见本文件末尾“发布记录”；本轮**不合并** |
-| CI | 见 PR 检查结果；以实际状态为准，不预填 PASS |
+| PR | [#4](https://github.com/royaleric24/tactile-gripper-a/pull/4) → `feat/dashboard-zh-v1`；本轮**不合并** |
+| CI | GitHub Actions `Offline tests`：push 与 pull_request 两个 run 均 **PASS**（2026-11-15） |
 
 ### 状态标注
 
@@ -166,5 +166,10 @@ CHROME_NO_SANDBOX=1 AUDIT_BASE=http://127.0.0.1:8095 OUT_DIR=/tmp/audit-final/na
 
 ## 发布记录
 
-- 2026-11-15：`sw/fsr-live-v2` 推送至 `origin/sw/fsr-live-v2`，PR 目标
-  `feat/dashboard-zh-v1`（待创建后补 URL）。
+- 2026-11-15：`sw/fsr-live-v2` 推送至 `origin/sw/fsr-live-v2`
+  （`7a1bf07ca62fe6cc27864d716a85b4f16799f5f3`）。
+- 2026-11-15：创建 PR
+  [#4](https://github.com/royaleric24/tactile-gripper-a/pull/4)
+  → `feat/dashboard-zh-v1`（91 个文件、+9593/−127、3 个 commit、`MERGEABLE`）。
+  GitHub Actions `Offline tests`：push run 19s PASS，pull_request run 22s PASS。
+- **未合并**，也未操作 `integrate/hybrid-demo-v2` 或启动 P3-A；等待总控审核。

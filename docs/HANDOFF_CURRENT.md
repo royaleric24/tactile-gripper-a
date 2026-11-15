@@ -71,7 +71,9 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
   “ADC 计数”+柱顶读数+刻度取整；分析页侧栏/顶栏同步只读快照；热图色条与轴标签分离；
   FSR 趋势去掉与图例重复的轴名。
 - 未改：协议、单位换算、AUTO 门控、Trial/CSV/REPLAY 格式、硬件组固件。
-- 发布：推送 `origin/sw/fsr-live-v2`，PR 指向 `feat/dashboard-zh-v1`，**未合并**。
+- 发布：推送 `origin/sw/fsr-live-v2`（`7a1bf07`），PR
+  [#4](https://github.com/royaleric24/tactile-gripper-a/pull/4) → `feat/dashboard-zh-v1`；
+  GitHub Actions `Offline tests` 两个 run 均 PASS；**未合并**，等待总控审核。
 - 未做：真实串口、真实 FSR/电极读数、PWM、机械动作、真实 AUTO；PTY 交互测试本地跳过。
 
 ## 未做/未验证
