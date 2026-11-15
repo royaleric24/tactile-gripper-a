@@ -226,6 +226,7 @@ class JsonlTail:
         return {
             "path": str(self.path),
             "exists": self.exists,
+            "missing": self.missing,
             "age_s": self.file_age_s(),
             "lines_read": self.lines_read,
             "partial_bytes": len(self._partial),
@@ -252,8 +253,10 @@ class LogFollowGripper:
         source: DataSource = DataSource.LIVE,
         clock=time.monotonic,
         stale_after_s: float = DEFAULT_LOG_STALE_S,
+        require_existing: bool = True,
     ):
         self.log_path = Path(log_path)
+        self.require_existing = bool(require_existing)
         self.source = DataSource(source)
         if self.source is not DataSource.LIVE:
             raise ControlDenied("log-follow monitor is a LIVE-source read-only view")
@@ -346,9 +349,22 @@ class LogFollowGripper:
             if self.connected:
                 raise ControlDenied("already_connected")
             if not self.tail.exists:
-                self.state = "OFFLINE"
-                self.last_error = f"PWM log not found: {self.log_path}"
-                raise FileNotFoundError(str(self.log_path))
+                if self.require_existing:
+                    self.state = "OFFLINE"
+                    self.last_error = f"PWM log not found: {self.log_path}"
+                    raise FileNotFoundError(str(self.log_path))
+                # The launcher starts the read-only Dashboard before the
+                # interactive console creates transport.jsonl.  Wait for the
+                # expected file instead of treating the session as FSR-only.
+                self.connected = True
+                self.session_active = False
+                self.state = "LOG_WAITING"
+                self.last_error = f"waiting for PWM log: {self.log_path}"
+                return {
+                    "monitor": "LOG_FOLLOW",
+                    "log_path": str(self.log_path),
+                    "waiting": True,
+                }
             self._ingest()
             self.connected = True
             self.session_active = not self.closed
@@ -874,7 +890,15 @@ class LogFollowGripper:
                 "monitor": "LOG_FOLLOW",
                 "read_only": True,
                 "log_path": str(self.log_path),
-                "log_state": "CLOSED" if self.closed else ("STALE" if stale else "FOLLOWING"),
+                "log_state": (
+                    "WAITING"
+                    if not self.tail.exists
+                    else "CLOSED"
+                    if self.closed
+                    else "STALE"
+                    if stale
+                    else "FOLLOWING"
+                ),
                 "log_age_s": self.tail.file_age_s(),
                 "session_active": self.session_active,
                 "session_mode": self.session_mode,

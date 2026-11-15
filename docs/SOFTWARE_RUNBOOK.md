@@ -55,6 +55,17 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
 记录 `aborted`。Dashboard 就绪后还会再检查一次 FSR 进程。会话中 FSR 退出只打印警告，
 PWM Console 不会自动停止（由操作者 `stop`/`quit`）。`--no-fsr` 是显式跳过 FSR 的门控例外。
 
+**S3 心跳重试（P3-B4）**：控制台对 `HEARTBEAT` 和“尚无 PWM 目标时的 `BENCH_HOLD_MODE`/
+`BENCH_PULSE_MODE`”做有界重试：默认共 2 次（`config/gripper_s3.json` 的
+`serial.heartbeat_retry_attempts`，1–3），间隔 200 ms（`serial.heartbeat_retry_delay_ms`，0–1000）。
+长帧 NUL 损坏会快速失败（约 0.2 ms），首次失败保持端口打开后重试；**PWM/STOP/DISARM/BEGIN_BENCH
+不会自动重发**。重试耗尽后控制器进入 FAULT/UNKNOWN 并关闭，不会无限期维持未知输出。
+日志中会出现 `COMMAND_RETRY`。
+
+**等待 PWM 日志**：Dashboard 先启动时，`--follow-session` 会等待预期的
+`<session>/transport.jsonl`，页面显示“等待 pwm_console 创建 transport.jsonl”；console 创建后自动接入。
+显式 `--follow-pwm-log` 仍要求文件存在。
+
 **退出顺序**：console → FSR（SIGINT，采集写 summary）→ Dashboard。Dashboard 先 drain
 尾部 JSONL，再结束 Trial 并导出 CSV/REPLAY；它运行在独立 session，终端 Ctrl+C 不会抢先
 结束导出。结束时会打印 `<session>/trial.json` 记录的**本会话** Trial CSV/REPLAY，不会

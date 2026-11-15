@@ -45,7 +45,7 @@
 | 应用源码 | `firmware/gripper_control/gripper_control.ino` | 当前 S3 源码 | 同上 | `7f709f1d5560fd8c1ca8a6ef1a28cb6a4509890044e0e0c95832e6b41dee97e5` | 是 |
 | 安全核心源码 | `firmware/gripper_control/SafetyCore.h` | 当前 S3 安全核心 | 同上 | `dc083e6f9f83d35a1399c9e00646f240354eb89430a04e33d6abec9280c98c47` | 是 |
 | S3 生成配置 | `firmware/gripper_control/generated_config_s3.h` | GPIO4/50 Hz/14-bit 构建配置 | 同上 | `83c8af394eb2ff8fd41b5fb0572077a000270612b31ffa880cadeaefffa08c64` | 是 |
-| S3 运行配置 | `config/gripper_s3.json` | S3 控制/串口/Bench 参数 | 同上 | `b4929f059940365a67df7dccf8df6c838c55b4e5f9bb3cbcaff3ddf51db44b78` | 是 |
+| S3 运行配置 | `config/gripper_s3.json` | S3 控制/串口/Bench 参数 | 同上 | `6ca4307aae26a259bce0fe52a4691a4e9fbf884d1e5b59888d31c5999912cff0` | 是 |
 | S3 构建目标 | `evidence/stage09b26/build_s3/build.options.json` | FQBN `esp32:esp32:esp32s3...` | — | `c0955ffad92da18e95ee294355aab1ed14168cc58aeac7f230cdb2301be35716` | 是 |
 | 板级配置（当前） | `config/board_s3.json` | 板型、Flash/PSRAM、串口 | — | `9dfb68696159b9f65747a9e40c70b9dc26b16ca57d35cb7870a230b5d7c350b7` | 是 |
 
@@ -57,7 +57,7 @@
 > 已 460800 重烧并通过真实无 PWM 验证（64/64 应答、0 NUL、5 次连续会话 + 20 次背靠背心跳）；
 > `d20782…` 为上一版。详见 [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)（I-217）。
 
-注意：`config/board_s3.json` 当前哈希与 `evidence/stage09b26/sha256_after.txt` 记录的历史值 `b8079273...` 不同（S3 部署后更新了板级/上传描述字段）；控制参数以 `config/gripper_s3.json`（`b4929f...`）和 `generated_config_s3.h`（`83c8af...`）为准，不把当前板级描述反推为部署时快照。
+注意：`config/board_s3.json` 当前哈希与 `evidence/stage09b26/sha256_after.txt` 记录的历史值 `b8079273...` 不同（S3 部署后更新了板级/上传描述字段）；控制参数以当前 `config/gripper_s3.json`（`6ca430...`；P3-B4 前为 `b4929f...`）和 `generated_config_s3.h`（`83c8af...`）为准，不把当前板级描述反推为部署时快照。
 
 ## 4. PWM Console 与关键上位机工具
 
@@ -81,7 +81,7 @@
 | `config/first_motion_record.template.json` | `4ee4909163479401ac3bab46c9b5697826ef59e1df3d6ccff94121aab5ba3f60` | 首次运动记录模板 |
 | `config/gripper_bench.json` | `9aa3f6f58b9bf81c374def9f9c1b1ec06032104db3ff23a233b1266be40e2acd` | 旧 ESP32 0.9b24 Bench 配置 |
 | `config/gripper_control.json` | `0853b322ade89638944c7907e260143e32635d103f2d63d81d533ed0aea948c9` | 通用控制配置 |
-| `config/gripper_s3.json` | `b4929f059940365a67df7dccf8df6c838c55b4e5f9bb3cbcaff3ddf51db44b78` | S3 0.9b26 配置 |
+| `config/gripper_s3.json` | `6ca4307aae26a259bce0fe52a4691a4e9fbf884d1e5b59888d31c5999912cff0` | S3 0.9b26 配置（含 P3-B4 心跳/模式有界重试） |
 | `config/gripper_trial.json` | `7fa5f3f688f2b6363c74d1b09a94c62d7969dca0913a69d8c35fb24f399713d3` | Trial 配置 |
 | `config/serial_test.json` | `a6856151ddf5448e5376257c883d7fd36f7571b501831a86ce7571c08839c202` | 串口测试配置 |
 | `config/simulated.json` | `c8092dcd99b53c1a3d60590d36c5be59a49ef49647bae1527d36ca32e27e0566` | 模拟配置 |
@@ -106,6 +106,8 @@
 | FSR 采集脚本 | `scripts/capture_fsr_live.py` | 独占 FSR 串口，写 `fsr_stream.jsonl`（host UTC + monotonic + raw/message） | `fa9862879dc584d6b37dbe1ade095d48b4215aece6f4a7abd34fa89d0263a589` |
 | 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR 采集 + 只读 Dashboard + 当前终端 console；FSR 门控、drain 后导出、本会话 Trial sidecar | `e092de7877ea37b0562f966a47cd54216cb348023e37fd4c0575ac2a078b0547` |
 | 只读适配器 | `src/tactile_gripper/devices/log_follow.py` | JSONL tail、PWM 命令/ACK 状态机、FSR 严格解析接入 | 随 Git 提交 |
+| S3 通信重试 | `src/gripper_a/serial_client.py` / `src/gripper_a/gripper_controller.py` | 快速失败 + 有界 HEARTBEAT/mode 重试；PWM 不重发 | `3119b26862b076688762d0a74d9151776ec039e015a701abbda9048f09c81d06` / `81bfbe2bacaa272889143d3beb9d655cc73198810fbec42e1ea21830eb730057` |
+
 | 会话目录 | `logs/real/sessions/session_<UTC>_<id>/` | `session.json`、`transport.jsonl`、`fsr/fsr_stream.jsonl`、两份 `.log` | 本地（`logs/` 已 gitignore） |
 | 测试 | `tests/test_log_follow.py` | 正常/无 ACK/STOP/陈旧/轮转/半行/截断/NUL/0x04/CSV/回放 | 随 Git 提交 |
 

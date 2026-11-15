@@ -130,10 +130,14 @@ def main(argv: list[str] | None = None) -> None:
     source = parse_source(args.source)
     follow_pwm = args.follow_pwm_log
     follow_fsr = args.follow_fsr_log
+    pwm_expected = False
     if args.follow_session is not None:
         session = args.follow_session
-        if (session / "transport.jsonl").is_file():
-            follow_pwm = follow_pwm or session / "transport.jsonl"
+        # The launcher starts this Dashboard before the interactive console
+        # creates transport.jsonl.  Follow the expected path and wait for it.
+        if follow_pwm is None:
+            follow_pwm = session / "transport.jsonl"
+            pwm_expected = True
         candidate = session / "fsr" / "fsr_stream.jsonl"
         if not candidate.is_file():
             candidate = session / "fsr_stream.jsonl"
@@ -153,8 +157,13 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("--follow-* 不打开串口；不要同时传 --hardware-permission")
         if args.connect or args.connect_sensor or args.connect_port or args.sensor_port:
             parser.error("--follow-* 与串口连接参数互斥")
-        if follow_pwm is not None and not follow_pwm.is_file():
+        if follow_pwm is not None and not follow_pwm.is_file() and not pwm_expected:
             parser.error(f"PWM 日志不存在：{follow_pwm}")
+        if pwm_expected and not follow_pwm.is_file():
+            print(
+                f"[follow] 等待 console 创建 PWM 日志：{follow_pwm}",
+                flush=True,
+            )
         if follow_fsr is not None and not follow_fsr.is_file():
             parser.error(f"FSR 日志不存在：{follow_fsr}")
         if not args.follow_record:
@@ -192,6 +201,7 @@ def main(argv: list[str] | None = None) -> None:
         connect_sensor=args.connect_sensor,
         follow_pwm_log=follow_pwm if follow_mode else None,
         follow_fsr_log=follow_fsr if follow_mode else None,
+        follow_allow_missing=pwm_expected,
     )
     follow_trial_id = None
     trial_sidecar = None

@@ -85,6 +85,7 @@ def live_page(core) -> None:
         "syncing": False,
         "demo_profile": getattr(core, "demo_profile", "FSR_ONLY"),
         "timeline_key": None,
+        "smooth": False,
     }
     if core.gripper is not None:
         state["pending"] = core.gripper.pwm_initial_us or 1500
@@ -251,6 +252,7 @@ def live_page(core) -> None:
                     ).classes("card-sub")
                 with ui.row().classes("items-center gap-2"):
                     baseline_hint = ui.label("基线未采集").classes("card-sub")
+                    smooth_switch = ui.switch("短窗平滑（仅显示）", value=False).props("dense")
                     baseline_button = ui.button("采集空载基线", color="secondary").props("outline no-caps")
                     baseline_clear_button = ui.button("清除基线", color="secondary").props("outline no-caps")
             with ui.element("div").classes("grid-12"):
@@ -265,6 +267,9 @@ def live_page(core) -> None:
                         fsr_delta = ui.label("相对变化 —").classes("card-sub")
                         fsr_cards.append((card, fsr_name, fsr_state, fsr_raw, fsr_voltage, fsr_delta))
             fsr_chart_holder = ui.column().classes("w-full")
+            fsr_smooth_note = ui.label(
+                "短窗平滑只影响曲线显示；Trial / CSV / REPLAY 保存原始 ADC counts，不覆盖历史数据。"
+            ).classes("card-sub")
             fsr_follow_note = ui.label("").classes("card-sub")
         fsr_section.set_visibility(False)
 
@@ -461,7 +466,13 @@ def live_page(core) -> None:
             f"超时 {counts.get('timeouts', 0)}"
         )
         tail = monitor.get("tail") or {}
-        if closed:
+        waiting = bool(tail.get("missing"))
+        if waiting:
+            monitor_fresh.set_text(
+                "等待 pwm_console 创建 transport.jsonl（文件尚未生成）；"
+                "Dashboard 不会因此打开串口。"
+            )
+        elif closed:
             monitor_fresh.set_text(
                 f"日志已结束（console CLOSED @ {clock_label(monitor.get('closed_at_utc'), with_date=False)}）；"
                 f"最后 output_state={monitor.get('final_output_state') or monitor.get('output_state') or 'UNKNOWN'}"
@@ -533,12 +544,17 @@ def live_page(core) -> None:
             last_event,
             status,
             snapshot.get("frames_received"),
+            state["smooth"],
         )
         if key != state["timeline_key"]:
             state["timeline_key"] = key
             timeline_holder.clear()
             with timeline_holder:
-                option = unified_timeline_options(points, events)
+                option = unified_timeline_options(
+                    points,
+                    events,
+                    smooth_window=5 if state["smooth"] else 0,
+                )
                 if option:
                     ui.echart(option).classes("w-full").style("height:280px")
                 else:
@@ -553,7 +569,8 @@ def live_page(core) -> None:
             if closed
             else "STALE（日志未更新）"
             if stale
-            else f"{firmware_state_label(monitor.get('device_state') or 'LOG_WAITING')}（日志）"
+            else f"{firmware_state_label(monitor.get('device_state') or 'LOG_WAITING')}"
+            + ("" if waiting else "（日志）")
         )
         s3_caption.set_text(
             f"pwm_console 日志 · 固件 {monitor.get('firmware_version') or '未知'} · "
@@ -563,7 +580,13 @@ def live_page(core) -> None:
         mode_caption.set_text("Dashboard 未打开串口；PWM 只由 pwm_console 发送")
         set_pill(refs["mode"], "只读监控（LOG-FOLLOW）", "blue")
         refs["s3"].set_text(
-            "日志已结束（OFFLINE）" if closed else "STALE（日志未更新）" if stale else "在线（只读日志）"
+            "等待 console 日志"
+            if waiting
+            else "日志已结束（OFFLINE）"
+            if closed
+            else "STALE（日志未更新）"
+            if stale
+            else "在线（只读日志）"
         )
 
     def refresh() -> None:
@@ -813,7 +836,13 @@ def live_page(core) -> None:
                 else "基线未采集：相对变化与接触状态不可用"
             )
             latest_seq = (latest or {}).get("frame_seq")
-            fsr_key = (latest_seq, baseline_ready, (snapshot.get("fsr_assessment") or {}).get("state"))
+            smooth_window = 5 if state["smooth"] else 0
+            fsr_key = (
+                latest_seq,
+                baseline_ready,
+                (snapshot.get("fsr_assessment") or {}).get("state"),
+                smooth_window,
+            )
             for index, card_refs in enumerate(fsr_cards):
                 card, fsr_name, fsr_state, fsr_raw, fsr_voltage, fsr_delta = card_refs
                 if index >= len(fsr_readings):
@@ -849,7 +878,12 @@ def live_page(core) -> None:
                 state["fsr_key"] = fsr_key
                 fsr_chart_holder.clear()
                 with fsr_chart_holder:
-                    ui.echart(fsr_trend_options(snapshot.get("fsr_history") or [])).classes("w-full").style("height:170px")
+                    ui.echart(
+                        fsr_trend_options(
+                            snapshot.get("fsr_history") or [],
+                            smooth_window=smooth_window,
+                        )
+                    ).classes("w-full").style("height:170px")
             baseline_button.set_enabled(bool(latest) and snapshot["mode"] != "FAULT")
             baseline_clear_button.set_enabled(baseline_ready)
 
@@ -1061,6 +1095,12 @@ def live_page(core) -> None:
             ui.notify(error_text(exc), type="negative", timeout=6000)
         refresh()
 
+    def on_smooth_change(event) -> None:
+        state["smooth"] = bool(event.value)
+        state["fsr_key"] = None
+        state["timeline_key"] = None
+        refresh()
+
     async def on_demo_change(event) -> None:
         if state["syncing"] or core.firmware_fixture:
             return
@@ -1080,6 +1120,7 @@ def live_page(core) -> None:
     sensor_connect_button.on_click(connect_sensor)
     fault_reset_button.on_click(reset_fault)
     demo_switch.on_value_change(on_demo_change)
+    smooth_switch.on_value_change(on_smooth_change)
     demo_profile_select.on_value_change(on_demo_profile)
     baseline_button.on_click(capture_baseline)
     baseline_clear_button.on_click(clear_baseline)

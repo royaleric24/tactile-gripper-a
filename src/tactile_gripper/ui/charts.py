@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 from datetime import datetime
 from typing import Any
 
@@ -163,7 +164,31 @@ def heatmap_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any
     }
 
 
-def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
+def moving_median(values: list[float | None], window: int) -> list[float | None]:
+    """Centered moving median for display only.  None/invalid stays a gap.
+
+    The Trial/CSV/REPLAY paths keep the original frames; this helper is used
+    only by chart options so a noisy FSR trace can be reviewed without
+    pretending the raw counts were filtered.
+    """
+    if type(window) is not int or window <= 1:
+        return list(values)
+    half = window // 2
+    out: list[float | None] = []
+    for index, value in enumerate(values):
+        if value is None:
+            out.append(None)
+            continue
+        neighbours = [
+            item
+            for item in values[max(0, index - half) : min(len(values), index + half + 1)]
+            if item is not None
+        ]
+        out.append(float(statistics.median(neighbours)) if neighbours else None)
+    return out
+
+
+def fsr_trend_options(history: list[dict[str, Any]], *, smooth_window: int = 0) -> dict[str, Any]:
     """Raw FSR counts (left axis) plus relative contact score (right axis)."""
     if not history:
         return {}
@@ -186,19 +211,37 @@ def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
                 if match and match.get("valid") and match.get("raw") is not None
                 else None
             )
-        series.append(
-            {
-                "name": f"{channel_names[channel_id]} 原始 ADC",
-                "type": "line",
-                "yAxisIndex": 0,
-                "data": data,
-                "showSymbol": len(history) <= 12,
-                "symbolSize": 5,
-                "connectNulls": False,
-                "lineStyle": {"width": 1.6, "color": palette[order % len(palette)]},
-                "itemStyle": {"color": palette[order % len(palette)]},
-            }
-        )
+        colour = palette[order % len(palette)]
+        raw_series = {
+            "name": f"{channel_names[channel_id]} 原始 ADC",
+            "type": "line",
+            "yAxisIndex": 0,
+            "data": data,
+            "showSymbol": len(history) <= 12,
+            "symbolSize": 5,
+            "connectNulls": False,
+            "lineStyle": {"width": 1.6, "color": colour},
+            "itemStyle": {"color": colour},
+        }
+        if smooth_window > 1:
+            raw_series["lineStyle"] = {"width": 1.0, "opacity": 0.35, "color": colour}
+            raw_series["showSymbol"] = False
+            smoothed = moving_median(data, smooth_window)
+            series.append(raw_series)
+            series.append(
+                {
+                    "name": f"{channel_names[channel_id]} 平滑（{smooth_window} 帧，仅显示）",
+                    "type": "line",
+                    "yAxisIndex": 0,
+                    "data": smoothed,
+                    "showSymbol": False,
+                    "connectNulls": False,
+                    "lineStyle": {"width": 2.2, "color": colour},
+                    "itemStyle": {"color": colour},
+                }
+            )
+        else:
+            series.append(raw_series)
     series.append(
         {
             "name": "接触评分",
@@ -427,6 +470,8 @@ def pwm_timeline_options(events: list[dict[str, Any]]) -> dict[str, Any]:
 def unified_timeline_options(
     fsr_points: list[dict[str, Any]],
     pwm_events: list[dict[str, Any]],
+    *,
+    smooth_window: int = 0,
 ) -> dict[str, Any]:
     """FSR raw counts and commanded PWM on one host-clock axis.
 
@@ -472,6 +517,36 @@ def unified_timeline_options(
                 "symbolSize": 8 if symbol != "circle" else 6,
             }
         )
+    fsr_series: list[dict[str, Any]] = []
+    raw_series = {
+        "name": "FSR_A 原始 ADC",
+        "type": "line",
+        "yAxisIndex": 0,
+        "data": fsr_data,
+        "showSymbol": False,
+        "connectNulls": False,
+        "lineStyle": {"width": 1.5, "color": "#0f766e"},
+        "itemStyle": {"color": "#0f766e"},
+    }
+    if smooth_window > 1:
+        raw_series["lineStyle"] = {"width": 1.0, "opacity": 0.35, "color": "#0f766e"}
+        ys = [item[1] for item in fsr_data]
+        smoothed = moving_median(ys, smooth_window)
+        fsr_series.append(raw_series)
+        fsr_series.append(
+            {
+                "name": f"FSR_A 平滑（{smooth_window} 帧，仅显示）",
+                "type": "line",
+                "yAxisIndex": 0,
+                "data": [[item[0], value] for item, value in zip(fsr_data, smoothed)],
+                "showSymbol": False,
+                "connectNulls": False,
+                "lineStyle": {"width": 2.2, "color": "#0f766e"},
+                "itemStyle": {"color": "#0f766e"},
+            }
+        )
+    else:
+        fsr_series.append(raw_series)
     return {
         "backgroundColor": "transparent",
         "animationDuration": 200,
@@ -510,17 +585,8 @@ def unified_timeline_options(
                 "splitLine": {"show": False},
             },
         ],
-        "series": [
-            {
-                "name": "FSR_A 原始 ADC",
-                "type": "line",
-                "yAxisIndex": 0,
-                "data": fsr_data,
-                "showSymbol": False,
-                "connectNulls": False,
-                "lineStyle": {"width": 1.5, "color": "#0f766e"},
-                "itemStyle": {"color": "#0f766e"},
-            },
+        "series": fsr_series
+        + [
             {
                 "name": "PWM 目标（console ACK）",
                 "type": "line",

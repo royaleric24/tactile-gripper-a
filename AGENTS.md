@@ -2,6 +2,26 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-B4 真实故障分析，2026-11-16）
+
+两个真实会话 `session_20261116T032219_0fce` / `session_20261116T032328_a804` 均 `response_timeout`。
+逐字节分析：S3 的 ACK 在传输中被 **0x00 替换**了字段中间一段（0fce：953 B，13 NUL @192–204，
+`pwm_first_readback_settle_ms` → `pwm_firettle_ms`；a804：957 B，4 NUL @897/899–901，
+`commanded_pulse_us` → `commanded_puss`）。去 NUL 后 JSON 可解析但字段名已错，**不能**用剥 NUL 恢复。
+设备有完整 request_id、boot_id 不变、无 FAULT/重启；固件 TX 背压保护存在且无 `TX_BACKPRESSURE`；
+主机逐字节读取远快于 3 s。**可排除**“主机 JSON 误判 / 设备失联 / TX 缓冲耗尽”
+作为已证原因；**UNKNOWN/LEADING_HYPOTHESIS**：UART break/地弹/舵机供电/共地/线束/EMI（两次都有舵机供电；
+Test A 舵机断电时 151/151、0 NUL；但 0fce 无 PWM 命令也损坏，故共同因素不是 PWM 输出本身）。
+最小主机修复：HEARTBEAT 与“无目标时的 BENCH_HOLD_MODE/PULSE_MODE”有界重试（默认 2 次，最多 3 次），
+长帧损坏 **0.2 ms 快速失败**，首次失败不关端口；**PWM/STOP/DISARM/BEGIN_BENCH 永不重发**；
+耗尽后仍 FAULT/UNKNOWN/close。未改固件、未重烧。另修 Dashboard 在 `transport.jsonl` 晚创建时漏接 PWM 的缺陷
+（等待预期路径并自动接入），并加 FSR “短窗平滑（仅显示）”开关；Trial/CSV/REPLAY 保留原始 counts。
+FSR 两会话 100% valid、61.7 Hz、0/1 丢帧、ADC4 OK；0fce 大幅变化与按压/释放平台一致，a804 高频波动显著
+高于历史 FSR-only（残差 239k vs 84k、1 s range 1.73M vs 0.20M），但机械 vs 电气来源 **UNKNOWN**，
+不能从 counts 推断牛顿/摩擦/杯重。离线测试 **435 tests OK（skipped=1）**；真实 a804 只读 Dashboard 截图
+`cards=10 errors=0`。详见 [P3B4 故障分析](docs/P3B4_FAULT_ANALYSIS.md)、[进度](docs/PROGRESS.md)、
+[问题 I-219/I-223/I-224](docs/ISSUES.md)、[交接](docs/HANDOFF_CURRENT.md)。
+
 ## 最近状态（P3-B4 联调前修复，2026-11-16）
 
 分支 `sw/p3b-live-monitor`（PR #8 DRAFT，栈在 P3-B1 `622ef97` 上）。完成联调前三项安全修复：

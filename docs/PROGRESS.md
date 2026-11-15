@@ -1,5 +1,33 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B4 真实会话故障分析：ACK NUL 替换、FSR 波动、最小重试｜sw/p3b-live-monitor
+
+- **真实会话**：0fce（54.6 s，3080 FSR，无 PWM）、a804（24.9 s，1247 FSR，1500 保持）。
+- **S3 直接原因**：ACK 字段中间被 0x00 替换 → JSON 无效 → 主机按设计拒绝，3 s 后 timeout。
+  0fce：BENCH_HOLD_MODE seq4 `e8529db8…`，953 B、13 NUL @192–204，`pwm_first_readback_settle_ms` 被破坏；
+  a804：HEARTBEAT seq13 `7d9de5bc…`，957 B、4 NUL @897/899–901，`commanded_pulse_us` 被破坏。
+  去 NUL 可解析但字段名错误，不能安全修复。boot_id 稳定、无 FAULT、无重启、无 TX_BACKPRESSURE。
+- **区分**：主机 JSON 解析正确；设备未失联；TX 缓冲/主机读取证据不足；供电/地/EMI 与 NUL break 形态一致
+  但未证实（0fce 无 PWM 命令也损坏；Test A 舵机断电 151/151 0 NUL）。根因 **UNKNOWN**。
+- **修复**：`SerialClient.exchange` 支持 `close_on_error=False` + `fail_fast_on_corrupt=True`；
+  `GripperController._send` 对 HEARTBEAT 和无目标时的 mode 命令有界重试（默认 2 次/200 ms，最多 3 次），
+  PWM/STOP/DISARM/BEGIN_BENCH 不重试；耗尽后 FAULT/UNKNOWN/close。真实 corrupt ACK 快速失败 0.2 ms。
+  **未改固件、未重烧**；缩短 HEARTBEAT ACK 评估为“暂不必要”，见报告 §5。
+- **Dashboard 缺陷**：两个会话 `dashboard.log` 都是 `PWM 日志: None`——Dashboard 先于 console 启动，
+  `transport.jsonl` 尚不存在。修复：`--follow-session` 始终跟随预期路径，`LogFollowGripper` 允许缺失并等待，
+  文件出现后自动接入；页面显示等待状态。新增端到端测试确认晚创建日志的 `SET_PWM` 进入 Trial。
+- **FSR**：0fce 3080/3080 valid、61.74 Hz、0 丢帧、min −188,890/max 6,230,947/median 4,957/P5 −7,205/P95 5,561,476、
+  flag 0x04 983；a804 1247/1247、61.69 Hz、1 丢帧、min −20,559/max 4,754,595/median 1,117,686/P5 50,557/P95 4,000,021、
+  1 s range 中位 1.73M（历史 FSR-only 约 0.14–0.20M）。0fce 大幅变化与按压/释放平台一致；a804 高频波动
+  在 S3 命令前已存在，与 PWM/损坏时间无唯一相关；机械 vs 电气 **UNKNOWN**，不作力推断。
+- **Dashboard 平滑**：新增 `moving_median` + “短窗平滑（仅显示）”开关（5 帧），原始曲线半透明保留；
+  Trial/CSV/REPLAY 不变。
+- **测试**：**435 tests OK（skipped=1）**；新增 retry/fail-fast/mode/PWM-no-retry、晚接 PWM 日志、
+  FSR 平滑测试。真实 a804 会话只读 Dashboard 截图 `cards=10 errors=0`。
+- **未执行**：未打开真实串口、未发 PWM、未烧录、未改 PWM 范围、未启用 AUTO。
+- **下一步**：舵机通电无 PWM 60 s → 1500-only 60 s → 1500→1040+FSR；同步测 5V/地/电流/线束；
+  观察 `COMMAND_RETRY` 与 NUL 是否复现。报告见 [P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)。
+
 ## 2026-11-16｜P3-B4 联调前修复：FSR 门控、退出 drain、本会话 Trial 路径｜sw/p3b-live-monitor
 
 - **① FSR 未就绪不启动 PWM Console**：`run_live_monitor.py` 的 `wait_for_fsr_hello()` 返回

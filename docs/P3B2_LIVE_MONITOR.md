@@ -163,6 +163,13 @@ Dashboard 启动（真实 HTTP 200，无 Traceback）。
 8 条 PWM 事件（1500…1040）全部 ACK、0 NUL、最终 `OUTPUT_OFF`；旧 FSR capture 解析出
 1,719 帧、末帧负 counts、flag `0x04`，与原始记录一致。
 
+## 8.2 P3-B4 真实故障分析（2026-11-16）
+
+两个真实会话的 S3 ACK 出现 0x00 替换字段中间字节（详见
+[P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)）。主机侧已加 HEARTBEAT/无目标 mode 有界重试、
+长帧 0.2 ms 快速失败，PWM/STOP/DISARM 不重发；Dashboard 修复“先启动后创建 transport.jsonl”导致
+PWM 面板漏接的问题；FSR 区增加“短窗平滑（仅显示）”，原始 counts 保留。未改固件、未烧录。
+
 ## 8.1 P3-B4 联调前加固（2026-11-16）
 
 - **FSR 门控**：启动器等待 HELLO；超时或采集进程退出时退出码 3，不启动 Dashboard/console；

@@ -419,6 +419,29 @@ class LogFollowGripperTests(unittest.TestCase):
             with self.assertRaises(ControlDenied):
                 gripper.release()
 
+    def test_late_created_pwm_log_is_attached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pwm = Path(tmp) / "transport.jsonl"
+            gripper = LogFollowGripper(pwm, require_existing=False)
+            self.addCleanup(gripper.close)
+            result = gripper.connect()
+            self.assertTrue(result.get("waiting"))
+            self.assertTrue(gripper.monitor_snapshot()["tail"]["missing"])
+            base = time.monotonic_ns()
+            write_jsonl(
+                pwm,
+                [
+                    console_command(1, "BENCH_HOLD", "h1", base, 1500),
+                    console_response("h1", base + 1_000_000, pulse=1500),
+                ],
+                mode="w",
+            )
+            gripper.poll()
+            snapshot = gripper.monitor_snapshot()
+            self.assertFalse(snapshot["tail"]["missing"])
+            self.assertEqual(snapshot["current_target_us"], 1500)
+            self.assertEqual(snapshot["target_status"], "ACKED")
+
     def test_connect_fails_when_log_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             gripper = LogFollowGripper(Path(tmp) / "nope.jsonl")
@@ -649,6 +672,48 @@ class CoreLogFollowTests(unittest.TestCase):
             core = build_core(source=DataSource.LIVE, root=tmp, follow_pwm_log=pwm, follow_fsr_log=fsr)
             self.addCleanup(core.shutdown)
             self.assertIsNone(core.finish_log_follow_trial("nothing"))
+
+    def test_core_attaches_late_pwm_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pwm = Path(tmp) / "transport.jsonl"
+            fsr = Path(tmp) / "fsr_stream.jsonl"
+            now = time.monotonic_ns()
+            write_jsonl(fsr, fsr_records([1], ns_base=now - 1_000_000_000), mode="w")
+            core = build_core(
+                source=DataSource.LIVE,
+                root=tmp,
+                follow_pwm_log=pwm,
+                follow_fsr_log=fsr,
+                follow_allow_missing=True,
+            )
+            self.addCleanup(core.shutdown)
+            self.assertTrue(core.log_follow)
+            snapshot = core.snapshot()
+            self.assertTrue(snapshot["monitor"]["tail"]["missing"])
+            self.assertFalse(snapshot["apply_enabled"])
+            core.create_trial("late pwm", conditions={"source_kind": "LIVE_LOG_FOLLOW"})
+            core.start_trial()
+            core.tick()
+            write_jsonl(
+                pwm,
+                [
+                    console_command(1, "BENCH_HOLD", "late1", now, 1500),
+                    console_response("late1", now + 1_000_000, pulse=1500),
+                ],
+                mode="w",
+            )
+            core.tick()
+            snapshot = core.snapshot()
+            self.assertEqual(snapshot["monitor"]["current_target_us"], 1500)
+            self.assertEqual(snapshot["monitor"]["target_status"], "ACKED")
+            self.assertFalse(snapshot["monitor"]["tail"]["missing"])
+            info = core.stop_trial("test")
+            events = [
+                json.loads(line)
+                for line in (Path(info["directory"]) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                if json.loads(line).get("record_type") == "CONTROL_EVENT"
+            ]
+            self.assertIn(("SET_PWM", 1500), [(e.get("action"), e.get("commanded_pwm_us")) for e in events])
 
     def test_partial_jsonl_line_waits_for_completion(self):
         with tempfile.TemporaryDirectory() as tmp:

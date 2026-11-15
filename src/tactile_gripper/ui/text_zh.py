@@ -290,6 +290,10 @@ def event_detail_label(text: str | None) -> str:
         return "当前模式不是手动模式（MANUAL）"
     if value.startswith("gripper is in FAULT"):
         return "控制器处于故障锁存（FAULT），需要重新连接/授权"
+    if value == "PROBE_OR_CONFIG_READBACK_FAILED":
+        return "ADC 探测/配置回读失败（FSR_ONLY 下 ADC1–3 未接时属预期；ADC4 仍 OK）"
+    if value.startswith("PROBE_OR_CONFIG_READBACK_FAILED"):
+        return "ADC 探测/配置回读失败（FSR_ONLY 下 ADC1–3 未接时属预期；ADC4 仍 OK）"
     if value.startswith("pwm_console log"):
         suffix = value.split("·", 1)[-1].strip()
         return "pwm_console 日志：" + {

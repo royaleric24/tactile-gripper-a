@@ -1,3 +1,23 @@
+# 当前交接｜P3-B4 真实故障分析（2026-11-16）
+
+- **分支/worktree**：`sw/p3b-live-monitor`，`~/Developer/research/tactile-gripper-v2-p3b-monitor`；
+  PR #8 DRAFT（base `hw/p3b1-fsr-real`）。HEAD 以提交后 `git rev-parse HEAD` 为准。
+- **S3 结论**：`0fce`/`a804` 均为 ACK 被 0x00 替换字段中间字节（953 B/13 NUL；957 B/4 NUL），
+  JSON 无效 → 3 s timeout；去 NUL 会得到错字段名，禁止修复式解析。设备未失联、boot_id 未变、无 FAULT；
+  主机 JSON/读取和已证 TX 缓冲耗尽可排除；供电/地/EMI/线束为 **UNKNOWN/LEADING_HYPOTHESIS**。
+- **修复**：HEARTBEAT 与无目标时 mode 命令有界重试（默认 2 次/200 ms，最多 3 次）；长帧损坏 0.2 ms 快速失败；
+  PWM/STOP/DISARM/BEGIN_BENCH 不重发；耗尽后 FAULT/UNKNOWN/close。**未改固件、未重烧**；
+  缩短 HEARTBEAT ACK 评估为暂不必要（见报告 §5）。
+- **Dashboard 缺陷已修**：先启动 Dashboard 后创建 `transport.jsonl` 时，旧代码漏接 PWM（两会话日志显示 None）；
+  现在等待预期路径并自动接入，页面显示等待状态；端到端测试确认晚创建日志的 `SET_PWM` 进入 Trial。
+- **FSR**：100% valid、61.7 Hz、0/1 丢帧、ADC4 OK；0fce 大幅变化与按压/释放平台一致；a804 高频波动显著，
+  与 S3 命令/损坏无唯一相关；机械 vs 电气 **UNKNOWN**。新增“短窗平滑（仅显示）”开关，原始 counts 保留。
+- **测试**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` → **435 tests OK (skipped=1)**；
+  真实 a804 只读 Dashboard 截图 `cards=10 errors=0`。
+- **下一步**：舵机通电但无 PWM 60 s → 1500-only 60 s → 1500→1040+FSR；同步测 5V/地/电流/线束；
+  观察 `COMMAND_RETRY` 与 NUL 是否复现；链路稳定前不夹杯、不自动重试 PWM。
+- **报告**：[P3B4_FAULT_ANALYSIS.md](P3B4_FAULT_ANALYSIS.md)、[问题 I-219/I-223/I-224](ISSUES.md)。
+
 # 当前交接｜P3-B4 联调前修复（2026-11-16）
 
 - **分支/worktree/HEAD**：`sw/p3b-live-monitor`，worktree

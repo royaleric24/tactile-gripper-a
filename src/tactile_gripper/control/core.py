@@ -1419,6 +1419,7 @@ def build_core(
     connect_sensor: bool = False,
     follow_pwm_log: Path | str | None = None,
     follow_fsr_log: Path | str | None = None,
+    follow_allow_missing: bool = False,
 ) -> ApplicationCore:
     source = parse_source(source)
     if follow_pwm_log is not None or follow_fsr_log is not None:
@@ -1429,7 +1430,11 @@ def build_core(
         from ..devices.log_follow import LogFollowGripper, LogFollowSensorAdapter
 
         gripper = (
-            LogFollowGripper(follow_pwm_log, config_path=config_path)
+            LogFollowGripper(
+                follow_pwm_log,
+                config_path=config_path,
+                require_existing=not follow_allow_missing,
+            )
             if follow_pwm_log is not None
             else None
         )

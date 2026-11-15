@@ -104,6 +104,11 @@ PYTHONPATH=src .venv/bin/python scripts/pwm_console.py \
   --target s3 --real --port /dev/cu.usbserial-EXAMPLE_S3 --authorize
 ```
 
+**S3 心跳重试（P3-B4）**：`HEARTBEAT` 与“尚无目标时的 `BENCH_HOLD_MODE`/`BENCH_PULSE_MODE`”
+允许有界重试（默认共 2 次、200 ms；`serial.heartbeat_retry_attempts`/`heartbeat_retry_delay_ms`）。
+长帧 NUL 损坏会立即失败并重试；**PWM/STOP/DISARM/BEGIN_BENCH 永不自动重发**。重试耗尽后
+FAULT/UNKNOWN 并关闭。日志含 `COMMAND_RETRY`，用于与 `transport.jsonl` 对齐。
+
 **P3-B 双日志监控**：与只读 Dashboard 同用时，把 console 日志固定到会话目录，Dashboard 只 tail 该文件：
 
 ```sh

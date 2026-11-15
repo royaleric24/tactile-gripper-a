@@ -12,7 +12,13 @@ from datetime import datetime
 from pathlib import Path
 
 from tactile_gripper.control import build_core
-from tactile_gripper.ui.charts import bar_options, pwm_timeline_options
+from tactile_gripper.ui.charts import (
+    bar_options,
+    fsr_trend_options,
+    moving_median,
+    pwm_timeline_options,
+    unified_timeline_options,
+)
 from tactile_gripper.ui.pages.analysis import _matches
 from tactile_gripper.ui.server import create_ui
 from tactile_gripper.ui.theme import clock_label
@@ -219,6 +225,61 @@ class DashboardServerTests(unittest.TestCase):
                     proc.kill()
 
 
+    def test_follow_session_attaches_pwm_log_created_after_start(self):
+        import json
+
+        fixtures = ROOT / "tests" / "fixtures" / "fsr2"
+        hello = json.loads((fixtures / "hello_fsr1.json").read_text(encoding="utf-8"))
+        sample = json.loads((fixtures / "sample_fsr1_valid.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            session = Path(tmp) / "session"
+            (session / "fsr").mkdir(parents=True)
+            base = time.monotonic_ns() - 1_000_000_000
+            now = datetime.fromtimestamp(base / 1e9).isoformat()
+            records = [
+                {"host_time_utc": now, "host_monotonic_ns": base, "direction": "RX", "message": hello},
+                {"host_time_utc": now, "host_monotonic_ns": base + 16_000_000, "direction": "RX", "message": sample},
+            ]
+            (session / "fsr" / "fsr_stream.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in records), encoding="utf-8"
+            )
+            proc, port = self._run_server(
+                "--source", "LIVE", "--follow-session", str(session),
+                "--follow-record", "--data-root", tmp,
+            )
+            base_url = f"http://127.0.0.1:{port}"
+            try:
+                wait_for(base_url + "/")
+                time.sleep(1.0)
+                console = [
+                    {"timestamp_utc": now, "monotonic_ns": base, "event": "COMMAND",
+                     "request": {"protocol_version": 1, "request_id": "late1", "command": "BENCH_HOLD", "sequence": 1, "pulse_us": 1500}},
+                    {"timestamp_utc": now, "monotonic_ns": base + 1_000_000, "event": "MATCHED",
+                     "response": {"protocol_version": 1, "type": "ACK", "request_id": "late1",
+                                  "firmware_version": "gripper-control-s3-0.9b26.0", "state": "ACTIVE",
+                                  "output_state": "PWM_COMMANDED_UNMEASURED", "commanded_pulse_us": 1500,
+                                  "fault_reason": "TARGET_COMMANDED", "boot_id": "b1", "bench_active": True}},
+                ]
+                (session / "transport.jsonl").write_text(
+                    "".join(json.dumps(item) + "\n" for item in console), encoding="utf-8"
+                )
+                time.sleep(1.5)
+                log = self._stop(proc)
+                self.assertNotIn("Traceback", log)
+                sidecar = json.loads((session / "trial.json").read_text(encoding="utf-8"))
+                events = [
+                    json.loads(line)
+                    for line in (Path(sidecar["directory"]) / "events.jsonl").read_text(encoding="utf-8").splitlines()
+                ]
+                self.assertIn(
+                    ("SET_PWM", 1500),
+                    [(item.get("action"), item.get("commanded_pwm_us")) for item in events],
+                )
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+
+
 class DashboardDisplayTests(unittest.TestCase):
     def test_bar_chart_shows_units_and_electrode_counts(self):
         frame = {"channels": [1500.0, None], "valid_mask": [True, False], "channel_ids": [0, 1]}
@@ -260,6 +321,48 @@ class DashboardChartTests(unittest.TestCase):
         self.assertEqual([item["value"] for item in options["series"][0]["data"]], [1500, 1520])
         self.assertEqual(options["yAxis"]["name"], "μs")
         self.assertNotIn("actual", str(options))
+
+
+class FsrSmoothingTests(unittest.TestCase):
+    def test_moving_median_preserves_length_and_invalid_gaps(self):
+        values = [1.0, 100.0, 2.0, None, 4.0]
+        smoothed = moving_median(values, 3)
+        self.assertEqual(len(smoothed), len(values))
+        self.assertEqual(smoothed[0], 50.5)
+        self.assertEqual(smoothed[1], 2.0)
+        self.assertIsNone(smoothed[3])
+
+    def test_smoothed_trend_keeps_raw_series(self):
+        history = [
+            {"frame_seq": 1, "score": None, "readings": [{"channel_id": 0, "name": "FSR_A", "raw": 1000.0, "valid": True}]},
+            {"frame_seq": 2, "score": None, "readings": [{"channel_id": 0, "name": "FSR_A", "raw": 900000.0, "valid": True}]},
+            {"frame_seq": 3, "score": None, "readings": [{"channel_id": 0, "name": "FSR_A", "raw": 1100.0, "valid": True}]},
+        ]
+        raw = fsr_trend_options(history)
+        smooth = fsr_trend_options(history, smooth_window=3)
+        self.assertEqual(len(raw["series"]), 2)  # raw + score
+        raw_data = smooth["series"][0]["data"]
+        self.assertEqual(raw_data, [1000.0, 900000.0, 1100.0])  # raw never replaced
+        names = [item["name"] for item in smooth["series"]]
+        self.assertTrue(any("平滑" in name for name in names))
+        smoothed = smooth["series"][1]["data"]
+        self.assertLess(smoothed[1], 900000.0)
+
+    def test_smoothed_timeline_keeps_raw_and_pwm(self):
+        points = [
+            {"ns": 1_000_000_000, "seq": 1, "raw": 1000.0, "valid": True},
+            {"ns": 1_016_000_000, "seq": 2, "raw": 900000.0, "valid": True},
+            {"ns": 1_032_000_000, "seq": 3, "raw": 1100.0, "valid": True},
+        ]
+        option = unified_timeline_options(
+            points,
+            [{"sent_ns": 1_010_000_000, "pulse_us": 1500, "ack": True, "result": "ACKED"}],
+            smooth_window=3,
+        )
+        self.assertEqual(len(option["series"]), 3)  # raw + smooth + PWM
+        self.assertEqual(option["series"][0]["data"][1][1], 900000.0)
+        self.assertLess(option["series"][1]["data"][1][1], 900000.0)
+        self.assertEqual(option["series"][2]["data"][0]["value"], [0.01, 1500])
 
 
 class AnalysisFilterTests(unittest.TestCase):

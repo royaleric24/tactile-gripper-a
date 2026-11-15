@@ -26,6 +26,14 @@ PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
   只有显式 `--no-fsr` 才允许只跟 console。
 - 退出时先停 console/FSR，Dashboard 再读完最后 JSONL 并结束 Trial；终端会打印**本次**
   Trial 的 CSV/REPLAY（来自 `<session>/trial.json`），不会拿别的会话最新 CSV 顶替。
+- **S3 心跳重试**：HEARTBEAT 与“尚无目标时的模式选择”允许一次有界重试（默认共 2 次、间隔 200 ms，
+  可在 `config/gripper_s3.json` 的 `serial.heartbeat_retry_attempts` / `heartbeat_retry_delay_ms` 调整）；
+  PWM/STOP/DISARM 不会自动重发。重试耗尽仍进入 FAULT/UNKNOWN 并关闭。
+- **等待 PWM 日志**：Dashboard 先启动、console 后创建 `<session>/transport.jsonl` 时，页面显示“等待
+  pwm_console 创建 transport.jsonl”，文件出现后自动接入；不会因此打开串口。
+- **FSR 平滑**：FSR 区有“短窗平滑（仅显示）”开关（默认关）；原始曲线变淡、叠加 5 帧中值平滑；
+  Trial / CSV / REPLAY 始终保存原始 counts。
+
 
 - 不开 FSR：`--no-fsr`；不开 Trial 记录：`--no-record`。
 
