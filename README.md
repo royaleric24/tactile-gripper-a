@@ -45,3 +45,9 @@ SIMULATION 生成合成数据。LIVE 需要明确选择来源、设备及现场�
 main 保留控制基线；feat/hardware-acquisition 提供采集固件与诊断；feat/dashboard-zh-v1 提供主机服务。feat/software-v1 是中文界面之前的本地祖先分支。下一步先用同版本握手与原始帧验证两端兼容，再开展受控夹持 Trial，记录滑落和形变。
 
 参见 [系统架构](docs/ARCHITECTURE.md)、[硬件](docs/hardware.md)、[软件](docs/software.md)、[接口契约](docs/INTERFACE_CONTRACT.md) 和 [贡献流程](CONTRIBUTING.md)。
+
+## 软件分支运行资料
+
+[中文 Dashboard 指南](docs/DASHBOARD_QUICKSTART_ZH.md) · [软件运行手册](docs/SOFTWARE_RUNBOOK.md) · [Trial 格式](docs/DATA_FORMAT_V1.md) · [联调清单](docs/HARDWARE_INTEGRATION_CHECKLIST.md) · [协议讨论](docs/PROTOCOL_COLLABORATION.md) · [V1 交付记录](docs/SOFTWARE_V1_REPORT.md)
+
+无界面模拟：`PYTHONPATH=src .venv/bin/python scripts/run_simulation_demo.py --ticks 30 --interval 0.05`。LIVE 入口需显式来源与硬件许可；真实 AUTO 保持禁用。

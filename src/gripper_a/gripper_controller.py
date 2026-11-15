@@ -28,13 +28,16 @@ class SerialGripper:
 
 class GripperController:
     """Explicit pulse interface. Defaults to dry-run; no angle/opening conversion."""
-    def __init__(self, config=None, *, dry_run=True, hardware_permission=False, log_path=None):
+    def __init__(self, config=None, *, dry_run=True, hardware_permission=False, log_path=None, transport=None):
         import json, uuid
         from pathlib import Path
         from .serial_client import JsonlLog
         self.config=config or json.loads(Path('config/gripper_control.json').read_text())
         self.dry_run=dry_run;self.permission=hardware_permission
-        self.transport=None;self.fake=FakeGripper();self.connected=False
+        # A pre-built transport is only used by offline tests (fake serial) and
+        # by an explicit caller that already owns a serial session.  It never
+        # bypasses the dry_run/hardware_permission checks below.
+        self.transport=transport;self.fake=FakeGripper();self.connected=False
         self.total_change=0;self.last_set_time=None
         self.state='DISARMED';self.output_state='UNKNOWN';self.boot_id=None;self.sequence=0;self.target=None
         kind='SIMULATED' if dry_run else 'REAL_SERIAL'
@@ -49,10 +52,12 @@ class GripperController:
         if self.connected:raise RuntimeError('already_connected')
         if not self.dry_run:
             if not self.permission:raise PermissionError('explicit hardware permission required')
-            from .serial_client import SerialClient
-            c=dict(self.config['serial']);c['response_types']=['PONG','STATUS','ACK','ERROR']
-            self.transport=SerialClient(c,self.log)
-            self.transport.connect(port)
+            if self.transport is None:
+                from .serial_client import SerialClient
+                c=dict(self.config['serial']);c['response_types']=['PONG','STATUS','ACK','ERROR']
+                self.transport=SerialClient(c,self.log)
+            connect=getattr(self.transport,'connect',None)
+            if connect is not None:connect(port)
         self.connected=True;self.state='DISARMED';self.target=None;self.boot_id=None
         status=self.get_status()
         if self.state!='DISARMED':

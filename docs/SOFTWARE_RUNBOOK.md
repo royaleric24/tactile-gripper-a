@@ -1,0 +1,133 @@
+# 软件 V1.0 运行手册
+
+日期：2026-11-13。适用于软件分支 `feat/software-v1`。真实硬件操作必须另行授权。
+
+## 1. 环境
+
+```bash
+cd /home/example/Developer/research/tactile-gripper-a-sw
+UV_CACHE_DIR=/tmp/uv-cache uv sync --locked
+PYTHONPATH=src .venv/bin/python -V
+```
+
+要求 Python >= 3.11（NiceGUI 4）。依赖：NiceGUI 4、pySerial、Python 标准库 JSONL/CSV。
+
+## 2. 启动 Dashboard
+
+```bash
+# 默认：SIMULATION 数据源，S3 OFFLINE，SENSOR WAITING，不发任何设备命令
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --port 8080
+
+# 明确标注的模拟演示（合成传感器 + dry-run 控制器 + demo Trial）
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port 8080
+
+# P2-S 两路 FSR / 38 逻辑通道（36 矩阵 + 2 FSR）离线演示
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
+  --demo-profile FSR_ONLY --data-root /tmp/gripper-fsr-demo --port 8080
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
+  --demo-profile HYBRID_6X6_FSR2 --data-root /tmp/gripper-hybrid-demo --port 8080
+```
+
+`--demo-profile` 只影响 SIMULATION 合成帧；默认 `MATRIX_6X6`。这些合成帧永远
+带 `source=SIMULATION`，不会驱动真实 PWM。
+
+打开 `http://127.0.0.1:8080/`：
+
+- `/` Live Monitor
+- `/experiments`
+- `/analysis`
+
+默认只监听 `127.0.0.1`；投屏/局域网访问使用 `--host 0.0.0.0` 并自行评估网络暴露。
+
+显示约定（2026-11-15 最终验收后）：界面里的时间列与帧说明显示**本机时间**（存储的
+`*_utc` 字段仍是 UTC，未改数据格式）；接触指标是相对评分，不是压力/牛顿；12 电极
+profile 只有 12 路原始 ADC，没有 36 点热图。
+
+## 3. 无界面完整演示
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_simulation_demo.py --ticks 30 --interval 0.05
+```
+
+脚本会：连接 dry-run 控制器 → 建立 MANUAL 会话 → 连接合成传感器 → 创建 Trial → 记录帧/控制事件 → 结束 → 导出 CSV。只写 `data/simulated/trials/`，不打开串口。
+
+## 4. 只读回放
+
+```bash
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui \
+  --source REPLAY --sensor-file data/simulated/trials/<TRIAL_ID>/frames.jsonl --port 8080
+```
+
+`REPLAY` 页面没有 Apply/STOP，不创建真实串口，不写 `data/real/`。
+
+## 5. 真实 LIVE（本轮未执行，仅入口）
+
+S3 + 传感器：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui \
+  --source LIVE --hardware-permission \
+  --connect-port /dev/cu.usbserial-XXXX \
+  --sensor-port /dev/cu.usbserial-YYYY \
+  --sensor-config config/sensor_serial.json \
+  --connect-sensor --connect --port 8080
+```
+
+仅传感器（不连接 S3）：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui \
+  --source LIVE --hardware-permission \
+  --sensor-port /dev/cu.usbserial-YYYY --connect-sensor --port 8080
+```
+
+安全性：
+
+- `--hardware-permission` 是真实连接的必要条件，不等于运动授权。
+- `--connect` 才会打开 S3 串口并建立 BENCH 会话；`--connect-sensor` 才会打开传感器串口。
+- 真实 PWM 运动、固件烧录、接线/上电仍须逐次具体授权。
+- `STOP` 只发送已验证固件 STOP；不保证保持/释放，不是硬件急停。
+
+## 6. 传感器串口配置
+
+[config/sensor_serial.json](../config/sensor_serial.json)：
+
+```json
+{"sensor_serial": {"port": null, "baudrate": 115200, "bytesize": 8, "parity": "N",
+  "stopbits": 1, "read_timeout_s": 0.1, "boot_wait_s": 0.0,
+  "max_line_bytes": 16384, "reconnect_enabled": true,
+  "reconnect_initial_s": 0.5, "reconnect_max_s": 10.0}}
+```
+
+- 端口默认 null；只有 `--sensor-port` 或 UI Connect sensor 才会打开。
+- 波特率由配置/`--sensor-baud` 决定，不再假定 115200。历史采集固件可能使用
+  **921600**，软件配置必须与当前固件一致；错误波特率表现为无 HELLO/乱码，不得
+  当作“没有矩阵”或“没有接触”。
+- 传输层默认不写设备。`queries_enabled=false` 时 HELLO/STATUS 查询会被拒绝；
+  只有显式设为 true 且现场授权后，才会发送一行只读查询（`QUERY`/`HELLO` 或
+  `QUERY`/`STATUS`）。查询不是运动命令，也不会自动重发。
+- DTR/RTS 在打开前置 false，避免非预期复位；真实板是否需要 boot wait 由硬件组确认。
+- HELLO 的 `channel_config` 决定 `FSR_ONLY` / `HYBRID_6X6_FSR2`；不得按端口名或
+  “一定有矩阵”推断。矩阵热图只消费 `sensor_kind=MATRIX_CELL` 的 `matrix_row/col`。
+- 两路 FSR 的原始 ADC 始终显示；电压只在通道显式提供 `adc_reference_uv`、`adc_gain`、
+  `adc_bits` 时换算。没有标定依据时不报告牛顿、摩擦系数或真实力。
+- 协议仍为 `PROPOSED v0.1`，不得据此声称硬件已实现或已联调冻结。
+
+## 7. 数据目录
+
+- `data/simulated/trials/<ID>/`：模拟 Trial。
+- `data/real/trials/<ID>/`：真实 Trial（需真实设备授权）。
+- `logs/simulated/`、`logs/real/`：底层控制日志（既有实现位置）。
+- `data/`、`logs/` 被 Git 忽略；不提交实验数据。
+
+## 8. 测试
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
+```
+
+离线测试不依赖真实 ESP32/传感器。`NOT_TESTED` 项见 [V1 报告](SOFTWARE_V1_REPORT.md)。
+
+2026-11-15 最终验收：`Ran 290 tests ... OK (skipped=1)`。跳过项
+`test_pty_waits_for_explicit_input` 需要 pty，本地沙箱没有（`out of pty devices`），
+CI/现场复核。截图审计脚本见 [screenshots/p2s-ui-audit/README.md](screenshots/p2s-ui-audit/README.md)。
