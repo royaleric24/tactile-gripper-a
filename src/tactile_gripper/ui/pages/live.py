@@ -140,6 +140,10 @@ def live_page(core) -> None:
                                 value=state["demo_profile"],
                             ).props("dense outlined").classes("w-60")
                             source_pill = pill(source_label("SIMULATION"), "teal")
+                    sensor_follow_note = ui.label(
+                        "传感器由 capture_fsr_live.py 独占；本页只读，不发送查询/采集命令。"
+                    ).classes("card-sub")
+                    sensor_follow_note.set_visibility(False)
                     with ui.row().classes("w-full items-center gap-2"):
                         ui.label("通道数据质量").classes("card-kicker")
                         quality_pill = pill("尚未收到帧", "slate")
@@ -854,14 +858,15 @@ def live_page(core) -> None:
 
         demo_switch.set_visibility(core.source is DataSource.SIMULATION and not core.firmware_fixture)
         demo_profile_select.set_visibility(core.source is DataSource.SIMULATION and not core.firmware_fixture)
-        sensor_connect_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
-        sensor_query_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
+        sensor_follow_note.set_visibility(following)
+        sensor_connect_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None and not following)
+        sensor_query_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None and not following)
         sensor_query_button.set_enabled(core.sensor is not None and hasattr(core.sensor, "query_status"))
-        sensor_hello_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None)
+        sensor_hello_button.set_visibility(core.source is DataSource.LIVE and core.sensor is not None and not following)
         sensor_hello_button.set_enabled(core.sensor is not None and hasattr(core.sensor, "query_hello"))
         live_sensor = core.source is DataSource.LIVE and core.sensor is not None
-        sensor_start_button.set_visibility(live_sensor)
-        sensor_stop_button.set_visibility(live_sensor)
+        sensor_start_button.set_visibility(live_sensor and not following)
+        sensor_stop_button.set_visibility(live_sensor and not following)
         if live_sensor:
             ready = bool(snapshot.get("sensor_connected") and sensor_detail.get("hello") and query != "等待 STATUS")
             sensor_start_button.set_enabled(ready and snapshot["sensor"]["state"] != "STREAMING")
