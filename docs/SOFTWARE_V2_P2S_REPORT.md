@@ -177,7 +177,9 @@ fixtures 全部为合成数据，不含真实设备日志。
 PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -v
 ```
 
-结果：**285 tests, OK**（2026-11-15，本地离线，Python 3.13.15；含 12 电极测试 7 个）。
+结果：**290 tests, OK (skipped=1)**（2026-11-15 发布前最终验收，本地离线，Python
+3.13.15；含 12 电极测试 7 个）。验收前记录的 285 项已复现；本轮新增 5 项显示层测试。
+跳过项为 `test_pty_waits_for_explicit_input`（本地沙箱无 pty 设备），需 CI/现场复核。
 
 覆盖重点：
 
@@ -213,8 +215,6 @@ PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -v
    物理方向。
 7. PWM 方向/安全范围、ACK 语义与是否可提供独立位置/压力反馈；当前 ACK 不当作到位。
 8. 真实 AUTO 的门控签核流程：协议冻结、硬件授权、标定确认、现场急停与失联策略。
-
-在上述确认前，本分支不能宣称真实 FSR→PWM 闭环已完成。
 
 ## 11. 12 电极拓扑与 Dashboard 视觉验收（2026-11-15 追加）
 
@@ -257,3 +257,21 @@ ADS1220/AIN 的物理映射、扫描顺序、增益与基准尚未现场确认�
 2. ADS1220 单端/差分、增益、基准、数据速率与有符号计数约定；
 3. 10 kΩ 下拉 / 1 kΩ 上拉下的实际电压范围、饱和与串扰；
 4. 是否存在可验证的扫描/激励方案；没有之前不得输出 36 点压力图。
+
+## 12. 发布前最终验收（2026-11-15，离线）
+
+本轮不做新功能，只做核实、显示层修复、文档与发布；未接硬件、未改协议与门控。
+
+- 基线：`origin/feat/dashboard-zh-v1` `9997853`；验收前 HEAD `884a8c4`，祖先关系成立。
+- 测试：290 通过 / 0 失败（1 项 PTY 测试因本地沙箱无 pty 跳过）。
+- Dashboard：重新实测 1440×900 / 1280×800 / 1920×1080 × Live/Experiments/Analysis ×
+  HYBRID/12 电极，并补 1024×768 抽查；18 个页面 console/page 错误为 0，无页面级横向
+  滚动。产物见 [screenshots/p2s-ui-audit/](screenshots/p2s-ui-audit/README.md)。
+- 修复（显示层）：帧接收时间本机化（原先显示主机单调时钟秒数）；接触原因与仿真事件
+  说明中文化；条形图轴名“ADC 计数”+柱顶读数+刻度取整；分析页侧栏/顶栏用只读快照同步
+  （原先残留“离线/待机”）；热图色条与轴标签分离；FSR 趋势删除重复轴名；截图脚本在
+  CDP 失败时不再静默退出 0，并提供 `CHROME_NO_SANDBOX=1`。
+- 边界不变：仍是 SIMULATION + REPLAY，`AUTO_REAL_ENABLED=False`；真实 R/C→AIN 映射、
+  FSR 极性/饱和、ACK 语义、真实 AUTO 均为 UNKNOWN/NOT_IMPLEMENTED。
+
+在上述确认前，本分支不能宣称真实 FSR→PWM 闭环已完成。

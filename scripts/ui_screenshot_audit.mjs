@@ -13,7 +13,9 @@
 //   AUDIT_BASE=http://127.0.0.1:8095 OUT_DIR=/tmp/ui-audit LABEL=after \
 //     node scripts/ui_screenshot_audit.mjs
 //
-// Env: AUDIT_BASE, OUT_DIR, LABEL, PAGES, VIEWPORTS, DEBUG_PORT, CHROME_PATH.
+// Env: AUDIT_BASE, OUT_DIR, LABEL, PAGES, VIEWPORTS, DEBUG_PORT, CHROME_PATH,
+//      CHROME_NO_SANDBOX (set to 1 inside macOS seatbelt/container sandboxes where
+//      Chrome's own GPU/sandbox helper processes are denied and Chrome exits).
 // Outputs <page>-<w>x<h>.png (viewport) and *-full.png (expanded scroll area)
 // plus <LABEL>-audit.json with card/column geometry and overflow candidates.
 // No dependencies beyond Node's built-in fetch/WebSocket and local Chrome.
@@ -21,6 +23,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const NO_SANDBOX = process.env.CHROME_NO_SANDBOX === '1';
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9411);
 const OUT = process.env.OUT_DIR || '/tmp/ui-audit-out';
 const BASE = process.env.AUDIT_BASE || 'http://127.0.0.1:8095';
@@ -48,14 +51,31 @@ async function waitForJson(url, timeout = 30000) {
   throw new Error(`cannot reach ${url}: ${lastError}`);
 }
 
-function connect(wsUrl) {
+function connect(wsUrl, timeout = 15000) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     let seq = 0;
+    // A dead Chrome closes the socket without an error event; without this guard the
+    // awaited promise never settles, Node drains the event loop and the script exits 0
+    // having written no screenshots (a silent false PASS for the audit step).
+    const timer = setTimeout(() => {
+      try { ws.close(); } catch { /* already closed */ }
+      reject(new Error(`websocket did not open within ${timeout} ms: ${wsUrl}`));
+    }, timeout);
     const pending = new Map();
     const listeners = [];
-    ws.onopen = () => resolve(api);
-    ws.onerror = (event) => reject(new Error(`websocket error: ${event?.message || 'unknown'}`));
+    ws.onopen = () => {
+      clearTimeout(timer);
+      resolve(api);
+    };
+    ws.onclose = () => {
+      clearTimeout(timer);
+      reject(new Error(`websocket closed before opening: ${wsUrl}`));
+    };
+    ws.onerror = (event) => {
+      clearTimeout(timer);
+      reject(new Error(`websocket error: ${event?.message || 'unknown'}`));
+    };
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.id && pending.has(message.id)) {
@@ -197,6 +217,7 @@ async function main() {
   const chrome = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--disable-crash-reporter', '--no-first-run',
     '--no-default-browser-check', `--remote-debugging-port=${DEBUG_PORT}`,
+    ...(NO_SANDBOX ? ['--no-sandbox'] : []),
     `--user-data-dir=${profileDir}`, '--window-size=1440,900', 'about:blank',
   ], { stdio: 'ignore' });
   const report = { label: LABEL, base: BASE, viewports: [], console: [], pageErrors: [] };

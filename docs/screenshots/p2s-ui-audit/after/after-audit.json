@@ -10,7 +10,7 @@
         "innerWidth": 1440,
         "innerHeight": 900,
         "bodyScrollWidth": 1440,
-        "mainScrollHeight": 1741,
+        "mainScrollHeight": 1687,
         "mainClientHeight": 900,
         "cards": [
           {
@@ -18,7 +18,7 @@
             "x": 268,
             "y": 99,
             "w": 274,
-            "h": 136,
+            "h": 121,
             "title": "控制器状态"
           },
           {
@@ -26,7 +26,7 @@
             "x": 558,
             "y": 99,
             "w": 274,
-            "h": 136,
+            "h": 121,
             "title": "传感器状态"
           },
           {
@@ -34,7 +34,7 @@
             "x": 847,
             "y": 99,
             "w": 274,
-            "h": 136,
+            "h": 121,
             "title": "控制模式"
           },
           {
@@ -42,13 +42,13 @@
             "x": 1137,
             "y": 99,
             "w": 274,
-            "h": 136,
+            "h": 121,
             "title": "当前实验"
           },
           {
             "i": 4,
             "x": 268,
-            "y": 251,
+            "y": 236,
             "w": 660,
             "h": 586,
             "title": "触觉分布"
@@ -56,7 +56,7 @@
           {
             "i": 5,
             "x": 944,
-            "y": 251,
+            "y": 236,
             "w": 467,
             "h": 586,
             "title": "手动 PWM 控制"
@@ -64,7 +64,7 @@
           {
             "i": 6,
             "x": 268,
-            "y": 852,
+            "y": 838,
             "w": 1142,
             "h": 387,
             "title": "FSR 相对接触"
@@ -72,15 +72,15 @@
           {
             "i": 7,
             "x": 268,
-            "y": 1255,
+            "y": 1240,
             "w": 756,
-            "h": 444,
+            "h": 405,
             "title": "最近控制事件"
           },
           {
             "i": 8,
             "x": 1040,
-            "y": 1255,
+            "y": 1240,
             "w": 370,
             "h": 266,
             "title": "实验记录状态"
@@ -92,70 +92,70 @@
             "x": 268,
             "y": 99,
             "w": 274,
-            "h": 136
+            "h": 121
           },
           {
             "cls": "col-3",
             "x": 558,
             "y": 99,
             "w": 274,
-            "h": 136
+            "h": 121
           },
           {
             "cls": "col-3",
             "x": 847,
             "y": 99,
             "w": 274,
-            "h": 136
+            "h": 121
           },
           {
             "cls": "col-3",
             "x": 1137,
             "y": 99,
             "w": 274,
-            "h": 136
+            "h": 121
           },
           {
             "cls": "col-7",
             "x": 268,
-            "y": 251,
+            "y": 236,
             "w": 660,
             "h": 586
           },
           {
             "cls": "col-5",
             "x": 944,
-            "y": 251,
+            "y": 236,
             "w": 467,
             "h": 586
           },
           {
             "cls": "col-6",
             "x": 289,
-            "y": 921,
+            "y": 906,
             "w": 542,
             "h": 117
           },
           {
             "cls": "col-6",
             "x": 847,
-            "y": 921,
+            "y": 906,
             "w": 542,
             "h": 117
           },
           {
             "cls": "col-8",
             "x": 268,
-            "y": 1255,
+            "y": 1240,
             "w": 756,
-            "h": 444
+            "h": 405
           },
           {
             "cls": "col-4",
             "x": 1040,
-            "y": 1255,
+            "y": 1240,
             "w": 370,
-            "h": 444
+            "h": 405
           }
         ],
         "overflowers": [
@@ -169,13 +169,13 @@
             "clientWidth": 1202,
             "scrollWidth": 1202,
             "clientHeight": 900,
-            "scrollHeight": 1741
+            "scrollHeight": 1687
           },
           {
             "tag": "DIV",
             "cls": "q-slider__thumb q-slider__thumb--h q-slider__thumb--h-ltr absolute non",
             "x": 1167,
-            "y": 380,
+            "y": 365,
             "w": 20,
             "h": 20,
             "clientWidth": 20,
@@ -187,7 +187,7 @@
             "tag": "DIV",
             "cls": "q-slider__pin q-slider__pin--h q-slider__pin--h-standard absolute fit ",
             "x": 1167,
-            "y": 360,
+            "y": 345,
             "w": 20,
             "h": 20,
             "clientWidth": 20,
@@ -489,7 +489,7 @@
             "w": 616,
             "h": 85,
             "clientWidth": 616,
-            "scrollWidth": 924,
+            "scrollWidth": 920,
             "clientHeight": 85,
             "scrollHeight": 85
           }
@@ -505,7 +505,7 @@
         "innerWidth": 1280,
         "innerHeight": 800,
         "bodyScrollWidth": 1280,
-        "mainScrollHeight": 1848,
+        "mainScrollHeight": 1809,
         "mainClientHeight": 800,
         "cards": [
           {
@@ -569,7 +569,7 @@
             "x": 268,
             "y": 1314,
             "w": 649,
-            "h": 492,
+            "h": 453,
             "title": "最近控制事件"
           },
           {
@@ -643,14 +643,14 @@
             "x": 268,
             "y": 1314,
             "w": 649,
-            "h": 492
+            "h": 453
           },
           {
             "cls": "col-4",
             "x": 933,
             "y": 1314,
             "w": 317,
-            "h": 492
+            "h": 453
           }
         ],
         "overflowers": [
@@ -664,7 +664,7 @@
             "clientWidth": 1042,
             "scrollWidth": 1042,
             "clientHeight": 800,
-            "scrollHeight": 1848
+            "scrollHeight": 1809
           },
           {
             "tag": "DIV",
@@ -774,7 +774,7 @@
             "w": 938,
             "h": 56,
             "clientWidth": 938,
-            "scrollWidth": 1019,
+            "scrollWidth": 1011,
             "clientHeight": 56,
             "scrollHeight": 56
           }
@@ -996,7 +996,7 @@
             "w": 522,
             "h": 85,
             "clientWidth": 522,
-            "scrollWidth": 924,
+            "scrollWidth": 920,
             "clientHeight": 85,
             "scrollHeight": 85
           }
@@ -1012,7 +1012,7 @@
         "innerWidth": 1920,
         "innerHeight": 1080,
         "bodyScrollWidth": 1920,
-        "mainScrollHeight": 1606,
+        "mainScrollHeight": 1586,
         "mainClientHeight": 1080,
         "cards": [
           {
@@ -1076,7 +1076,7 @@
             "x": 268,
             "y": 1198,
             "w": 1076,
-            "h": 366,
+            "h": 347,
             "title": "最近控制事件"
           },
           {
@@ -1150,14 +1150,14 @@
             "x": 268,
             "y": 1198,
             "w": 1076,
-            "h": 366
+            "h": 347
           },
           {
             "cls": "col-4",
             "x": 1360,
             "y": 1198,
             "w": 530,
-            "h": 366
+            "h": 347
           }
         ],
         "overflowers": [
@@ -1171,7 +1171,7 @@
             "clientWidth": 1682,
             "scrollWidth": 1682,
             "clientHeight": 1080,
-            "scrollHeight": 1606
+            "scrollHeight": 1586
           },
           {
             "tag": "DIV",
@@ -1478,7 +1478,7 @@
             "w": 896,
             "h": 85,
             "clientWidth": 896,
-            "scrollWidth": 924,
+            "scrollWidth": 920,
             "clientHeight": 85,
             "scrollHeight": 85
           }

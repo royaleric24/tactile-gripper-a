@@ -241,6 +241,8 @@ def event_detail_label(text: str | None) -> str:
     }
     if value in exact:
         return exact[value]
+    if value.startswith("SIMULATION sensor connected"):
+        return "已连接仿真传感器；不是真实硬件"
     if value.startswith("STOP revokes permits"):
         return "STOP 已撤销输出许可并调用固件 output.off()；不保证保持/释放，不是硬件急停；STOP 不会清除既有 FAULT（DISARM 才清除）"
     if value.startswith("DISARM revokes permits"):
@@ -277,3 +279,32 @@ def error_text(exc: BaseException | str) -> str:
     if any("\u4e00" <= char <= "\u9fff" for char in text):
         return text
     return f"操作未完成：{text}"
+
+
+CONTACT_REASON_LABELS = {
+    "no FSR channels in HELLO channel_config": "HELLO 通道配置中没有 FSR 通道",
+    "no sensor frame": "没有传感器帧",
+    "frame marked invalid": "该帧被标记为无效",
+    "unloaded FSR baseline not captured for every channel": "并非所有 FSR 通道都已采集空载基线",
+    "FSR score unavailable": "FSR 相对接触评分不可用",
+    "relative FSR increase below no-contact threshold": "FSR 相对增量低于未接触阈值",
+    "relative contact insufficient; tightening may be considered": "相对接触不足；可考虑小幅夹紧",
+    "relative contact in the normal band": "相对接触处于正常区间",
+    "relative contact above tight threshold; do not keep tightening": "相对接触超过偏紧阈值；不要再继续夹紧",
+}
+
+
+def contact_reason_label(reason: str | None) -> str:
+    """Translate the fixed contact-assessment reasons; keep unknown text verbatim."""
+    if not reason:
+        return ""
+    value = str(reason)
+    translated = CONTACT_REASON_LABELS.get(value)
+    if translated:
+        return translated
+    prefix, _, detail = value.partition(":")
+    if prefix.strip() == "invalid or saturated FSR channel(s)":
+        return f"无效或饱和的 FSR 通道：{detail.strip()}"
+    if value.startswith("stale frame (") and value.endswith(")"):
+        return f"帧已过期：{value[len('stale frame ('):-1]}"
+    return value

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 
 from nicegui import ui
 
@@ -13,8 +12,8 @@ from ...sources import DataSource
 from ..charts import bar_options, fsr_trend_options, heatmap_options, matrix_view
 from ..theme import (
     card_header,
+    clock_label,
     empty_state,
-    fmt_ns,
     metric_card,
     pill,
     set_pill,
@@ -23,6 +22,7 @@ from ..theme import (
 )
 from ..text_zh import (
     action_label,
+    contact_reason_label,
     event_detail_label,
     firmware_state_label,
     mode_label,
@@ -57,14 +57,9 @@ CONTACT_TONE = {
 
 
 def _format_event(event: dict) -> dict:
-    stamp = event.get("timestamp_utc") or ""
-    try:
-        clock = datetime.fromisoformat(stamp).strftime("%H:%M:%S")
-    except ValueError:
-        clock = "—"
     return {
-        "id": event.get("event_id", f"{stamp}-{event.get('action')}"),
-        "time": clock,
+        "id": event.get("event_id", f"{event.get('timestamp_utc')}-{event.get('action')}"),
+        "time": clock_label(event.get("timestamp_utc"), with_date=False),
         "action": action_label(event.get("action", "—")),
         "stage": stage_label(event.get("stage", "—")),
         "pwm": event.get("commanded_pwm_us") if event.get("commanded_pwm_us") is not None else "—",
@@ -224,7 +219,7 @@ def live_page(core) -> None:
                         pass
                     decision_table = ui.table(
                         columns=[
-                            {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:14%;white-space:nowrap"},
+                            {"name": "time", "label": "时间（本机）", "field": "time", "align": "left", "style": "width:14%;white-space:nowrap"},
                             {"name": "action", "label": "动作", "field": "action", "align": "left", "style": "width:13%"},
                             {"name": "stage", "label": "阶段", "field": "stage", "align": "left", "style": "width:12%"},
                             {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right", "style": "width:10%"},
@@ -442,7 +437,7 @@ def live_page(core) -> None:
                 contact_value.set_text("—" if score is None else f"{score:.3f}")
                 contact_caption.set_text(
                     f"{CONTACT_STATE_ZH.get(contact_state, contact_state)} · 质量 {assessment.get('quality', 0):.2f} · "
-                    f"{assessment.get('reason') or ''}"
+                    f"{contact_reason_label(assessment.get('reason'))}"
                 )
             else:
                 contact = latest.get("contact_score")
@@ -455,7 +450,8 @@ def live_page(core) -> None:
                         "仿真接触评分（SIMULATION）" if latest_source == "SIMULATION" else "设备上报 · 语义未标定"
                     )
             frame_caption.set_text(
-                f"帧 {latest['frame_seq']} · {latest['valid_count']}/{latest['channel_count']} 有效 · {fmt_ns(latest['host_received_ns'])}"
+                f"帧 {latest['frame_seq']} · {latest['valid_count']}/{latest['channel_count']} 有效 · "
+                f"接收于 {clock_label(latest.get('host_received_utc'), with_date=False)}（本机时间）"
             )
             key = (latest["frame_seq"], latest["boot_id"], latest["valid_count"], latest_source)
             if key != state["chart_key"]:

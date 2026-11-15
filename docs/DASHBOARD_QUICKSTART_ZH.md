@@ -100,7 +100,9 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port
 离线 SIMULATION 的 1440×900、1280×800、1920×1080 截图、修复前后对比和 12 电极
 视图位于 [docs/screenshots/p2s-ui-audit/](screenshots/p2s-ui-audit/README.md)。
 截图由 `scripts/ui_screenshot_audit.mjs` 驱动本机无头 Chrome 生成，只读取本地页面，
-不打开串口、不发送 PWM、不做机械动作。
+不打开串口、不发送 PWM、不做机械动作。2026-11-15 最终验收额外补了 1024×768 抽查
+（`narrow-1024/`）。容器或沙箱里 Chrome 自带 sandbox 会被拒绝，此时用
+`CHROME_NO_SANDBOX=1`；普通桌面环境不要设置该变量。
 
 ## 7. 常见提示
 
@@ -110,6 +112,7 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo --port
 | 传感器数据已过期 | 超过新鲜度窗口未收到新帧 |
 | 控制会话未建立 | 只连接了设备，尚未 Begin manual session |
 | 设备确认（ACK） | 固件接受命令；不是实际位置 |
+| 时间（本机） | 表格/帧说明把存储的 UTC 时间转换为本机时间显示；数据文件仍是 UTC |
 | 故障锁存（FAULT） | 需要排查并显式清除/重连，不能继续提交 |
 | 实验异常中断（INTERRUPTED） | 软件未正常结束；数据保留，不标正常完成 |
 | 写入错误（ERROR） | 帧/事件/锁写入失败；检查磁盘与事件日志 |

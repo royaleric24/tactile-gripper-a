@@ -39,6 +39,10 @@ PYTHONPATH=src .venv/bin/python -m tactile_gripper.ui --no-browser --demo \
 
 默认只监听 `127.0.0.1`；投屏/局域网访问使用 `--host 0.0.0.0` 并自行评估网络暴露。
 
+显示约定（2026-11-15 最终验收后）：界面里的时间列与帧说明显示**本机时间**（存储的
+`*_utc` 字段仍是 UTC，未改数据格式）；接触指标是相对评分，不是压力/牛顿；12 电极
+profile 只有 12 路原始 ADC，没有 36 点热图。
+
 ## 3. 无界面完整演示
 
 ```bash
@@ -123,3 +127,7 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 ```
 
 离线测试不依赖真实 ESP32/传感器。`NOT_TESTED` 项见 [V1 报告](SOFTWARE_V1_REPORT.md)。
+
+2026-11-15 最终验收：`Ran 290 tests ... OK (skipped=1)`。跳过项
+`test_pty_waits_for_explicit_input` 需要 pty，本地沙箱没有（`out of pty devices`），
+CI/现场复核。截图审计脚本见 [screenshots/p2s-ui-audit/README.md](screenshots/p2s-ui-audit/README.md)。

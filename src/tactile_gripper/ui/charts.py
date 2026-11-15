@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
@@ -29,6 +30,26 @@ def _range(values: list[float]) -> tuple[float, float]:
     if low == high:
         return low - 1, high + 1
     return low, high
+
+
+def _axis_bounds(low: float, high: float) -> tuple[float, float]:
+    """Round a raw-count axis to readable ticks with headroom for bar labels.
+
+    Raw ADC values are never rescaled, but an axis whose ends are the sample
+    minimum/maximum produces fractional ticks such as "2,134.55".
+    """
+    span = max(high - low, 1.0)
+    step = 10 ** math.floor(math.log10(span / 4)) if span >= 4 else 1.0
+    for factor in (1, 2, 2.5, 5, 10):
+        candidate = step * factor
+        if span / candidate <= 5:
+            step = candidate
+            break
+    lower = max(0.0, math.floor(low / step) * step)
+    upper = math.ceil((high + span * 0.12) / step) * step
+    if upper <= high:
+        upper = high + step
+    return lower, upper
 
 
 def _config(value):
@@ -98,7 +119,7 @@ def heatmap_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any
     return {
         "backgroundColor": "transparent",
         "animationDuration": 250,
-        "grid": {"left": 28, "right": 12, "top": 12, "bottom": 44},
+        "grid": {"left": 28, "right": 12, "top": 12, "bottom": 58},
         "tooltip": {"position": "top"},
         "xAxis": {
             "type": "category",
@@ -203,20 +224,18 @@ def fsr_trend_options(history: list[dict[str, Any]]) -> dict[str, Any]:
             "axisLabel": {"color": TEXT, "fontSize": 9},
             "axisLine": {"lineStyle": {"color": AXIS}},
         },
+        # Axis names are omitted on purpose: the legend already says "原始 ADC" and
+        # "接触评分", and a top-left axis name collided with the legend text.
         "yAxis": [
             {
                 "type": "value",
-                "name": "ADC",
-                "nameTextStyle": {"color": TEXT, "fontSize": 9},
                 "axisLabel": {"color": TEXT, "fontSize": 9},
                 "splitLine": {"lineStyle": {"color": GRID}},
             },
             {
                 "type": "value",
-                "name": "评分",
                 "min": 0,
                 "max": 1,
-                "nameTextStyle": {"color": TEXT, "fontSize": 9},
                 "axisLabel": {"color": TEXT, "fontSize": 9},
                 "splitLine": {"show": False},
             },
@@ -234,6 +253,7 @@ def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
     }
     valid = [float(value) for _, value, is_valid in values if is_valid and value is not None]
     low, high = _range(valid)
+    axis_low, axis_high = _axis_bounds(low, high)
     data = [
         {
             "value": round(float(value), 1) if is_valid and value is not None else None,
@@ -244,7 +264,7 @@ def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
     return {
         "backgroundColor": "transparent",
         "animationDuration": 250,
-        "grid": {"left": 42, "right": 14, "top": 14, "bottom": 30},
+        "grid": {"left": 46, "right": 14, "top": 32, "bottom": 30},
         "tooltip": {"trigger": "axis"},
         "xAxis": {
             "type": "category",
@@ -255,12 +275,23 @@ def bar_options(frame: dict[str, Any], channel_config=None) -> dict[str, Any]:
         },
         "yAxis": {
             "type": "value",
-            "min": max(0, low - 50),
-            "max": high + 50,
+            "name": "ADC 计数",
+            "nameTextStyle": {"color": TEXT, "fontSize": 9},
+            "min": axis_low,
+            "max": axis_high,
             "axisLabel": {"color": TEXT, "fontSize": 9},
             "splitLine": {"lineStyle": {"color": GRID}},
         },
-        "series": [{"type": "bar", "data": data, "barMaxWidth": 24}],
+        "series": [
+            {
+                "type": "bar",
+                "data": data,
+                "barMaxWidth": 24,
+                # At most 14 channels (the 12-electrode profile) still fit a
+                # readable count label above each bar without a hover tooltip.
+                "label": {"show": len(values) <= 14, "position": "top", "fontSize": 8, "color": TEXT},
+            }
+        ],
     }
 
 

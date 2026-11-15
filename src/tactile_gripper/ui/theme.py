@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any
 
 from nicegui import ui
@@ -260,3 +261,21 @@ def fmt_ns(value: int | None) -> str:
     if value is None:
         return "—"
     return f"{value / 1e9:.3f}s"
+
+
+def clock_label(stamp: str | None, *, with_date: bool = True) -> str:
+    """Render a stored UTC ISO stamp as local wall-clock time.
+
+    Frames and events are stored in UTC; showing that raw string in a table
+    labelled "时间" makes an operator read UTC as local time.  Data files keep
+    UTC untouched - only the display converts.
+    """
+    if not stamp:
+        return "—"
+    try:
+        moment = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return str(stamp)
+    if moment.tzinfo is not None:
+        moment = moment.astimezone()
+    return moment.strftime("%Y-%m-%d %H:%M:%S" if with_date else "%H:%M:%S")

@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from datetime import datetime
 
 from nicegui import ui
 
 from ...constants import SOFTWARE_VERSION
 from ...sources import DataSource
-from ..theme import card_header, empty_state, notice, pill, set_pill, shell, tone_for_state
+from ..theme import card_header, clock_label, empty_state, notice, pill, set_pill, shell, tone_for_state
 from ..text_zh import (
     error_text,
     event_detail_label,
@@ -24,13 +23,10 @@ from ..text_zh import (
 )
 
 
-def _clock(stamp: str | None) -> str:
-    if not stamp:
-        return "—"
-    try:
-        return datetime.fromisoformat(stamp).strftime("%m-%d %H:%M:%S")
-    except ValueError:
-        return stamp
+def _time_label(stamp: str | None) -> str:
+    """Local MM-DD HH:MM:SS for the compact experiment tables."""
+    text = clock_label(stamp)
+    return text[5:] if len(text) == 19 else text
 
 
 def _recent_events(recorder, limit: int = 6) -> list[dict]:
@@ -127,7 +123,7 @@ def experiments_page(core) -> None:
                         add_event_button = ui.button("添加", color="secondary").props("unelevated no-caps")
                     events_table = ui.table(
                         columns=[
-                            {"name": "time", "label": "时间", "field": "time", "align": "left"},
+                            {"name": "time", "label": "时间（本机）", "field": "time", "align": "left"},
                             {"name": "type", "label": "类型", "field": "type", "align": "left"},
                             {"name": "message", "label": "内容", "field": "message", "align": "left"},
                         ],
@@ -196,7 +192,7 @@ def experiments_page(core) -> None:
             set_pill(active_pill, trial_status_label(metadata.status), "green" if recording else tone_for_state(metadata.status))
             active_name.set_text(metadata.name)
             active_meta.set_text(
-                f"{source_label(metadata.source.value)} · {mode_label(metadata.mode)} · 开始 {_clock(metadata.started_at)}"
+                f"{source_label(metadata.source.value)} · {mode_label(metadata.mode)} · 开始 {_time_label(metadata.started_at)}"
             )
             trial_id_label.set_text(metadata.trial_id)
             video = metadata.video_path or "—"
@@ -226,7 +222,7 @@ def experiments_page(core) -> None:
                 rows.append(
                     {
                         "id": item.get("event_id", ""),
-                        "time": _clock(item.get("timestamp_utc")),
+                        "time": _time_label(item.get("timestamp_utc")),
                         "type": record_type_label(item.get("record_type", item.get("event_type", "—"))),
                         "message": event_detail_label(item.get("message") or item.get("detail", "")),
                     }
@@ -270,7 +266,7 @@ def experiments_page(core) -> None:
                     "status": trial_status_label(metadata.get("status")),
                     "frames": frames,
                     "video": (Path(metadata.get("video_path")).name if metadata.get("video_path") else "—"),
-                    "created": _clock(metadata.get("created_at")),
+                    "created": _time_label(metadata.get("created_at")),
                 }
             )
         history_table.rows = rows

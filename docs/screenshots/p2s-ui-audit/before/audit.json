@@ -6,7 +6,7 @@
       "width": 1440,
       "height": 900,
       "page": "live",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/live-1440x900.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/live-1440x900.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -197,7 +197,7 @@
       "width": 1440,
       "height": 900,
       "page": "experiments",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/experiments-1440x900.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/experiments-1440x900.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -284,7 +284,7 @@
       "width": 1440,
       "height": 900,
       "page": "analysis",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/analysis-1440x900.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/analysis-1440x900.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -588,7 +588,7 @@
       "width": 1280,
       "height": 800,
       "page": "live",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/live-1280x800.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/live-1280x800.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -779,7 +779,7 @@
       "width": 1280,
       "height": 800,
       "page": "experiments",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/experiments-1280x800.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/experiments-1280x800.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -929,7 +929,7 @@
       "width": 1280,
       "height": 800,
       "page": "analysis",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/analysis-1280x800.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/analysis-1280x800.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -1254,7 +1254,7 @@
       "width": 1920,
       "height": 1080,
       "page": "live",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/live-1920x1080.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/live-1920x1080.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -1438,7 +1438,7 @@
       "width": 1920,
       "height": 1080,
       "page": "experiments",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/experiments-1920x1080.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/experiments-1920x1080.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {
@@ -1525,7 +1525,7 @@
       "width": 1920,
       "height": 1080,
       "page": "analysis",
-      "screenshot": "/Users/eric/Developer/research/tactile-gripper-v2-sw/docs/screenshots/p2s-ui-audit/before/analysis-1920x1080.png",
+      "screenshot": "docs/screenshots/p2s-ui-audit/before/analysis-1920x1080.png",
       "consoleErrors": [],
       "consoleWarnings": [],
       "metrics": {

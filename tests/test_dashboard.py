@@ -8,12 +8,14 @@ import tempfile
 import time
 import unittest
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 from tactile_gripper.control import build_core
-from tactile_gripper.ui.charts import pwm_timeline_options
+from tactile_gripper.ui.charts import bar_options, pwm_timeline_options
 from tactile_gripper.ui.pages.analysis import _matches
 from tactile_gripper.ui.server import create_ui
+from tactile_gripper.ui.theme import clock_label
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -87,8 +89,13 @@ class DashboardServerTests(unittest.TestCase):
             try:
                 wait_for(base + "/")
                 time.sleep(1.0)
-                with urllib.request.urlopen(base + "/", timeout=5) as response:
-                    self.assertEqual(response.status, 200)
+                # Demo mode has an active trial, so all three pages render their
+                # populated branches (metadata/event tables), not just empty states.
+                for path in ("/", "/experiments", "/analysis"):
+                    with self.subTest(path=path):
+                        with urllib.request.urlopen(base + path, timeout=5) as response:
+                            self.assertEqual(response.status, 200)
+                            self.assertIn("触觉闭环机械爪 A", response.read().decode("utf-8"))
                 trials = Path(tmp) / "data" / "simulated" / "trials"
                 self.assertTrue(trials.is_dir())
                 self.assertTrue(any(trials.iterdir()))
@@ -98,6 +105,23 @@ class DashboardServerTests(unittest.TestCase):
             finally:
                 if proc.poll() is None:
                     proc.kill()
+
+
+class DashboardDisplayTests(unittest.TestCase):
+    def test_bar_chart_shows_units_and_electrode_counts(self):
+        frame = {"channels": [1500.0, None], "valid_mask": [True, False], "channel_ids": [0, 1]}
+        options = bar_options(frame, None)
+        self.assertEqual(options["yAxis"]["name"], "ADC 计数")
+        self.assertTrue(options["series"][0]["label"]["show"])
+        self.assertIsNone(options["series"][0]["data"][1]["value"])  # invalid stays absent, not zero
+
+    def test_clock_label_converts_utc_to_local_and_keeps_bad_input(self):
+        stamp = "2026-11-15T12:00:00+00:00"
+        expected = datetime.fromisoformat(stamp).astimezone()
+        self.assertEqual(clock_label(stamp, with_date=False), expected.strftime("%H:%M:%S"))
+        self.assertEqual(clock_label(stamp), expected.strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertEqual(clock_label("not-a-stamp"), "not-a-stamp")
+        self.assertEqual(clock_label(None), "—")
 
 
 class DashboardChartTests(unittest.TestCase):

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from datetime import datetime
 
 from nicegui import ui
 
@@ -18,7 +17,7 @@ from ..charts import (
     matrix_view,
     pwm_timeline_options,
 )
-from ..theme import card_header, empty_state, notice, pill, set_pill, shell, tone_for_state
+from ..theme import card_header, clock_label, empty_state, notice, pill, set_pill, shell, tone_for_state
 from ..text_zh import (
     action_label,
     error_text,
@@ -27,20 +26,13 @@ from ..text_zh import (
     firmware_state_label,
     mode_label,
     record_type_label,
+    sensor_label,
     source_label,
+    source_short,
     stage_label,
     status_explanation,
     trial_status_label,
 )
-
-
-def _clock(stamp: str | None) -> str:
-    if not stamp:
-        return "—"
-    try:
-        return datetime.fromisoformat(stamp).strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return stamp
 
 
 def _channel_ids(records: list[dict]) -> list[int]:
@@ -89,6 +81,15 @@ def analysis_page(core) -> None:
         core,
         SOFTWARE_VERSION,
     ) as refs:
+        # shell() renders placeholder device text; this page has no live refresh
+        # loop, so sync the sidebar/header once from a read-only snapshot instead
+        # of leaving a misleading "offline / standby" label next to real data.
+        sidebar = core.snapshot()
+        set_pill(refs["mode"], mode_label(sidebar["mode"]), tone_for_state(sidebar["mode"]))
+        set_pill(refs["source"], source_label(sidebar["source"]), "teal")
+        refs["s3"].set_text("在线" if sidebar["gripper"].get("connected") else "离线")
+        refs["sensor"].set_text(sensor_label(sidebar["sensor_state_label"]))
+        refs["source_side"].set_text(source_short(sidebar["source"]))
         with ui.element("div").classes("card gap-3 w-full"):
             with ui.row().classes("w-full items-center gap-3"):
                 ui.label("实验筛选").classes("card-kicker")
@@ -309,7 +310,7 @@ def analysis_page(core) -> None:
                             ("异常事件", summary.get("anomalies", 0)),
                             ("丢帧", integrity.get("dropped_frames", 0)),
                             ("无效通道样本", integrity.get("invalid_channel_samples", 0)),
-                            ("创建时间", _clock(metadata.get("created_at"))),
+                            ("创建时间", clock_label(metadata.get("created_at"))),
                         ):
                             with ui.column().classes("gap-0"):
                                 ui.label(str(label)).classes("card-kicker")
@@ -412,7 +413,7 @@ def analysis_page(core) -> None:
                         control_rows.append(
                             {
                                 "id": item.get("event_id", ""),
-                                "time": _clock(item.get("timestamp_utc")),
+                                "time": clock_label(item.get("timestamp_utc")),
                                 "action": action_label(item.get("action")),
                                 "stage": stage_label(item.get("stage")),
                                 "pwm": item.get("commanded_pwm_us") if item.get("commanded_pwm_us") is not None else "—",
@@ -428,7 +429,7 @@ def analysis_page(core) -> None:
                         )
                     ui.table(
                         columns=[
-                            {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:20%;white-space:nowrap"},
+                            {"name": "time", "label": "时间（本机）", "field": "time", "align": "left", "style": "width:20%;white-space:nowrap"},
                             {"name": "action", "label": "动作", "field": "action", "align": "left", "style": "width:12%"},
                             {"name": "stage", "label": "阶段", "field": "stage", "align": "left", "style": "width:12%"},
                             {"name": "pwm", "label": "PWM 目标", "field": "pwm", "align": "right", "style": "width:10%"},
@@ -474,7 +475,7 @@ def analysis_page(core) -> None:
                         anomaly_rows.append(
                             {
                                 "id": item.get("event_id", ""),
-                                "time": _clock(item.get("timestamp_utc")),
+                                "time": clock_label(item.get("timestamp_utc")),
                                 "type": event_type_label(item.get("event_type")) if item.get("event_type") else stage_label(item.get("stage")),
                                 "detail": event_detail_label(item.get("message") or item.get("detail", "")),
                             }
@@ -482,7 +483,7 @@ def analysis_page(core) -> None:
                     if anomaly_rows:
                         ui.table(
                             columns=[
-                                {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:24%;white-space:nowrap"},
+                                {"name": "time", "label": "时间（本机）", "field": "time", "align": "left", "style": "width:24%;white-space:nowrap"},
                                 {"name": "type", "label": "类型", "field": "type", "align": "left", "style": "width:20%"},
                                 {"name": "detail", "label": "说明", "field": "detail", "align": "left", "style": "width:56%"},
                             ],
@@ -529,7 +530,7 @@ def analysis_page(core) -> None:
                             rows.append(
                                 {
                                     "id": item.get("event_id", ""),
-                                    "time": _clock(item.get("timestamp_utc")),
+                                    "time": clock_label(item.get("timestamp_utc")),
                                     "record_type": record_type_label(item.get("record_type", "—")),
                                     "type": event_type_label(item.get("event_type")) if item.get("event_type") else action_label(item.get("action")) or "—",
                                     "message": event_detail_label(item.get("message") or item.get("detail", "")),
@@ -537,7 +538,7 @@ def analysis_page(core) -> None:
                             )
                         ui.table(
                             columns=[
-                                {"name": "time", "label": "时间", "field": "time", "align": "left", "style": "width:18%;white-space:nowrap"},
+                                {"name": "time", "label": "时间（本机）", "field": "time", "align": "left", "style": "width:18%;white-space:nowrap"},
                                 {"name": "record_type", "label": "记录类型", "field": "record_type", "align": "left", "style": "width:14%"},
                                 {"name": "type", "label": "类型", "field": "type", "align": "left", "style": "width:16%"},
                                 {"name": "message", "label": "内容", "field": "message", "align": "left", "style": "width:52%"},
