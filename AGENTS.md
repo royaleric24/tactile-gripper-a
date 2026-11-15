@@ -39,8 +39,11 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 （ACTIVE/TARGET_COMMANDED/PWM_COMMANDED_UNMEASURED，无输出 API 错误），未运动最可能是
 机械限位/堵转（精确限位 UNKNOWN）。无 PWM 64/64 验证应答 0 NUL，本轮唯一新增因素是舵机
 真实输出并可能堵转；PWM 期间 NUL 的机制为 **LEADING_HYPOTHESIS：舵机电流/地弹/EMI 耦合
-UART**，未证实。**当前暂停真实 PWM**；下一步隔离测试（PM15S 断电只发命令、PM15S 上电但
-机械空载、检查独立电源/共地/体电容/线束），确认机制前不重跑 console、不自动重试 PWM。
+UART**，未证实。**当前暂停真实 PWM**。**Test A（PM15S 5V 关、信号线断开）已 PASS**：GPIO4 输出 1500/1450 +
+120 次 PWM 期间心跳，151/151 应答匹配、0 NUL、0 ERROR/FAULT、最终 DISARMED。说明纯 GPIO4 PWM +
+S3 Serial/UART 路径不足以造成该故障；真实故障与舵机接通/通电或机械负载相关。下一步 Phase B
+（有舵机动力、无杯、机械空载，1500/1450 + 60 次心跳，测 5V/地电位/停止重复性）**尚未执行，
+需单独授权**；Phase B 前不继续夹杯、不自动重试 PWM。
 
 ## 最近状态（P3-A V2 集成，2026-11-15）
 

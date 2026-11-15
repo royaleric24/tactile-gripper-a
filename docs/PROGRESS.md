@@ -1,5 +1,23 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜测试 A：无舵机负载的 S3 PWM + UART 隔离 PASS｜hw/p3b1-fsr-real
+
+- **条件（操作者确认）**：PM15S 独立 5V 关闭；舵机信号线从 GPIO4 断开；保持 TX 修复固件
+  `bd039a8…`；不重烧、不改 PWM 范围、不自动重试。
+- **序列**：GET_STATUS → BEGIN_BENCH → BENCH_HOLD_MODE → 20× 无 PWM HEARTBEAT → STATUS →
+  BENCH_HOLD 1500 → 60× HEARTBEAT → BENCH_HOLD 1450 → 60× HEARTBEAT → STATUS → DISARM。
+- **结果**：**151 COMMAND / 151 RESPONSE / 151 MATCHED；151 条应答 0 NUL；0 corrupt_response；
+  0 COMMUNICATION_ERROR；0 FAULT**。PWM 命令仅 1500/1450；PWM 期间心跳 120 次；
+  heartbeat 时延 median 100.14 ms（max 101.64）；BENCH_HOLD 时延约 127.6 ms；
+  boot_id `818fa…` 全程未变；最终 **DISARMED / DISABLED_UNMEASURED / commanded=null**。
+- **解读**：在舵机电气隔离、GPIO4 仍输出 1500/1450 PWM 的条件下，S3 固件/Serial/UART 路径
+  干净。因此“GPIO4 输出 PWM”本身（无舵机负载/无反向供电）不足以造成 NUL/超时；真实 PWM
+  故障与舵机接通/通电（电流/地/EMI）或机械负载相关。**不证明 EMI，也不证明供电故障。**
+- **未执行**：未做有舵机动力测试；未改固件/Dashboard/FSR/PWM 范围。
+- **文档**：新增 [测试 A 报告](P3B1_TEST_A_NO_SERVO_PWM.md)；更新 I-219。
+- **下一步（待单独授权）**：Phase B——有舵机动力、无杯、机械空载；1500/1450 + 60 次心跳；
+  测 5V/地电位/停止位置重复性；Phase B 前不继续夹杯。
+
 ## 2026-11-16｜P3-B1 真实 PWM 期间串口应答损坏（空杯未成功）｜hw/p3b1-fsr-real
 
 - **实际过程**：console 选择模式 1 成功；`1500` ACK、`1450` ACK；操作者观察 1450 附近机械爪不再运动；
