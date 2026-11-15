@@ -66,7 +66,13 @@ class SerialClient:
                 if discard:self.log('IGNORED',reason='oversize_response');discard=False;continue
                 self.log('RX',raw_hex=wire.hex())
                 try:obj=json.loads(wire.decode('utf-8'))
-                except (ValueError,UnicodeError):self.log('IGNORED',reason='boot_or_invalid_json');continue
+                except (ValueError,UnicodeError):
+                    # A long line that starts like a V2 frame but fails JSON is a
+                    # corrupted response (e.g. TX-buffer NUL holes), not boot text.
+                    # Keep the same resync/timeout behavior but make it auditable.
+                    looks_like_frame=wire.startswith(b'{"protocol_version"') and len(wire)>128
+                    self.log('IGNORED',reason='corrupt_response' if looks_like_frame else 'boot_or_invalid_json',length=len(wire),nul_count=wire.count(b'\x00'))
+                    continue
                 if not isinstance(obj,dict) or obj.get('protocol_version')!=1 or obj.get('request_id')!=request_id or obj.get('firmware_version')!=self.config['firmware_version']:
                     self.log('IGNORED',reason='envelope_or_id');continue
                 if obj.get('type') not in self.config.get('response_types', ('PONG','STATUS','ERROR')):continue

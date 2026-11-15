@@ -28,8 +28,10 @@
 | I-212 | **OPEN（影响重复性）** | 末段 S4 从约 1.1M 回升到 2.3M，85 s 内未回到初始 4.16M；S3 段还有 −61.6k counts/s 的慢漂移。释放恢复/蠕变时间常数未知。每个 trial 必须重新采空载基线，并保留足够长的释放后窗口。 |
 | I-213 | **ACCEPTED_LIMITATION** | 历史验收 app 二进制 `04c77eed…`（316272 B）仍不在本 worktree；2026-11-16 已用同源同配置重新构建 `d20782…`（316288 B）并上传，bootloader/分区表哈希与历史一致，生成头/源码/配置哈希与历史清单一致。历史二进制继续从独立备份保留，不作为当前运行版本。 |
 | I-214 | **OPEN（待 LIVE 实测）** | Dashboard `fsr_history` 仅保留 180 帧（约 2.9 s @61.7 Hz），对空杯夹持/释放观察可能偏短。先跑真实 LIVE 看是否够用；若不够，仅做最小修改（增大窗口/改时间轴），不重构。 |
-| I-215 | **OFFLINE_VERIFIED（REAL 复测 NOT_TESTED）** | Dashboard LIVE 首次真实连接显示“协议异常 · 帧已拒绝”。根因：macOS 打开 FSR 串口复位 ESP32 后，boot HELLO 只读到半行，且 `boot_wait_s=0` 使 2 s HELLO 截止在设备启动期间触发。已改 `config/sensor_serial.json` `boot_wait_s=2.5`，transport 在 boot wait 后清空输入缓冲并丢弃半行；27 项离线测试 OK。真实复测因用户拒绝串口升级未执行；恢复授权后在真实 Dashboard 复测。 |
+| I-215 | **OPEN（真实复测失败，暂停）** | Dashboard LIVE 真实连接仍拿不到完整 HELLO；后续尝试 DTR/RTS 释放、write flush、同步 prime 均未成功。未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，**未提交、未合并**；Dashboard 不再作为空杯前置条件。下一步单独集中修复。 |
 | I-216 | **ACCEPTED_LIMITATION** | 2026-11-16 恢复构建 app SHA `d20782808447385a2ad090e63082f55e7f824652220441f07230f9dbf89830c4`（316288 B）与历史验收 `04c77eed…`（316272 B）不是逐字节相同。bootloader/分区表/生成头/源码/配置均一致，版本字符串与 GPIO/频率/位数已从新二进制和真实 STATUS 确认；16 B 差异与构建路径/工具链非确定性一致，不视为源码变更。 |
+| I-217 | **OFFLINE_VERIFIED（真实复测 NOT_TESTED）** | 两次 S3 控制台 `response_timeout` 根因：`respond()` 的 900 B TX 阈值小于实测 942–963 B 的 ACK/STATUS；连续命令（BEGIN_BENCH ACK 后立即 BENCH_HOLD_MODE）或心跳时 TX 空间不足，`serializeJson` 写出 12/13 个 NUL，主机 JSON 解析失败后 3 s 超时；`<900` 分支还静默 fault、不返回 ERROR。修复：`measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR；主机记录 `corrupt_response`。离线编译 PASS（`bd039a8…`，317840 B），380 tests OK。真实复测待重烧授权。 |
+| I-218 | **OPEN（阻塞空杯）** | 两次空杯 MANUAL 会话均在 BEGIN_BENCH/模式选择后 `response_timeout`，**未发送 PWM、无 BENCH_ACTION、无机械运动**。失败 FSR 原始数据与两份 console 日志已保存；这不是空杯抓取结果。待 S3 修复重烧并完成无 PWM 会话验证后，再重跑 console。 |
 
 > 状态为 OPEN / WAITING / RESOLVED / ACCEPTED_LIMITATION。解决后留历史记录，不直接删掉。每个开发进展后检查是否需要更新。
 

@@ -53,6 +53,8 @@
 > 上传 460800、无全片擦除，真实 STATUS 为 `gripper-control-s3-0.9b26.0` / DISARMED / GPIO4 / 50 Hz / 14-bit。
 > 历史验收 app `04c77eed…`（316272 B）保留为历史；bootloader/分区表/生成头/源码/配置哈希与上表一致。
 > 详见 [P3-B1 S3 恢复记录](P3B1_S3_FIRMWARE_RECOVERY.md)（I-216）。
+> **2026-11-16 TX 背压修复候选**：app `bd039a8ae54bb908c3d8afefcf1eb60326ff7c80d9fd3cca9620faec05cb48ee`（317840 B），
+> 离线编译 PASS，**尚未烧录**；当前运行仍是 `d20782…`。详见 [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)（I-217）。
 
 注意：`config/board_s3.json` 当前哈希与 `evidence/stage09b26/sha256_after.txt` 记录的历史值 `b8079273...` 不同（S3 部署后更新了板级/上传描述字段）；控制参数以 `config/gripper_s3.json`（`b4929f...`）和 `generated_config_s3.h`（`83c8af...`）为准，不把当前板级描述反推为部署时快照。
 

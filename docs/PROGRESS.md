@@ -1,5 +1,40 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B1 S3 控制台 response_timeout 诊断与 TX 背压修复｜hw/p3b1-fsr-real
+
+- **触发**：两次真实空杯 MANUAL 会话在 BEGIN_BENCH/模式选择后 `response_timeout`；均未发送 PWM、
+  无 `BENCH_ACTION`、无机械运动。日志：
+  `logs/real/bench/99f2a8023a344652b1a5c4e18e2756a6/`、`logs/real/bench/297580c6c93a4978921634193f34d3c6/`。
+- **最后命令与 RX**：
+  - 会话 1：`HEARTBEAT` seq 30，request_id `e4fddfe2f3f749f5b405adc071747545`，16:30:17.482Z；
+    16:30:17.581Z RX 950 B ACK，**12 个 NUL**（首个偏移 103），request_id/state/last_sequence 仍完整；
+    16:30:20.577Z 超时。
+  - 会话 2：`BENCH_HOLD_MODE` seq 4，request_id `4d0c5503cd794368b2b171fa20c57e17`，16:31:45.928Z
+    （BEGIN_BENCH ACK 后约 0.00004 s）；16:31:46.027Z RX 948 B ACK，**13 个 NUL**（首个偏移 595）；
+    16:31:49.026Z 超时。
+  - 分类：不是无 RX、不是 request_id 不匹配、不是固件重启（失败时无 ESP-ROM banner，boot_id 未变）、
+    不是设备 FAULT（损坏 ACK 仍为 ARMED / BENCH_HOLD_SELECTED / DISABLED_UNMEASURED）；
+    是 **TX 背压导致应答 JSON 中间出现 NUL 空洞**，主机解析失败后按 `boot_or_invalid_json` 丢弃并超时。
+- **根因**：`respond()` 原阈值 `availableForWrite()<900` 小于实测 942–963 B 的 ACK/STATUS；
+  连续命令时剩余空间 900–949 B，`serializeJson` 溢出，写出 12/13 B NUL。原 `<900` 分支还只
+  `safety->fault()` 而不返回 ERROR，主机只能超时。
+- **最小修复**：`measureJson(d)+2` 精确预留；`waitForTxSpace` 有界等待 150 ms（主机超时 3 s）；
+  仍不足时发紧凑匹配 `ERROR`（`TX_BACKPRESSURE`）再 fault；保留全部通信保护。主机
+  `SerialClient` 对长且以 `{"protocol_version"` 开头但解析失败的帧记录
+  `IGNORED reason=corrupt_response length=… nul_count=…`，不修改超时。
+- **离线验证**：`python3 scripts/build_firmware.py s3` **PASS**，修复 app
+  `bd039a8ae54bb908c3d8afefcf1eb60326ff7c80d9fd3cca9620faec05cb48ee`（317840 B）；
+  新增 NUL 损坏行测试；全套 **380 tests OK（1 PTY skipped）**。**未重烧 S3、未发 PWM。**
+- **失败实验 FSR 原始数据（无 PWM，非空杯结果）**：
+  `evidence/p3b1/private/cup_raw_20261115T163014Z/`，17,392 SAMPLE、17,391 有效、
+  1 条 malformed（frame 10260）、281.708 s、61.734 Hz、基线中位 1,810 counts、
+  `0x04` 7,908；失败证据包 `evidence/p3b1/private/console_failure_20261116/summary.json`。
+- **Dashboard LIVE**：真实握手复测仍失败；未验证修改已保存
+  `evidence/p3b1/private/dashboard_handshake_unverified.patch`，未提交、未合并，不再作为空杯前置条件。
+- **文档**：新增 [S3 TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)；更新问题 I-215/I-217/I-218。
+- **下一步**：申请重烧授权（`bd039a8…`，PM15S 动力断开），做一次无 PWM 的
+  GET_STATUS → BEGIN_BENCH → BENCH_HOLD_MODE → HEARTBEAT×N → STATUS → DISARM；稳定后再重跑 console。
+
 ## 2026-11-16｜P3-B1 S3 控制固件恢复与真实 STATUS｜hw/p3b1-fsr-real
 
 - **授权/范围**：仅 `/dev/cu.usbserial-A5069RR4` 的 ESP32-S3 恢复；PM15S 独立动力电源断开

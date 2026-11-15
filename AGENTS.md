@@ -18,12 +18,16 @@ counts→牛顿/摩擦/滑移/杯重 **NOT_SUPPORTED**。详见
 构建并上传 `gripper-control-s3-0.9b26.0`（460800、无全片擦除、每段 hash verified），
 真实 STATUS 为 **DISARMED**、GPIO4、50 Hz、14-bit、`output_state=DISABLED_UNMEASURED`、
 0 ERROR/0 FAULT/0 timeout；app SHA `d20782…`（历史 `04c77eed…`，同源同配置，见 I-216）。
-仍无 PTY，`pwm_console.py --real` 需用户在自己的 Terminal 运行。Dashboard LIVE 首次真实连接曾因
-串口打开复位 ESP32、boot HELLO 半行和 2 s 截止而报“协议异常”；已最小修复 `boot_wait_s=2.5` +
-boot 后清缓冲/半行，27 项离线测试 OK，真实复测 **NOT_TESTED**。空杯 MANUAL 仍 **NOT_TESTED**，
-未发 PWM、未做机械动作、`AUTO_REAL_ENABLED=False`。下一步：按已授权
-**1300–1500 μs、50 μs 步进、1300 下限（不进 1270）** 做无杯方向 → 空杯抓取 + FSR 同步采集 →
-Dashboard LIVE FSR_A 曲线 → 文档/commit/push/PR。原始 JSONL/CSV 留在本地 `evidence/`，不提交。
+2026-11-16 两次空杯 MANUAL 控制台均 `response_timeout`：最后命令分别是 HEARTBEAT seq30
+（`e4fddfe2…`）与 BENCH_HOLD_MODE seq4（`4d0c5503…`）；两次都收到约 950 B 的正确 ACK，
+但中间有 12/13 个 NUL，JSON 解析失败后主机 3 s 超时。根因为 `respond()` 的 900 B TX 阈值
+小于实测 942–963 B 应答；已改为 `measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑
+`TX_BACKPRESSURE` ERROR。修复 app `bd039a8…`（317840 B）离线编译 PASS，380 tests OK，
+**未重烧**；真实 S3 复测待重烧授权。两次失败会话均**未发 PWM、无 BENCH_ACTION、无机械运动**；
+失败 FSR 原始数据已保存（17,392 SAMPLE，非空杯结果）。Dashboard LIVE 握手仍未修好，
+未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，未提交、未合并，
+不再作为空杯前置条件。下一步：重烧授权 → PM15S 动力断开下做无 PWM 的
+GET_STATUS/BEGIN_BENCH/模式/HEARTBEAT/STATUS/DISARM 验证 → 稳定后再重跑 console。
 
 ## 最近状态（P3-A V2 集成，2026-11-15）
 

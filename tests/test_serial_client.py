@@ -33,6 +33,14 @@ class SerialTests(unittest.TestCase):
   c=self.make(b'x'*1025+b'\n'+self.wire());self.assertEqual(c.exchange(b'test\n','id')['type'],'PONG')
  def test_invalid_utf8_ignored(self):
   c=self.make(b'\xff\n'+self.wire());self.assertEqual(c.exchange(b'test\n','id')['type'],'PONG')
+ def test_corrupt_long_response_is_logged_and_can_resync(self):
+  good=dict(protocol_version=1,request_id='id',type='PONG',firmware_version='serial-test-0.8.0',pad='x'*300)
+  wire=json.dumps(good).encode()+b'\n'
+  corrupt=wire[:30]+b'\x00'*12+wire[42:]
+  c=self.make(corrupt+self.wire())
+  self.assertEqual(c.exchange(b'test\n','id')['type'],'PONG')
+  ignored=[v for e,v in self.events if e=='IGNORED']
+  self.assertTrue(any(v.get('reason')=='corrupt_response' and v.get('nul_count')==12 for v in ignored),ignored)
  def test_no_motion(self):
   c=self.make()
   with self.assertRaises(ValueError):c.request('ARM')

@@ -20,14 +20,21 @@
   见 I-216）。真实 STATUS 只发 `GET_STATUS`：`DISARMED`、GPIO4、50 Hz、14-bit、
   `output_state=DISABLED_UNMEASURED`、`commanded_pulse_us=null`、`bench_capable=true`、
   0 ERROR/0 FAULT/0 timeout。详见 [S3 恢复记录](P3B1_S3_FIRMWARE_RECOVERY.md)。
+- **2026-11-16 两次空杯 MANUAL 控制台失败**：均在 BEGIN_BENCH/模式选择后 `response_timeout`。
+  最后命令分别为 HEARTBEAT seq 30（request_id `e4fddfe2…`）与 BENCH_HOLD_MODE seq 4
+  （request_id `4d0c5503…`）；两次都收到约 950 B 的正确 ACK，但中间有 12/13 个 NUL，
+  JSON 解析失败后主机 3 s 超时。根因是 `respond()` 的 900 B TX 阈值小于实测 942–963 B 应答。
+  已修复为 `measureJson(d)+2` 精确预留 + 150 ms 有界等待 + 紧凑 `TX_BACKPRESSURE` ERROR；
+  修复 app `bd039a8…`（317840 B）**仅离线编译 PASS，尚未烧录**。两份日志与失败 FSR 原始数据
+  已保存（17,392 SAMPLE，无 PWM，非空杯结果）；详见
+  [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)。
 - **仍存环境限制**：本会话沙箱无 PTY，`pwm_console.py --real` 不能由代理直接运行（I-211）；
   用户需在自己的 Terminal 运行 console，本进程独占 FSR 串口采集。
 - **FSR 当前状态**：已释放；15:37Z 近零空载基线有效（中位 1.7k counts，230/494 帧 flag 0x04
   是 0 附近零点噪声，ADC4 仍 OK）。15:34Z 的 0–650k 是释放过程中的余压。空杯前重采 8 s 基线即可。
-- **Dashboard LIVE 修复**：首次真实 LIVE 显示“协议异常 · 帧已拒绝”；根因是串口打开复位 ESP32
-  后 boot HELLO 半行 + 2 s HELLO 截止。已改 `config/sensor_serial.json` `boot_wait_s=2.5`，并在
-  boot wait 后清空输入缓冲/丢弃半行；27 项离线测试 OK。真实复测需要再次独占 FSR 串口，
-  本次升级请求被拒绝，故 **REAL 复测 NOT_TESTED**。
+- **Dashboard LIVE 握手（暂停）**：真实复测仍未拿到完整 HELLO；后续 DTR/RTS、flush、同步 prime
+  尝试均未成功。未验证修改保存在 `evidence/p3b1/private/dashboard_handshake_unverified.patch`，
+  **未提交、未合并**；Dashboard 不再作为空杯前置条件，后续单独集中修复（I-215）。
 - **空杯实验预案（已授权范围，尚未执行）**：PWM **1300–1500 μs、50 μs 步进、1300 为下限，不进 1270**；
   先无杯 1500→1450→1400→1350→1500 验证方向，再空杯 1500→1450→1400→1350→1300，
   首次接触即停，保持并观察，释放回 1500；2 次（最多 3 次）抓取/释放。
@@ -35,10 +42,11 @@
 - **数据分工**：用户 terminal 的 `pwm_console.py --target s3` 独占 S3 串口并写
   `logs/real/bench/<id>/transport.jsonl`；本进程用独立采集脚本独占 FSR 串口写
   `evidence/p3b1/private/cup_*`。两个进程不得打开同一设备。
-- **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。本轮已按授权重烧 S3（仅 `/dev/cu.usbserial-A5069RR4`），未触碰旧 ESP32 FSR 固件。
-- **下一步顺序**：S3 已恢复且 STATUS 已核对 → 用户在自己的 Terminal 启动 console → 无杯方向 →
-  空杯抓取 + FSR 同步采集（每 trial 前连续空载基线）→ Dashboard LIVE FSR 曲线 → 保存/分析/文档/
-  commit/push/PR（不合并）。
+- **未执行**：未发 PWM、未做机械动作、未做 AUTO、未做加水。S3 修复固件尚未重烧；未触碰旧 ESP32 FSR 固件。
+- **下一步顺序**：申请重烧授权 → 烧 `bd039a8…`（PM15S 独立动力断开）→ 只做无 PWM 的
+  GET_STATUS/BEGIN_BENCH/模式/HEARTBEAT×N/STATUS/DISARM → 真实会话稳定 → 用户在自己的 Terminal
+  重跑 console → 无杯方向 → 空杯抓取 + FSR 同步采集（每 trial 前连续空载基线）→ 保存/分析/文档/
+  commit/push/更新 Draft PR（不合并）。
 
 # 当前交接｜P3-A V2 离线集成（2026-11-15）
 

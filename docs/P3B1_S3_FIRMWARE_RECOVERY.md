@@ -133,6 +133,11 @@ SHA-256 `76175d40d204515b5cfe487d2bbe7087aee2d1b252c76fbb2c026031f5eea420`。
 
 ## 6. 下一步
 
+> 2026-11-16 更新：随后两次真实 console 会话出现 `response_timeout`，已定位为 `respond()` 的
+> 900 B TX 阈值不足（ACK/STATUS 实测 942–963 B），修复候选 `bd039a8…`（317840 B）已离线编译
+> PASS，但**尚未烧录**；当前运行仍是本文记录的 `d20782…`。在重烧并完成无 PWM 会话验证前，
+> 不要重跑控制台。详见 [TX 背压诊断](P3B1_S3_TX_BACKPRESSURE_DIAGNOSIS.md)。
+
 S3 已恢复为已验收的 `gripper-control-s3-0.9b26.0`，`DISARMED`、`DISABLED_UNMEASURED`、
 `bench_capable=true`。下一步是空杯 MANUAL 抓取与 FSR 同步采集；仍需：
 
