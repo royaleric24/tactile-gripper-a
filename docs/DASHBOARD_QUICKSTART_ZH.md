@@ -2,6 +2,42 @@
 
 本指南与当前软件 UI 行为一致。真实硬件操作仍需单独授权；默认模式不会打开真实串口。
 
+## 0. 双日志实时监控（P3-B，只读）
+
+真实 FSR 与真实 PWM 同屏显示时，Dashboard **不打开任何串口**：`pwm_console` 独占 S3
+串口并写 `transport.jsonl`，`capture_fsr_live.py` 独占 FSR 串口并写
+`fsr/fsr_stream.jsonl`，Dashboard 只读这两个文件。
+
+一个终端、一条命令（先确认两个端口）：
+
+```bash
+cd ~/Developer/research/tactile-gripper-v2-p3b-monitor
+PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+```
+
+- 默认 PWM `/dev/cu.usbserial-A5069RR4`、FSR `/dev/cu.usbserial-0001`；不同时用
+  `--pwm-port` / `--fsr-port` 指定。
+- 会创建 `logs/real/sessions/session_<UTC>_<id>/`，后台启动 FSR 采集和 Dashboard，
+  然后在当前终端进入 `pwm_console`；console 里照常输入 `1500`、`1040`、`stop`、`quit`。
+- 退出 console 后自动结束 Trial，并打印 CSV 与 REPLAY 路径。
+- 只观察、不控制：加 `--no-console`。
+- 不开 FSR：`--no-fsr`；不开 Trial 记录：`--no-record`。
+
+页面上的只读 PWM 面板会显示：
+
+- **当前目标**：只有 console 已 ACK 且仍有效时才显示 μs；STOP 后显示 `—` 与
+  “输出已关闭（STOP ACK）”，不会把旧目标伪装成实时输出。
+- **已发送 / 已 ACK / 失败 / 未确认**：分别标注；ACK 不是实测位置。
+- **控制器状态 / 固件输出 / 最新应答 / 通信错误 / 日志新鲜度**：NUL、应答损坏、
+  超时、STALE、OFFLINE 都会明确显示。
+- **FSR 与 PWM 统一时间轴**：同一主机单调时钟；FSR 约 60 Hz，PWM 为命令写入时刻，
+  不是硬件同步采样。
+- **开始记录 Trial / 结束并导出 CSV**：同一 Trial 保存 FSR 帧、PWM 命令/ACK、
+  操作事件与时间戳。
+
+数据质量：FSR `0x04`（近零负计数/零点噪声）与 `0x20`（无效通道）会在 FSR 卡片下方提示；
+负 counts 原样显示；曲线遇到无效帧留空隙；日志 3 s 不更新显示 STALE。
+
 ## 1. 启动
 
 ```bash

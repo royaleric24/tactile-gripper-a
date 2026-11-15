@@ -63,7 +63,7 @@
 
 | 资产 | 路径 | 用途 | SHA-256 | 独立备份 |
 |---|---|---|---|---|
-| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；本 S0 未修改其行为 | `4423b0c546207c08b2b47997f85e18f77ffb0a77a5a3a8403b5eb880c14473e4` | 是 |
+| PWM Console | `scripts/pwm_console.py` | 真实/模拟 PWM 控制台；本 S0 未修改其行为 | `759e013b5664b6f4abccffdbc3c7faba6dbc9eb3e51ffc77818f6e8df31d7363` | 是 |
 | Console 文档 | `docs/PWM_CONSOLE.md` | 使用与安全约束 | `afa44a8a851e1bd990c61f1e0c415cadd9f3954f45529fea606ba0a834d4c2b6` | 是 |
 | Bench 适配 | `src/gripper_a/bench.py` | Console 的设备端交互与日志 | `c70e6e93e176e8455cf621477ec12871373c08d49d23272685b8cf4604c2e755` | 是 |
 | 串口客户端 | `src/gripper_a/serial_client.py` | JSONL/超时/日志传输 | `c26c7a225131d2b7af9db0b7f07293b6d338497d7ce7662264277e8af7b04367` | 是 |
@@ -97,7 +97,25 @@
 | S3 迁移前 Flash | `evidence/stage09b26/s3_pre_migration_flash_16MB_460800.bin` | 迁移前 16 MB 只读备份 | `cd0f30ac9491da499eaf2167f07b5accf23cf6779c506110431aa766f346273e` | 是（`flash-backups/`） |
 | 旧 ESP32 Stage 0.8 Flash | `evidence/stage08/flash_backup_original.bin` / `flash_backup_verify.bin` | 原始/校验 4 MB 备份 | 见 `evidence/stage08/backup_manifest.json` | 是（`flash-backups/`） |
 
-## 7. 未改动与未执行声明
+## 8. P3-B 双日志监控资产（2026-11-16）
+
+只读 Dashboard 新增的文件（源码随 Git 保存；真实日志/证据仍只在本地）：
+
+| 资产 | 路径 | 用途 | SHA-256（源码） |
+|---|---|---|---|
+| FSR 采集脚本 | `scripts/capture_fsr_live.py` | 独占 FSR 串口，写 `fsr_stream.jsonl`（host UTC + monotonic + raw/message） | `fa9862879dc584d6b37dbe1ade095d48b4215aece6f4a7abd34fa89d0263a589` |
+| 一键启动器 | `scripts/run_live_monitor.py` | 启 FSR 采集 + 只读 Dashboard + 当前终端 console；会话收尾/CSV 提示 | `716e69a7bc02bbf5483a43d0908996fdd70d87679efd35019daf3df9d7acdf35` |
+| 只读适配器 | `src/tactile_gripper/devices/log_follow.py` | JSONL tail、PWM 命令/ACK 状态机、FSR 严格解析接入 | 随 Git 提交 |
+| 会话目录 | `logs/real/sessions/session_<UTC>_<id>/` | `session.json`、`transport.jsonl`、`fsr/fsr_stream.jsonl`、两份 `.log` | 本地（`logs/` 已 gitignore） |
+| 测试 | `tests/test_log_follow.py` | 正常/无 ACK/STOP/陈旧/轮转/半行/截断/NUL/0x04/CSV/回放 | 随 Git 提交 |
+
+FSR 流字段：`host_time_utc`、`host_monotonic_ns`、`direction`、`raw`、`message`；
+`MARKER` 记录标记 `CAPTURE_START/END`。PWM 流沿用既有 `transport.jsonl` 事件
+（`COMMAND/TX/RX/IGNORED/MATCHED/RESPONSE/COMMUNICATION_ERROR/BENCH_ACTION/CLOSED`）。
+真实会话日志不得提交到公开仓库。
+
+## 9. 未改动与未执行声明
+
 
 - 本轮未修改、覆盖、删除任何稳定固件、PWM Console 行为或现有实验记录。
 - 本轮未打开真实串口、未发 PWM、未烧录 ESP32、未进行机械运动或接线/上电。

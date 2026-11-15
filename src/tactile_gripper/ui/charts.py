@@ -422,3 +422,115 @@ def pwm_timeline_options(events: list[dict[str, Any]]) -> dict[str, Any]:
             }
         ],
     }
+
+
+def unified_timeline_options(
+    fsr_points: list[dict[str, Any]],
+    pwm_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """FSR raw counts and commanded PWM on one host-clock axis.
+
+    Both streams carry ``host_monotonic_ns`` written by processes on the same
+    Mac boot, so the offset is taken from the records themselves instead of
+    re-stamping them.  The axis shows seconds since the first record; absolute
+    UTC times stay in the tooltip caption/table.  A PWM point is never drawn as
+    ACKed unless the console logged a matched ACK.
+    """
+    points = [p for p in fsr_points if isinstance(p, dict) and type(p.get("ns")) is int]
+    events = [
+        e
+        for e in pwm_events
+        if isinstance(e, dict)
+        and type(e.get("sent_ns")) is int
+        and type(e.get("pulse_us")) is int
+    ]
+    if not points and not events:
+        return {}
+    stamps = [p["ns"] for p in points] + [e["sent_ns"] for e in events]
+    base = min(stamps)
+    fsr_data = []
+    for point in points:
+        x = round((point["ns"] - base) / 1e9, 3)
+        raw = point.get("raw")
+        valid = bool(point.get("valid")) and raw is not None
+        fsr_data.append([x, round(float(raw), 1) if valid else None])
+    pwm_data = []
+    for event in events:
+        x = round((event["sent_ns"] - base) / 1e9, 3)
+        result = event.get("result")
+        if event.get("ack") and result == "ACKED":
+            color, symbol = "#0ea5e9", "circle"
+        elif result in ("TIMEOUT", "CORRUPT_RESPONSE", "FAILED"):
+            color, symbol = "#dc2626", "triangle"
+        else:
+            color, symbol = "#94a3b8", "emptyCircle"
+        pwm_data.append(
+            {
+                "value": [x, int(event["pulse_us"])],
+                "itemStyle": {"color": color},
+                "symbol": symbol,
+                "symbolSize": 8 if symbol != "circle" else 6,
+            }
+        )
+    return {
+        "backgroundColor": "transparent",
+        "animationDuration": 200,
+        "tooltip": {"trigger": "axis"},
+        "legend": {
+            "top": 0,
+            "right": 0,
+            "textStyle": {"color": TEXT, "fontSize": 10},
+            "icon": "roundRect",
+        },
+        "grid": {"left": 58, "right": 58, "top": 34, "bottom": 46},
+        "dataZoom": [{"type": "inside"}],
+        "xAxis": {
+            "type": "value",
+            "name": "秒（同一主机单调时钟）",
+            "nameLocation": "middle",
+            "nameGap": 28,
+            "nameTextStyle": {"color": TEXT, "fontSize": 9},
+            "axisLabel": {"color": TEXT, "fontSize": 9, "formatter": "{value}s"},
+            "axisLine": {"lineStyle": {"color": AXIS}},
+            "splitLine": {"lineStyle": {"color": GRID}},
+        },
+        "yAxis": [
+            {
+                "type": "value",
+                "name": "FSR_A 原始计数",
+                "nameTextStyle": {"color": TEXT, "fontSize": 9},
+                "axisLabel": {"color": TEXT, "fontSize": 9},
+                "splitLine": {"lineStyle": {"color": GRID}},
+            },
+            {
+                "type": "value",
+                "name": "PWM μs",
+                "nameTextStyle": {"color": TEXT, "fontSize": 9},
+                "axisLabel": {"color": TEXT, "fontSize": 9},
+                "splitLine": {"show": False},
+            },
+        ],
+        "series": [
+            {
+                "name": "FSR_A 原始 ADC",
+                "type": "line",
+                "yAxisIndex": 0,
+                "data": fsr_data,
+                "showSymbol": False,
+                "connectNulls": False,
+                "lineStyle": {"width": 1.5, "color": "#0f766e"},
+                "itemStyle": {"color": "#0f766e"},
+            },
+            {
+                "name": "PWM 目标（console ACK）",
+                "type": "line",
+                "yAxisIndex": 1,
+                "step": "end",
+                "data": pwm_data,
+                "showSymbol": True,
+                "connectNulls": True,
+                "lineStyle": {"width": 1.4, "type": "dashed", "color": "#0ea5e9"},
+                "itemStyle": {"color": "#0ea5e9"},
+            },
+        ],
+    }

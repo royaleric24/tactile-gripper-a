@@ -116,6 +116,7 @@ def main():
     p.add_argument("--list-ports", action="store_true", help="list serial ports and exit without opening one")
     p.add_argument("--authorize", action="store_true", help="Authorize this console session")
     p.add_argument("--authorize-detached-bench", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--log-dir", help="explicit session log directory; defaults to logs/real/bench/<uuid>")
     a = p.parse_args()
     if a.list_ports:
         from serial.tools import list_ports
@@ -136,8 +137,14 @@ def main():
     except (OSError, ValueError) as e:
         p.error(f"cannot load config {config_path}: {e}")
     kind = "REAL_SERIAL" if a.real else "SIMULATED"
-    folder = Path("logs/real" if a.real else "logs/simulated") / "bench" / uuid.uuid4().hex
-    folder.mkdir(parents=True)
+    if a.log_dir:
+        folder = Path(a.log_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        if (folder / "transport.jsonl").exists():
+            p.error(f"--log-dir already contains transport.jsonl: {folder}")
+    else:
+        folder = Path("logs/real" if a.real else "logs/simulated") / "bench" / uuid.uuid4().hex
+        folder.mkdir(parents=True)
     g = BenchController(
         config=config,
         dry_run=not a.real,

@@ -2,6 +2,25 @@
 
 目标是用触觉皮肤估计接触与滑移风险，逐步验证加水过程中杯子的保持与形变。验收需同时记录杯子、夹爪动作与触觉信号。当前验证范围见 README。
 
+## 最近状态（P3-B 双日志实时监控，2026-11-16）
+
+分支 `sw/p3b-live-monitor`（独立 worktree `tactile-gripper-v2-p3b-monitor`，基线 P3-B1 `622ef97`）。
+完成 **只读双日志 LIVE**：`pwm_console` 独占 S3 串口并写 `transport.jsonl`，新
+`scripts/capture_fsr_live.py` 独占 FSR 串口并写 `fsr_stream.jsonl`；Dashboard 用
+`--source LIVE --follow-session <dir>` **只 tail 文件，不打开任何串口**，同屏显示真实
+FSR_A counts/趋势、PWM 已发送/已 ACK/失败/未确认、固件状态/输出状态/通信错误/STALE、
+统一主机时间轴，并可在同一 Trial 保存帧+命令+ACK+事件、导出 CSV、回放。
+`LogFollowGripper.execute()` 永远拒绝，`core.request_pwm()/stop()` 返回 REJECTED；
+Dashboard 仍不发送 PWM。新增一键 Mac 启动 `scripts/run_live_monitor.py`（一个终端完成
+FSR 采集 + Dashboard + console）。离线测试 **408 tests OK（skipped=1，含新增 27 项）**；
+用私有真实 P3-B1 日志离线回放验证：`d499e640` 8/8 PWM ACK、0 NUL、STOP→`OUTPUT_OFF`；
+旧 FSR capture 1,719 帧、末帧 −996 counts/flag `0x04`。**未打开真实串口、未发 PWM、
+未烧录、未启用 AUTO；真实硬件联调待现场授权。** 启动闭合离线审计：`d499e640` 打开
+console 时 S3 有 `rst:0x1 (POWERON)` + `uptime_ms=1920`，而首个 1500 前 17 s 无任何
+PWM 命令，可排除本会话主机 PWM 命令；复位/失信号/机械失持机制仍 UNKNOWN，未定根因。
+详见 [P3B2 报告](docs/P3B2_LIVE_MONITOR.md)、[进度](docs/PROGRESS.md)、
+[问题](docs/ISSUES.md)（I-221）、[交接](docs/HANDOFF_CURRENT.md)。
+
 ## 最近状态（P3-B1 真实 FSR 接管，2026-11-15）
 
 已完成 `hw/p3b1-fsr-real` 上的真实 FSR_A 数据接管与探索性分析：固件 `tactile-fsr2-0.3.0`、

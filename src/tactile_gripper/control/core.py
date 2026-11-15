@@ -104,6 +104,7 @@ class ApplicationCore:
             raise ControlDenied("sensor source does not match application source")
         self.gripper = gripper
         self.sensor = sensor
+        self.log_follow = bool(getattr(gripper, "read_only", False))
         self.firmware_fixture = getattr(getattr(sensor, "transport", None), "scenario", None)
         self.trial_store = trial_store or TrialStore(self.root, self.source)
         self.clock = clock
@@ -113,6 +114,9 @@ class ApplicationCore:
         self.contact_assessor = FsrContactAssessor(fsr_thresholds or FsrThresholds())
         self.last_assessment: ContactAssessment | None = None
         self.fsr_history: deque[dict[str, Any]] = deque(maxlen=180)
+        # Wider display window for the unified FSR/PWM timeline.  Trial files
+        # keep every accepted frame; this is only the live chart buffer.
+        self.fsr_timeline: deque[dict[str, Any]] = deque(maxlen=8000)
         self.last_auto_decision: AutoDecision | None = None
         self.last_pwm_command: dict[str, Any] | None = None
         self.pending_command: dict[str, Any] | None = None
@@ -473,10 +477,12 @@ class ApplicationCore:
                 pass
         # During REPLAY, freshness is relative to the recorded frame itself;
         # otherwise every archived frame would look stale and the FSR state
-        # could not be reviewed.  LIVE still uses the host clock.
+        # could not be reviewed.  A log-followed LIVE frame is the same case:
+        # its host receive time came from the capture file, and stream
+        # staleness is reported by the sensor adapter state (STALE/OFFLINE).
         assessment_now_ns = (
             int(frame.host_received_ns)
-            if self.source is DataSource.REPLAY
+            if self.source is DataSource.REPLAY or self.log_follow
             else self.clock_ns()
         )
         assessment = self.contact_assessor.assess(
@@ -552,6 +558,8 @@ class ApplicationCore:
     def _manual_denial(self) -> str | None:
         if self.source is DataSource.REPLAY:
             return "REPLAY is read-only; no hardware write"
+        if getattr(self.gripper, "read_only", False):
+            return "LOG-FOLLOW 只读监控：PWM 只能由独占串口的 pwm_console 发送"
         if self.mode is not Mode.MANUAL:
             return f"mode is {self.mode.value}, not MANUAL"
         if self.gripper is None or not self.gripper.connected:
@@ -605,6 +613,12 @@ class ApplicationCore:
         with self._lock:
             if self.source is DataSource.REPLAY:
                 return self._deny("STOP", "REPLAY is read-only", command=command)
+            if getattr(self.gripper, "read_only", False):
+                return self._deny(
+                    "STOP",
+                    "LOG-FOLLOW 只读监控：STOP 只能由 pwm_console 发送",
+                    command=command,
+                )
             if self.gripper is None or not self.gripper.connected:
                 return self._deny("STOP", "gripper is OFFLINE", command=command)
             event = self.gripper.execute(command, mode=self.mode.value)
@@ -794,7 +808,9 @@ class ApplicationCore:
                 return
         except AttributeError:
             return
-        for _ in range(64):
+        # A log-follow attach may have to drain a backlog; reading from a file
+        # is fast, so a larger batch avoids minutes of catch-up lag.
+        for _ in range(4096 if self.log_follow else 64):
             try:
                 frame = self.sensor.read_frame(0.0)
             except FrameValidationError as exc:
@@ -850,9 +866,17 @@ class ApplicationCore:
             self.latest_frame = frame
             self.frames_received += 1
             self.last_sensor_error = None
+            self._append_timeline_point(frame)
             if self.trial is not None and self.trial.recording:
                 try:
                     config = self.sensor_configuration()
+                    control_context = self.last_pwm_command
+                    if self.log_follow and self.gripper is not None and hasattr(
+                        self.gripper, "pwm_context_at"
+                    ):
+                        # Record the target that was live *at this frame's
+                        # timestamp*, not whatever the console reached later.
+                        control_context = self.gripper.pwm_context_at(int(frame.host_received_ns))
                     self.trial.record_frame(
                         frame,
                         sensor_identity=self.sensor_identity(),
@@ -862,7 +886,7 @@ class ApplicationCore:
                             else None
                         ),
                         sensor_profile=config.sensor_profile if config is not None else None,
-                        control_context=self.last_pwm_command,
+                        control_context=control_context,
                     )
                 except ValueError as exc:
                     self._append(
@@ -876,6 +900,33 @@ class ApplicationCore:
                     )
                 except TrialWriteError as exc:
                     self._note_trial_write_error(exc)
+
+    def _append_timeline_point(self, frame: TactileFrame) -> None:
+        """Keep a compact FSR_A raw-count point for the unified timeline."""
+        config = self.sensor_configuration()
+        if config is None:
+            return
+        fsr = config.fsr_channels
+        if not fsr:
+            return
+        ids = frame.channel_ids or config.channel_ids
+        try:
+            index = list(ids).index(fsr[0].channel_id)
+        except ValueError:
+            return
+        channels = frame.channels
+        mask = frame.valid_mask
+        value = channels[index] if index < len(channels) else None
+        valid = bool(mask[index]) if index < len(mask) else False
+        self.fsr_timeline.append(
+            {
+                "ns": int(frame.host_received_ns),
+                "seq": frame.frame_seq,
+                "raw": None if not valid or value is None else float(value),
+                "valid": valid,
+                "received_utc": frame.host_received_utc,
+            }
+        )
 
     def _latch_auto_sensor_fault(self, reason: str) -> None:
         """Invalid/offline sensor data must stop AUTO decisions, never tighten."""
@@ -927,8 +978,12 @@ class ApplicationCore:
             environment = environment_snapshot()
             environment["software_version"] = SOFTWARE_VERSION
             # A new Trial must not inherit a PWM command from an earlier
-            # session/run; keep the per-frame trace unambiguous.
+            # session/run; keep the per-frame trace unambiguous.  In log-follow
+            # mode the console's latest ACKed target is re-attached explicitly
+            # below from the monitor state, never from a stale cached value.
             self.last_pwm_command = None
+            if self.log_follow:
+                self._sync_monitor_pwm_context()
             parameters = {
                 "software_version": SOFTWARE_VERSION,
                 "source": self.source.value,
@@ -969,6 +1024,11 @@ class ApplicationCore:
                     "thresholds": self.contact_assessor.thresholds.to_dict(),
                 },
                 "fsr_thresholds": self.contact_assessor.thresholds.to_dict(),
+                "monitor": (
+                    self.gripper.monitor_snapshot()
+                    if self.gripper is not None and hasattr(self.gripper, "monitor_snapshot")
+                    else None
+                ),
             }
             self.trial = self.trial_store.create_trial(
                 name,
@@ -1062,6 +1122,12 @@ class ApplicationCore:
 
     def tick(self) -> None:
         with self._lock:
+            # A log-follow monitor turns console outcomes into normal control
+            # events so the same Trial recorder, CSV and replay paths apply.
+            if self.gripper is not None and hasattr(self.gripper, "drain_control_events"):
+                for event in self.gripper.drain_control_events():
+                    self._append(event)
+                self._sync_monitor_pwm_context()
             self._read_sensor()
             if self.trial is not None and self.trial.recording:
                 try:
@@ -1078,6 +1144,35 @@ class ApplicationCore:
                 except Exception as exc:
                     self.mode = Mode.FAULT
                     self.fault_reason = f"heartbeat/poll failed: {exc}"
+
+    def _sync_monitor_pwm_context(self) -> None:
+        """Mirror the console's ACKed target as *record context*, never a command.
+
+        Frames carry ``pwm_target_us``; after STOP/DISARM or a lost ACK the
+        context is cleared so a stale target is not attributed to new frames.
+        """
+        if not self.log_follow or self.gripper is None:
+            return
+        try:
+            monitor = self.gripper.monitor_snapshot()
+        except Exception:
+            return
+        target = monitor.get("current_target")
+        status = monitor.get("target_status")
+        if (
+            target
+            and isinstance(target.get("pulse_us"), int)
+            and status in ("ACKED", "ACKED_UNKNOWN_OUTPUT", "ACK_STALE")
+        ):
+            self.last_pwm_command = {
+                "command_id": target.get("command_id"),
+                "target_pwm_us": target["pulse_us"],
+                "acknowledged": status == "ACKED",
+                "stage": "DEVICE_ACK" if status == "ACKED" else status,
+                "source": "PWM_CONSOLE_LOG",
+            }
+        else:
+            self.last_pwm_command = None
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -1145,6 +1240,12 @@ class ApplicationCore:
             freshness_ns = None
             if sensor_status.get("last_host_received_ns"):
                 freshness_ns = max(0, self.clock_ns() - int(sensor_status["last_host_received_ns"]))
+            monitor = None
+            if self.gripper is not None and hasattr(self.gripper, "monitor_snapshot"):
+                try:
+                    monitor = self.gripper.monitor_snapshot()
+                except Exception:
+                    monitor = None
             return {
                 "time": utc_now_iso(),
                 "mode": self.mode.value,
@@ -1176,7 +1277,12 @@ class ApplicationCore:
                 "last_sensor_error": self.last_sensor_error,
                 "apply_enabled": denial is None,
                 "apply_denial": denial,
-                "stop_enabled": bool(self.gripper is not None and self.gripper.connected and self.source is not DataSource.REPLAY),
+                "stop_enabled": bool(
+                    self.gripper is not None
+                    and self.gripper.connected
+                    and self.source is not DataSource.REPLAY
+                    and not getattr(self.gripper, "read_only", False)
+                ),
                 "auto_available": auto_ok,
                 "auto_reasons": auto_reasons,
                 "pwm": self.gripper.pwm_limits if self.gripper else None,
@@ -1193,7 +1299,22 @@ class ApplicationCore:
                 "sensor_reconnect_attempts": (sensor_status.get("detail") or {}).get("reconnect_attempts", 0),
                 "sensor_oversize_lines": (sensor_status.get("detail") or {}).get("oversize_lines", 0),
                 "event_overflow_count": self.event_overflow_count,
+                "log_follow": self.log_follow,
+                "monitor": monitor,
+                "fsr_timeline": self._timeline_points(),
             }
+
+    def _timeline_points(self, limit: int = 1800) -> list[dict[str, Any]]:
+        items = list(self.fsr_timeline)
+        if not items:
+            return []
+        if len(items) <= limit:
+            return items
+        step = max(1, len(items) // limit)
+        sampled = items[::step]
+        if sampled[-1] is not items[-1]:
+            sampled.append(items[-1])
+        return sampled
 
 
 def build_core(
@@ -1210,8 +1331,29 @@ def build_core(
     sensor_baud: int | None = None,
     sensor_config_path: Path | str | None = None,
     connect_sensor: bool = False,
+    follow_pwm_log: Path | str | None = None,
+    follow_fsr_log: Path | str | None = None,
 ) -> ApplicationCore:
     source = parse_source(source)
+    if follow_pwm_log is not None or follow_fsr_log is not None:
+        if source is not DataSource.LIVE:
+            raise ControlDenied("log-follow monitoring requires --source LIVE")
+        if port is not None or sensor_port is not None or firmware_fixture is not None:
+            raise ControlDenied("log-follow monitoring cannot also open a serial port")
+        from ..devices.log_follow import LogFollowGripper, LogFollowSensorAdapter
+
+        gripper = (
+            LogFollowGripper(follow_pwm_log, config_path=config_path)
+            if follow_pwm_log is not None
+            else None
+        )
+        sensor = LogFollowSensorAdapter(follow_fsr_log) if follow_fsr_log is not None else None
+        core = ApplicationCore(root=root, source=source, gripper=gripper, sensor=sensor)
+        if gripper is not None:
+            core.connect_gripper()
+        if sensor is not None:
+            core.connect_sensor()
+        return core
     gripper = None
     if source is not DataSource.REPLAY:
         gripper = GripperAdapter(

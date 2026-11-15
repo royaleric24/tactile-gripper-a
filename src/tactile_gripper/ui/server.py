@@ -104,6 +104,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sensor-baud", type=int, help="传感器波特率（默认取配置文件）")
     parser.add_argument("--sensor-config", type=Path, default=PROJECT_ROOT / "config" / "sensor_serial.json")
     parser.add_argument("--connect-sensor", action="store_true", help="启动时打开传感器串口")
+    parser.add_argument("--follow-pwm-log", type=Path, help="只读跟随 pwm_console 的 transport.jsonl（不打开串口）")
+    parser.add_argument("--follow-fsr-log", type=Path, help="只读跟随 FSR 采集 JSONL（不打开串口）")
+    parser.add_argument("--follow-session", type=Path, help="会话目录：transport.jsonl + fsr/fsr_stream.jsonl")
+    parser.add_argument("--follow-record", action="store_true", help="跟随模式自动创建并记录一个 Trial，退出时导出 CSV")
     parser.add_argument("--demo", action="store_true", help="仅 SIMULATION 的 Dashboard 演示数据")
     parser.add_argument(
         "--demo-profile",
@@ -114,7 +118,38 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     source = parse_source(args.source)
-    if source is DataSource.LIVE:
+    follow_pwm = args.follow_pwm_log
+    follow_fsr = args.follow_fsr_log
+    if args.follow_session is not None:
+        session = args.follow_session
+        if (session / "transport.jsonl").is_file():
+            follow_pwm = follow_pwm or session / "transport.jsonl"
+        candidate = session / "fsr" / "fsr_stream.jsonl"
+        if not candidate.is_file():
+            candidate = session / "fsr_stream.jsonl"
+        if candidate.is_file():
+            follow_fsr = follow_fsr or candidate
+    follow_mode = follow_pwm is not None or follow_fsr is not None
+    if args.follow_session is not None and not follow_mode:
+        parser.error(
+            f"会话目录里没有 transport.jsonl 或 fsr/fsr_stream.jsonl：{args.follow_session}"
+        )
+    if args.follow_record and not follow_mode:
+        parser.error("--follow-record 需要 --follow-session / --follow-pwm-log / --follow-fsr-log")
+    if follow_mode:
+        if source is not DataSource.LIVE:
+            parser.error("--follow-* 需要 --source LIVE（只读监控仍是真实数据）")
+        if args.hardware_permission:
+            parser.error("--follow-* 不打开串口；不要同时传 --hardware-permission")
+        if args.connect or args.connect_sensor or args.connect_port or args.sensor_port:
+            parser.error("--follow-* 与串口连接参数互斥")
+        if follow_pwm is not None and not follow_pwm.is_file():
+            parser.error(f"PWM 日志不存在：{follow_pwm}")
+        if follow_fsr is not None and not follow_fsr.is_file():
+            parser.error(f"FSR 日志不存在：{follow_fsr}")
+        if not args.follow_record:
+            print("[follow] 未启用 --follow-record：不会写 Trial。", flush=True)
+    elif source is DataSource.LIVE:
         if not args.hardware_permission:
             parser.error("--source LIVE 需要 --hardware-permission")
         if args.connect and not args.connect_port:
@@ -145,7 +180,27 @@ def main(argv: list[str] | None = None) -> None:
         sensor_baud=args.sensor_baud,
         sensor_config_path=args.sensor_config,
         connect_sensor=args.connect_sensor,
+        follow_pwm_log=follow_pwm if follow_mode else None,
+        follow_fsr_log=follow_fsr if follow_mode else None,
     )
+    follow_trial_id = None
+    if follow_mode and args.follow_record:
+        name = "LIVE 双日志 · " + (args.follow_session.name if args.follow_session else "monitor")
+        metadata = core.create_trial(
+            name,
+            conditions={
+                "object": "manual bench",
+                "source_kind": "LIVE_LOG_FOLLOW",
+                "pwm_log": str(follow_pwm) if follow_pwm else None,
+                "fsr_log": str(follow_fsr) if follow_fsr else None,
+            },
+            notes="Dashboard 只读跟随 console/FSR 日志；PWM 由 pwm_console 独占发送。",
+            operator="operator",
+            tags=["LIVE", "LOG_FOLLOW"],
+        )
+        follow_trial_id = metadata["trial_id"]
+        core.start_trial()
+        print(f"[follow] Trial 记录中：{follow_trial_id}", flush=True)
     if args.demo:
         _demo_setup(core, args.demo_profile)
     if args.firmware_fixture:
@@ -168,6 +223,16 @@ def main(argv: list[str] | None = None) -> None:
 
     def shutdown() -> None:
         stop.set()
+        if follow_trial_id is not None and core.trial is not None and core.trial.recording:
+            try:
+                core.stop_trial("monitor shutdown")
+                csv_path = core.trial_store.export_csv(follow_trial_id)
+                replay = core.trial_store.export_replay_jsonl(follow_trial_id)
+                print(f"[follow] Trial 已保存：{follow_trial_id}", flush=True)
+                print(f"[follow] CSV: {csv_path}", flush=True)
+                print(f"[follow] REPLAY: {replay}", flush=True)
+            except Exception as exc:  # pragma: no cover - shutdown best effort
+                print(f"[follow] Trial 保存失败：{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
             core.shutdown()
         except Exception as exc:  # pragma: no cover - shutdown best effort
@@ -175,11 +240,15 @@ def main(argv: list[str] | None = None) -> None:
 
     app.on_shutdown(shutdown)
     create_ui(core)
+    mode = "LOG_FOLLOW（只读，不打开串口）" if follow_mode else "DIRECT"
     print(
-        f"触觉闭环机械爪 A · 控制台 · source={source.value} · "
+        f"触觉闭环机械爪 A · 控制台 · source={source.value} · {mode} · "
         f"http://{args.host}:{args.port}",
         flush=True,
     )
+    if follow_mode:
+        print(f"  PWM 日志: {follow_pwm}", flush=True)
+        print(f"  FSR 日志: {follow_fsr}", flush=True)
     ui.run(
         host=args.host,
         port=args.port,

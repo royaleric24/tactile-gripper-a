@@ -1,5 +1,32 @@
 # 项目进度记录（持续更新）
 
+## 2026-11-16｜P3-B 双日志实时监控（真实 FSR + 真实 PWM，只读）｜sw/p3b-live-monitor
+
+- **分支/worktree**：`sw/p3b-live-monitor`，独立 worktree `tactile-gripper-v2-p3b-monitor`，
+  基线 `622ef97`（P3-B1 已核实 HEAD）。未改动旧三个工作区；HW worktree 的 4 个未提交
+  文件已先备份到 `evidence/p3b1/private/protect_20261116/`（sha256 记录）。
+- **实现**：`devices/log_follow.py`（`JsonlTail` 增量 tail；`LogFollowGripper` 只读命令/ACK
+  状态机；`LogFollowSensorAdapter` 复用严格 V2 解析；mid-file attach 提取 HELLO；
+  截断/轮转/半行/超长/NUL 容错）。`ApplicationCore` 增加 log-follow 事件落盘、按帧时间
+  回溯 PWM 上下文、`fsr_timeline`（8000 帧）与 `monitor` 快照。UI 增加只读 PWM 面板、
+  统一时间轴、STALE/OFFLINE 与 FSR 质量提示；手动 PWM 面板在 log-follow 下隐藏且
+  `execute/stop` 被拒绝。`capture_fsr_live.py`、`run_live_monitor.py` 新增；
+  `pwm_console.py` 增加 `--log-dir`。
+- **验证（离线）**：`PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests` →
+  **408 tests OK（skipped=1）**；新增 `tests/test_log_follow.py` 27 项 + Dashboard
+  `--follow-session` 启动测试。私有真实日志回放：`d499e640` 53/53 应答匹配、8/8 PWM
+  ACK、0 NUL、STOP→`OUTPUT_OFF`；旧 FSR capture 1,719 帧、末帧 −996 counts/0x04。
+  Chrome 无头截图：`cards=10 errors=0`，无 server Traceback。
+- **启动闭合审计**：`d499e640` 打开 console 时收到 `rst:0x1 (POWERON)` + 首个 STATUS
+  `uptime_ms=1920`；首个 1500 之前 17 s 只有 GET_STATUS/BEGIN_BENCH/BENCH_HOLD_MODE/
+  HEARTBEAT，**无 PWM 命令**。代码审计确认 connect/begin/close 均不发 PWM，无自动恢复
+  旧目标。可排除本会话主机 PWM 命令；复位/失信号/机械失持为未验证假设，不写根因（I-221）。
+- **未执行**：未打开真实串口、未发 PWM、未烧录、未做机械动作、未启用 AUTO。
+- **下一步（现场授权后）**：按 `run_live_monitor.py` 跑同一 Trial；先 no-PWM 会话确认
+  双日志时间轴与 STALE，再 1500-only，最后 1040 + FSR 同步；链路稳定前不夹杯。
+- **文档**：新增 [P3B2_LIVE_MONITOR.md](P3B2_LIVE_MONITOR.md)；更新 AGENTS/PROGRESS/
+  ISSUES（I-214/I-215/I-221）/HANDOFF/QUICKSTART/RUNBOOK/ASSET_MANIFEST/PWM_CONSOLE。
+
 ## 2026-11-16｜重开 console 后直接闭合与再次 NUL 超时｜hw/p3b1-fsr-real
 
 - **成功机械 1040（无 FSR 同步）**：`cab808…` 会话 409/409、0 NUL、0 timeout/FAULT，

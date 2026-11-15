@@ -1,3 +1,40 @@
+# 当前交接｜P3-B 双日志实时监控（2026-11-16）
+
+- **分支/worktree/HEAD**：`sw/p3b-live-monitor`，独立 worktree
+  `~/Developer/research/tactile-gripper-v2-p3b-monitor`，基线 `622ef97`
+  （`hw/p3b1-fsr-real` 已核实 HEAD）。旧三个工作区未改动；HW worktree 的 4 个未提交文件
+  （`config/sensor_serial.json`、`devices/sensor.py`、`devices/sensor_serial.py`、
+  `tests/test_sensor_serial.py`）已先备份到
+  `evidence/p3b1/private/protect_20261116/`（含 patch 与 sha256），仍留在原 worktree。
+- **本轮交付**：Dashboard 只读跟随两个 JSONL：`pwm_console` 的 `transport.jsonl` 与
+  `capture_fsr_live.py` 的 `fsr/fsr_stream.jsonl`。Dashboard **不打开串口**，PWM 只由
+  console 写入；`LogFollowGripper.execute()` 永远拒绝，`request_pwm()/stop()` 返回
+  REJECTED。同屏显示 FSR_A counts/趋势、PWM 已发送/已 ACK/失败/未确认、固件状态/输出状态/
+  通信错误/STALE、统一主机时间轴；同一 Trial 保存 FSR 帧 + PWM 命令/ACK + 事件，退出自动
+  导出 CSV + REPLAY。
+- **一键启动（Mac，一个终端）**：
+  ```bash
+  cd ~/Developer/research/tactile-gripper-v2-p3b-monitor
+  PYTHONPATH=src:. .venv/bin/python scripts/run_live_monitor.py
+  ```
+  默认 PWM `/dev/cu.usbserial-A5069RR4`、FSR `/dev/cu.usbserial-0001`；会创建
+  `logs/real/sessions/session_<UTC>_<id>/`，后台启动 FSR 采集与 Dashboard，再在当前终端
+  运行 `pwm_console --real --log-dir <session>`。只观察：`--no-console`。
+- **验收（离线）**：全套 **408 tests OK（skipped=1）**；新增 `tests/test_log_follow.py`
+  27 项 + Dashboard `--follow-session` 启动测试。私有真实日志回放：`d499e640`
+  53/53 应答匹配、8/8 PWM ACK、0 NUL、STOP→`OUTPUT_OFF`；旧 FSR capture 1,719 帧、
+  末帧 −996 counts/flag `0x04`。Chrome 无头截图 `cards=10 errors=0`，无 server Traceback。
+- **启动闭合审计（I-221）**：`d499e640` 打开串口时 ESP-ROM `rst:0x1 (POWERON)` +
+  首个 STATUS `uptime_ms=1920`；首个 1500 前 17 s 只有 GET_STATUS/BEGIN_BENCH/
+  BENCH_HOLD_MODE/HEARTBEAT，**无 PWM 命令**。代码审计 connect/begin/close 均不发 PWM、
+  无自动恢复旧目标。**可排除本会话主机 PWM 命令**；复位/失信号/5V/地/线束/机械失持为
+  未验证假设，不写根因。
+- **未执行**：未打开真实串口、未发 PWM、未烧录、未做机械动作、未启用 AUTO。
+- **下一步（现场授权后）**：① no-PWM 会话确认双日志时间轴 + STALE；② 1500-only；
+  ③ 1040 + FSR 同步；④ 链路稳定前不夹杯。`AUTO_REAL_ENABLED=False` 保持。
+- **文档**：[P3B2_LIVE_MONITOR.md](P3B2_LIVE_MONITOR.md)、[快速开始](DASHBOARD_QUICKSTART_ZH.md)、
+  [运行手册](SOFTWARE_RUNBOOK.md)、[问题 I-221](ISSUES.md)。
+
 # 当前交接｜P3-B1 真实 FSR 接管（2026-11-15）
 
 - **工作区/分支**：`~/Developer/research/tactile-gripper-v2-p3b1`，`hw/p3b1-fsr-real`，
